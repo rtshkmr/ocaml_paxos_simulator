@@ -1,0 +1,133 @@
+#+TITLE: Planning
+#+OPTIONS: latex t
+#+OPTIONS: toc:nil
+#+OPTIONS: H:8
+#+OPTIONS: num:nil
+#+STARTUP: inlineimages
+#+HTML_HEAD: <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/rtshkmr/dotfiles@main/styles/tufte.css"/>
+#+HTML_HEAD: <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/rtshkmr/dotfiles@main/styles/fonts/Fira_Code_v6.2/fira_code.css"/>
+#+HTML_HEAD: <script src="https://cdn.jsdelivr.net/gh/rtshkmr/dotfiles@main/styles/collapsible.js"></script>
+
+
+This document scopes out the project. It is intended to be used alongside org-agenda for time-discipline and making better effort-estimates.
+
+* Implementation Plan
+** Learning
+*** TODO Bridge Paxos knowledge
+SCHEDULED: <2025-10-27 Mon 15:30>
+:PROPERTIES:
+:EFFORT:   3h
+:END:
+- Review Lamport’s “Paxos Made Simple” and Tom Cocagne’s examples
+- Need to gain an intuition for the design patterns that may be necessary here.
+- the objective here is really to JUST do the single-decree paxos first, but there needs to be some basic understanding of how the basic paxos extends to more complex variants so that the code design may attempt to have affordances for that.
+*** TODO Understand the Reference Python repo
+SCHEDULED: <2025-10-27 Mon 17:30>
+:PROPERTIES:
+:EFFORT:   3h
+:END:
+- Follow message flow, list all message types and states
+- identify subsystems that have been created
+** Designing
+*** TODO Design Messages & State Types
+:PROPERTIES:
+:EFFORT:   2h
+:END:
+- Define algebraic data types for messages and node states
+- Identify which invariants can be encoded in the type system
+- Document assumptions about immutability and side effects
+*** TODO Design OCaml modules
+:PROPERTIES:
+:EFFORT:   2h
+:END:
+- Define signatures for Proposer, Acceptor, Learner, and Network
+- needs an understanding of design patterns from the reference python repo
+*** TODO Review OCaml module / dune basics
+:PROPERTIES:
+:EFFORT:   2h
+:END:
+small refresher on how to structure a library with submodules
+*** TODO Module design review
+:PROPERTIES:
+:EFFORT:   1h
+:END:
+- For each module, write short notes:
+  - responsibility
+  - key functions
+  - dependencies
+  - exposed invariants
+** Scaffolding
+*** TODO Define Subsystems
+:PROPERTIES:
+:EFFORT:   2h
+:END:
+
+**** Subsystem: Simulation Subsystem
+**** Subsystem: Visualisation Subsystem
+- a basic one should be in some sort of log format (JSON, timeline format). We could define a simple log schema here too.
+**** Subsystem: Actual Paxos Consensus Derivation Subsystem
+**** Subsystem: Fault Injection Subsystem
+*** TODO Define subsystem interfaces
+:PROPERTIES:
+:EFFORT:   2h
+:END:
+- Simulation <-> Paxos Consensus: event scheduling and message delivery
+- Paxos Consensus <-> Fault Injection: injection hooks for dropped/delayed messages
+- Paxos Consensus <-> Visualization: event log or trace API
+** Implementation
+*** TODO Instrumentation & Orchestration Code
+:PROPERTIES:
+:EFFORT:   2h
+:END:
+- the driver of the events
+- the setup of the "stubs" or dummy nodes for simulation
+- event logging
+*** TODO Implement v0 (core algorithm)
+:PROPERTIES:
+:EFFORT:   3h
+:END:
+— deterministic single-threaded simulation
+- then, an integration between this and the orchestration code
+*** TODO Implementation v1 (with async frameworks) [optional]
+** Testing
+*** TODO Iterate and test scenarios
+:PROPERTIES:
+:EFFORT:   2h
+:END:
+- add scenario-based tests
+- add fault injection, logging, and a few “step-through” examples
+**** Define test scenarios
+- Single proposer, no faults $\rightarrow$ must converge in 1 round
+- Competing proposers $\rightarrow$ should eventually converge
+- Node failure mid-round $\rightarrow$ safety must hold
+** Write-up
+:PROPERTIES:
+:EFFORT:   2h
+:END:
+*** TODO Write-up
+— produce blog-style README + literate trace
+**** Retro
+***** Ergonomics of the OCaml Language
+***** Ecosystem of the OCaml Language
+* Intentional Shortcuts
+Since I'm keeping this to a 2 day effort, there's a need to be aware of some time-sinks that I will most likely side-step first.
+
+The design of my interfaces should be sufficient to add some of these areas incrementally with minimal lift.
+
+- Codebase Organisation will be low-priority:
+
+  Getting lost in OCaml’s module system is something I can't afford. I shall keep everything flat until it works. I can modularise later.
+
+- Visualisation trap:
+
+  We shall do barebones visualisation (some basic log dump).
+
+  We shall NOT do browser-based visualisations or JSON timelines until the v0 part works end to end.
+
+- Async trap:
+
+  Lwt/Async is cool, but adds a large learning curve — it will burn our schedule. We will simulate concurrency deterministically first.
+
+- Testing complexity:
+
+  We will resist property testing or QuickCheck; we will just write hand-driven deterministic cases.
