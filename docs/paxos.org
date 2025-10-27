@@ -1,0 +1,9 @@
+#+TITLE: Learning The Paxos Algo
+#+OPTIONS: latex t
+#+OPTIONS: toc:nil
+#+OPTIONS: H:8
+#+OPTIONS: num:nil
+#+STARTUP: inlineimages
+#+HTML_HEAD: <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/rtshkmr/dotfiles@main/styles/tufte.css"/>
+#+HTML_HEAD: <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/rtshkmr/dotfiles@main/styles/fonts/Fira_Code_v6.2/fira_code.css"/>
+#+HTML_HEAD: <script src="https://cdn.jsdelivr.net/gh/rtshkmr/dotfiles@main/styles/collapsible.js"></script>
