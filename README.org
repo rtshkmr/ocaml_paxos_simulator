@@ -1,0 +1,83 @@
+#+TITLE: Paxos in OCaml -- A Minimal Consensus Demonstration
+#+OPTIONS: latex t
+#+OPTIONS: toc:nil
+#+OPTIONS: H:8
+#+OPTIONS: num:nil
+#+STARTUP: inlineimages
+#+HTML_HEAD: <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/rtshkmr/dotfiles@main/styles/tufte.css"/>
+#+HTML_HEAD: <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/rtshkmr/dotfiles@main/styles/fonts/Fira_Code_v6.2/fira_code.css"/>
+#+HTML_HEAD: <script src="https://cdn.jsdelivr.net/gh/rtshkmr/dotfiles@main/styles/collapsible.js"></script>
+
+* Motivation
+
+This project is a *minimal, literate implementation* of the [[https://en.wikipedia.org/wiki/Paxos_(computer_science)][*Paxos consensus algorithm*]] written in OCaml.
+
+From a learning perspective, this project is *both*:
+
+ 1. a *learning exercise* in applying OCaml’s language primitives into a classic, distributed algorithm and,
+
+ 2. an *attempt to be able to showcase* of what the language enables when you design for correctness and composability from the ground up.
+
+The idea is simple: instead of reading yet another paper about distributed consensus, I wanted to see how it behaves — how proposers, acceptors, and learners coordinate to agree on a single value even when messages fail or nodes “go bad.”
+
+Inspired by TigerBeetle’s interactive consensus demos ([[https://www.youtube.com/watch?v=w3WYdYyjek4&t=3185s][their product demos are so cool]] [[[https://tigerbeetle.com/blog/2023-07-11-we-put-a-distributed-database-in-the-browser/][blog]]]), this project focuses on clarity, correctness, and communication, not fancy graphics or production engineering. The simulation runs deterministically, with traceable message logs showing how Paxos resolves contention and failure.
+
+#+TOC: headlines 3 local
+
+** Why this topic?
+
+My foray into the distributed computing world was thanks to a friend introducing me to the Elixir world a while ago. One of the reasons the devex within the Elixir ecosystem is a wonderful experience is that our systems can resolve most of the classic robustness problems in distributed systems by relying on patterns built on [[https://www.erlang.org/doc/system/design_principles.html][OTP Design Principles]] (using powerful units like GenServers, Supervision Trees). The idioms within the Elixir ecosystem are easy to use, and there's definitely a lot of intuition to gain from understanding the knowledge beyond the abstraction barriers.
+
+Now that I'm learning OCaml, it's a good chance for me to explore the expressiveness that the OCaml language and appreciate the classic consensus problems.
+
+My intent is that implementing paxos will give me the opportunity to think deeply about:
+a) *Coordination under uncertainty* (what happens when some nodes fail or messages arrive late?)
+b) *Correctness and safety guarantees* (how do we ensure only one value is ever chosen?)
+c) *State evolution over time* (how nodes remember what they’ve seen, promised, or accepted)
+
+Building Paxos in OCaml is not about shipping a production consensus engine — it’s about demonstrating the thinking process that leads to correct systems.
+
+* Objectives
+TODO -- some of these will be retroactive
+** Project Objectives
+- Implement a deterministic Paxos simulator in OCaml
+- Produce a clear event trace demonstrating agreement under message loss
+- Expose simulation configuration via a simple CLI or REPL
+
+** Learning Objectives
+- Reinforce understanding of OCaml modules and signatures
+- Practice modeling distributed state machines via ADTs
+- Demonstrate reasoning about correctness through types
+
+* Scope & Planning
+
+This project is supposed to take 1 or 2 days, I'll scope this out in a separate scoping doc.
+
+I definitely can forsee some scope creep happening.
+
+** Implementation Plan (draft)
+1. **Bridge Paxos knowledge** — review Lamport’s “Paxos Made Simple” and Tom Cocagne’s examples
+2. **Understand the reference Python repo** — follow message flow, list all message types and states
+3. **Design OCaml modules** — define signatures for Proposer, Acceptor, Learner, and Network
+4. **Review OCaml module / dune basics** — small refresher on how to structure a library with submodules
+5. **Implement v0 (core algorithm)** — deterministic single-threaded simulation
+6. **Iterate and test scenarios** — add fault injection, logging, and a few “step-through” examples
+7. **Write-up** — produce blog-style README + literate trace
+
+* Useful References
+** General Reading
+Some useful resources that I relied on:
+1. [[https://lamport.azurewebsites.net/pubs/paxos-simple.pdf][“Paxos Made Simple” – Leslie Lamport]]
+2. [[https://understandingpaxos.wordpress.com/]["Understanding Paxos"]] - a blog post explainer
+3. [[https://tigerbeetle.com/blog/2023-07-11-we-put-a-distributed-database-in-the-browser/][TigerBeetle's Determininistic Simulator]] (browser-based wasm game!)
+
+** Prior Art
+Turns out there are pretty good examples of people having worked on a similar proof-of-correctness projects.
+
+1. Tom Cocagne's [[https://github.com/cocagne/paxos?tab=readme-ov-file][paxos]] and [[https://github.com/cocagne/multi-paxos-example][multi-paxos]] implementations in python
+2. [[https://github.com/komamitsu/oraft][oraft]] is an ocaml library of Raft consensus algo implemented in OCaml.
+3. [[https://github.com/openacid/abstract-paxos][Abstract Paxos]] — unified Paxos/Raft abstraction for clean architecture ideas
+4. [[https://github.com/gdub/python-paxos][python-paxos]] — minimalist reference useful for translating control flow
+
+* FAQ
+TODO
