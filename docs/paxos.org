@@ -7,3 +7,700 @@
 #+HTML_HEAD: <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/rtshkmr/dotfiles@main/styles/tufte.css"/>
 #+HTML_HEAD: <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/rtshkmr/dotfiles@main/styles/fonts/Fira_Code_v6.2/fira_code.css"/>
 #+HTML_HEAD: <script src="https://cdn.jsdelivr.net/gh/rtshkmr/dotfiles@main/styles/collapsible.js"></script>
+
+* Understanding Paxos
+
+These are some brief notes based on [[https://understandingpaxos.wordpress.com/][a primer on paxos]]. It's supposed to be generic, some aspects are straight up yanked from the resource and others are my own phrasing or summaries of the content from the primer. All credit should go to the author of that primer for the content in this file, I'm just a parrot.
+
+The notes (and the primer content) are structured like so:
+1. a high-level overview of what Paxos is and the niche it fills in the distributed systems field
+2. explains how Paxos works and walks through a detailed conflict resolution example to illustrate the key points.
+3. low-level description, focuses on the constituent components of the algorithm and explains their roles and responsibilities
+4. The description of the algorithm itself
+5. few sections are dedicated to describing Multi-Paxos, one of the most popular use cases for Paxos.
+6. other Paxos variants
+
+For our purposes, sections 1 through 4 matter the most.
+
+NOTE: there's some terminology differences between this resource and the original papers. Transitioning to the standard terminology should be painless once the basics are well-understood.
+
+** 1. High Level Overview
+*** What it is
+_Standard/Simple Paxos:_
+
+/Paxos is a mechanism for achieving consensus on a single value over unreliable communication channels./
+
+An extension to this is the topic on how multiple values could be reliably and efficiently chained together $\implies$ typically categorised until "Multi-Paxos" nowadays.
+
+- we should separate algo from use-cases
+
+*** Role in Distributed Systems
+- It's a primitive onto which higher level of abstraction may be constructed.
+- Completely independent of use-cases:
+  - Paxos is not "for" replicated state machines or distributed locking $\implies$ it should be seen as a general purpose tool with many possible use-cases.
+
+*** How it Works
+- The algo is a P2P consensus protocol
+- relies on a simple-majority rule that can ensure that one and only one resulting value is achieved
+- All peers are equal, all peers can make suggestions
+- There are NO dedicated leaders in Paxos
+- Any peer may make a suggestion and lead the resolution effort
+- Overriding of neighbour's efforts is possible
+- A majority of peers will agree on a suggestion and the associated value within that suggestion will be the final solution.
+
+*** Failure Tolerance
+- all peers share equal responsibility for ensuring that consensus is eventually reached -- even when some of the peers fail $\implies$ fault-tolerant
+
+- multiple steps necessary to achieve consensus, wherein the non-failed peers are expected to step in and drive the resolution process forward (if the initial driving peer goes silent before finishing the work)
+
+- these things makes Paxos resilient against *failures modes*:
+  - machine crashes
+  - network outages
+
+- However: Paxos is NOT resilient against malicious / misbehaving peers. *Assumption*: each peer adheres to the protocol requirements.
+
+*** Incomplete Specification -- flexibility!
+
+- Paxos gives some specific rules on message handling by peers (for correctness of end results)
+
+- Basic algo doesn't have comprehensive definition for some aspects of message handling. Leaves several areas of practical importance completely undefined.
+  * e.g. how are failed nodes detected?
+  * e.g. how to handle collisions between multiple peers making simultaneous suggestions?
+
+- The algo guarantees correctness regardless of implementation liberties in response to he incomplete spec.
+
+- There are some specific techniques that may be used to addressed these incomplete areas of the spec:
+  1. retry mechanism used to ensure that a result is eventually achieved
+  2. techniques to mitigate inter-peer interference during resolution
+  3. ensuring that all peers learn the final result
+
+**** Benefits of the Incomplete Specification
+
+System Design can be done with flexibility.
+
+Some system design trade offs to consider with respect to the needs of the application:
+e.g.
+1. detection latency vs. network traffic demand
+
+   orthogonal goals: latency needed to detect and recover from peer-failures vs the network traffic use.
+
+   With respect to this tradeoff, we may choose to implement an _*adaptive techniques*_  that respond to changing behaviour of network traffic.
+   For this project, I think I just want these aspects to be parameterised and for me to change the value at runtime so that it's not as involved of an implementation as the adaptive version but can be extended into an adaptive one in the future.
+
+*** Proper Mindset for Understanding Paxos
+- Large and complex systems should be understood with a focus on high-level abstract components and interactions between them, with little focus on details.
+- So, focus on components' roles and responsibilities to understand the overall system's operation
+- Within each component, the complexity may scale but it will be compartmentalised within that module without spill-overs $\implies$ we can consider some areas in isolation:
+
+  1) *Correctness*
+
+     As long as the messaging rules are adhered to, correctness is ensured by the algorithm and is independent of all other application considerations.
+  2) *Ensuring Forward Progress*
+
+     The application-defined retry and backoff logic used to ensure that resolution is eventually achieved.
+  3) *Learning the Final Result*
+
+     The application-defined mechanism used to ensure all peers eventually learn the result once consensus has been achieved.
+  4) *Latency Optimizations*
+
+     Optional techniques that can reduce the number of round trips required to achieve resolution under certain circumstances.
+  5) *Application-Level Logic*
+
+     How the application uses the results of Paxos instances
+** 2. How Paxos Works
+Now we focus on how it works.
+*** Elements of Paxos
+**** Suggestion Ids
+- Every suggestion has a UUID. For now, consider them having a purpose similar to timestamps.
+- Allow peers to determine whether one message is logically newer than another *without* needing to bother with the complications that comes with consistent, shared notions of time in distributed systems.
+
+***** Common Implementation
+- a simple integer, with a "tie-breaker" to handle uniqueness invariants
+
+- A suggestion is essentially a pair of =(<suggestion id>, <peer's uuid>)=
+
+  Typically it's something like this: =(5,B) > (4,B) > (4,A)=
+
+- So we can achieve a total ordering by:
+  1. sorting by suggestion id
+  2. sorting by peer id
+
+- Idempotency Mechanisms:
+
+  - Purpose: to protect the algo from delayed and/or duplicated messages
+
+  - _Ignore-on-non-incresing Rule:_
+
+    the ignore-on-non-increasing-ID rule is a simple and highly effective way that Paxos achieves protocol-level idempotency
+
+    There's an implicit characteristic of Paxos here: that it's multi-step process. Therefore, the mechanism we use is just plain silent ignorance because our main objective is that Old and outdated steps are just NOT allowed to interfere with currently active ones.
+
+**** Messages
+Paxos typically uses 5 distinct messages for the resolution process.
+***** Permission Request
+- First of the 2-step process is to gain permission from a majority of peers to make a suggestion.
+
+- /Permission Request/ messages are sent to ALL peers in order to request permission for making a suggestion with the associated /Suggestion ID/
+
+  * REQUIRED INFO:
+    * so the =suggestion_id= is within the permission request
+
+
+- Recipient's acceptance criteria:
+  If the suggestion ID received is locally newer than the last one that the peer granted permission for, then that recipient will send a /Permission Granted/ message
+
+***** Permission Granted
+
+- It's a local state-check that has the level of granularity of the other nodes that it had interacted with before $\implies$ just a record should be fine, right?
+
+  * REQUIRED INFO:
+    * Sugestion ID of corresponding Permission Request
+    * Last Accepted Suggestion ID (if any)
+    * Last Accepted Value (if any)
+
+***** Suggestion
+- on getting permission granted *BY MAJORITY*, then only may the node send a suggestion message
+
+- /*Values*/ are just opaque binary blobs. It should be abstract and left to the application to figure out what it should be.
+
+- REQUIRED INFO:
+  - Suggestion ID of the corresponding Permission Request
+  - Value (suggestion value -- an opaque blob)
+
+***** Accepted
+- If a peer accepts a /Suggestion/ message, then it ACKs back, sending an /Accepted/ Message
+
+- REQUIRED INFO:
+  - Sugestion ID of the corresponding suggestion
+
+***** Negative Acknowledgement (Nack)
+- Failure Modes for Loss of Messages are aplenty, e.g.:
+  a) network partitions
+  b) network cables being faulty
+  c) machine crashes...
+
+- For simplicity, paxos relies on continual retries of the resolution, *_increasing the suggestion IDs for each new attempt_*
+
+  _WHY?_
+
+  If peers are silently ignoring messages because /Suggestion ID/ is TOO LOW, then if we increment the Suggestion ID enough, it will eventually be large enough that peers will start responding.
+
+  While this works well, there's a need to have a mechanism to indicate that attempts are being explicitly ignored $\implies$ that's why we need a Nack message: to indicate that the node attempting to achieve consensus needs to increase its Suggestion ID and retry.
+
+  Explicitness helps take corrective action immediately.
+
+  Nacks are explicit so help take immediate corrective action rather than implicit things like relying on timeouts, retries and guesswork needed to *distinguish ignored messages from lost messages* due to various reasons.
+*** Achieving Consensus
+To achieve consensus, a peer needs to:
+1. Step 1: gain permission to make a new suggestion from a majority
+2. Step 2: gain acceptance of that suggestion from a majority of peers
+
+On conflict, either of the steps won't achieve the majority requirements $\implies$ restart resolution process with a new suggestion ID. Suppose the implementation employs measures as [[#ensuring_forward_progress][in "Ensuring Forward Progress" section]], then continual collisions between peers may be handled adequately and eventually one of them will complete the second step and arrive at consensus.
+
+**** Message-handling Rules
+For each step defined above, all peers much follow the same rules:
+
+1. On receipt of a /Permission Request/ message:
+   - grant permission for requests with =suggestion_id= =>==  any previously granted permission
+   - promised invariant after granting:
+     - REJECT ALL permission requests and suggestion messages with lower suggestion IDs
+     - Should also respond with a /Nack/
+
+2. On receipt of a /Suggestion/ message:
+   - peer should accept suggestion if suggestion id =>== anything it has previously granted permission for
+   - else: ignore the message / respond with Nack
+
+The cases to handle will encounter combinatorial explosion, but following these 2 rules will guarantee that any and all scenarios will be correctly handled.
+
+***** Assurance of Correctness
+
+A peer *may suggest any Value* they choose *if no previous suggestions have been accepted*. If previous suggestions have been accepted though, the peer is forced to *use the Value associated with the highest previously accepted Suggestion ID*. This requirement is the crux of the algorithm’s correctness.
+
+#+begin_quote
+The key to Paxos’ assurance of correctness lies in the interplay between requesting permission to make suggestions and actually making those suggestions. When granting permission for a new suggestion, peers must include the highest Suggestion ID and Value they have accepted, if any, in the Permission Granted message. Once the suggesting peer has received a majority of permission grants and before making its own suggestion, the peer must first examine the previously accepted Suggestion IDs and Values contained in those grants. If any peer has previously accepted a suggestion, the Value of the new suggestion must be set to the Value corresponding to the highest Suggestion ID contained in the grant messages. If and only if no peer has previously accepted a suggestion may the suggester supply an arbitrary Value of their choosing.
+#+end_quote
+
+**** Conflict Resolution Example
+
+The write up introduces a gnarly scenario where there are 5 nodes and 3 subgroups: 2 of the subgroups within themselves them have achieved a consensus on what a value should be but the values are not the same. The last node has not received any message yet.
+
+The situation has some preceding steps that ended up getting us into this situation (it's mainly a network partitioning that created this situation).
+
+When a majority is available again, there are 3 cases on what that majority consensus would be:
+
+1. Continued attempts to gain concensus (based on subgroup 1's value) $\implies$ simplest case, will work well
+2. Continued attempts to gain concensus (based on subgroup 2's value) $\implies$ this will get rejected then re-initiated (based on the example)
+3. A new suggestion could be made. $\implies$ this is actually impossible
+
+Just refer to the write up on the walkthrough of how this gets resolved ([[https://understandingpaxos.wordpress.com/][ref]]).
+
+_Some specific notes:_
+
+1. The act of achieving a resolution actually just involves broadcasts (including to oneself). Driving the consensus forward does not require special access to local state and it's simpler (for conceptualising and implementing) to treat ALL peers and oneself in the same manner.
+
+2. Getting a rejection is necessary to restart the resolution process.
+
+***** Additional Points of Note
+1. Resolution process may continue even after consensus is achieved
+
+   if a peer is out of sync, it may not detect that consensus has already been achieved $\implies$ will continue driving the resolution process forward.
+
+   this is safe to happen
+
+2. paxos guarantees consensus only on the final value (not necessarily which Suggestion ID achieved it)
+
+   e.g. if a node was offline (when there already was an achievement of consensus) then it appeared online again, then it will broadcast, get the updated value and then rebroadcast and assume that it was the one responsible for the consensus.
+
+3. number of peers must be fixed and known ahead of time
+
+   This helps all peers determine what constitutes a majority (since it's a fixed target). If it varies, then it's impossible to reliably determine when majority had been reached.
+
+4. Paxos doesn't guarantee every peer will know the final value
+
+   If a peer can't be reached during the resolution process, then it may miss all of the message traffic and will never know the final result.
+
+   The algo doesn't handle this case, and the application should handle the objective of making sure everyone has the same value.
+
+   - Some solutions:
+     1. peers to 'poll' for a result by simply requesting permission to make a suggestion (even if nothing to suggest). Analysing the grants can help us know what value is there.
+
+     2. just let the sync be mediated by the application (and it's more efficient too).
+**** Ensuring Forward Progress
+:PROPERTIES:
+:CUSTOM_ID: ensuring_forward_progress
+:END:
+
+Paxos algo guarantees that one and only one final result is *POSSIBLE*, it DOES NOT guarantee that it will *EVER BE ACHIEVED*. The mechanism for forward progress is therefore an implementation detail for us. /Paxos doesn't give any guidance for this/.
+
+To complete the resolution, _2 types of general problems need to be overcome:_
+
+1. inter-peer interference
+
+2. peer failures
+
+The goals of the application and the operating environment should be always considered to weigh trade-offs and find the best implementation for forward progress.
+
+_For solutions to ensuring forward progress:_
+1. use /failure detectors/ (as seen in this paper, [[https://dl.acm.org/doi/10.1145/226643.226647]["Unreliable Failure Detectors for Reliable Distributed Systems"]])
+
+   this is robust and performant
+
+2. use simpler (retry) mechanisms
+
+   this is easier to understand but less performant
+
+***** Mitigating Inter-peer Interference
+
+*Inter-peer Interference* can happen in cases e.g. when 2 nodes are trying to suggest and each causes the other to re-start the consensus seeking process $\implies$ possible to be led into a loop that stalls progress. This is a natural possibility since all peers are equal in our system
+
+  - it's not a problem if only a single peer is attempting to drive the resolution. Then it's just a matter of time and peer connectivity that this determined peer will eventually achieve consensus
+
+    - this point shouldn't motivate single-point-of-failure implementations though because then the failure model is unideal
+
+  - It's proven that it's IMPOSSIBLE to absolutely guarantee forward progress in any distributed consensus system susceptible to message loss $\implies$ people typically treat this as low chance and the system as "good enough" rather than "perfect".
+
+The general problem family for these is just *contention problems* (many off-the-shelf solutions).
+
+_Solutions:_
+1. Use exponential backoff with randomization
+
+   Mimics ethernet networks' handling of collisions. Expo backoff on the transmission window if we receive Nack messages.
+
+   Problem: can drive up latencies, need to find a sweet spot for what the initial latency window should be.
+
+   #+begin_quote
+ If the initial windows are set too small for WAN deployments, for example, the first resolution attempt or two may fail every time, thereby driving up overall resolution latency. Similarly, if it’s set too high the overall resolution latency is artificially increased above where it could be. Developing optimal solutions in this area can be challenging; particularly so if the application operates in environments with constantly changing network latencies such as geo-dispersed systems.
+   #+end_quote
+
+2. using failure detectors
+
+   Tricky.
+
+***** Recovering from Peer Failure
+
+All peers have an equal responsibility of ensuring resolution is achieved:
+ - if original driver goes silent, other peers need to continue *driving the process forward* $\implies$ forward progress has to be shared too.
+
+The implementation of the forward progress responsibility sharing can significantly impact performance.
+
+_Some solutions:_ (see actual the referenced write up for details)
+1. simple but worst performance: ALL peers immediately drive the resolution process forward
+
+2. Wait for silence then step in -- spread the timeout values for easier timeout synchronisation
+
+3. Timeout-sync mechanism by random choice within a range of timeout values.
+
+4. for best performance, implement failure-detectors
+
+** 3. Constituent Components
+
+Peers may have 3 distinct, separable roles in Paxos:
+  1. Suggester aka Proposer
+  2. Voter aka Acceptor
+  3. Arbiter aka Learner
+
+In most cases, we'd want the peers to serve all 3 roles for simplicity sake but some implementations may wish for the roles to be split.
+
+The roles have clear separation of concerns that map perfectly to individual classes with a minimum set of methods
+
+*** Suggester aka Proposer
+1. drives the resolution process via the 2 steps (gain permission then gain acceptance) -- this is a proactive role, drives the resolution process forward
+
+   + however, will never know when the resolution is achieved -- only the Arbiter may determine this. Protocol doesn't define whether arbiter is supposed to notify the Suggestor though (though practically we'd want to avoid an infinitely running Suggester initiation).
+
+2. Issues to address: (left to implementation choice, not decreed by Paxos algo)
+   a) handling lost and delayed messages
+   b) avoiding continual collisions with other Suggestors
+
+   As for solutions, typically these problems resolved by retransmissions, exponential backoffs and such (other solutions may apply).
+
+3. picking the Suggestion ID value:
+   1. if first one to suggest, can pick anything
+   2. else higher than the highest received in the accepted messages from peers
+
+   this property is ensures correctness of the algo.
+
+*** Voter aka Acceptor
+- 2 things to give a vote for (relates to the 2 steps by the Suggestor):
+  1. grant / deny permission to make suggestions
+  2. accept / reject suggestion made
+
+- is purely a reactive role, only sends messages in RESPONSE to requests made by suggestors
+
+- Has fault-tolerance responsibilties via snapshotting its current state:
+
+  1. the suggestion ID it last granted permission for
+
+  2. the suggestion ID it last accepted (if any)
+
+  3. the Value associated with he Suggestion ID it last accepted (if any)
+
+  Algo's correctness depends on correct holding of these data. It allows for recovering from crashes / power outages.
+
+- Processing:
+  + /Permission Request/:
+
+    - Case 1: iff suggestion id for request is =>== previous request that Voter has granted permission for
+
+      then grant permission
+
+      - /Permission Granted/ message should have:
+        - last accepted Suggestion ID, corresponding value
+
+    - Case 2: suggestion Id for request =<= previous request that was granted
+
+      then ignore the permission request.
+
+      Usually ALSO send a Nack so that suggestors can detect and abandon futile resolution attempts. Not defined by the Paxos spec but it's good to have for efficient implementations
+
+  + /Suggestion Message/ Received:
+
+    - Case 1: iff suggestion id for suggestion is =>== previous request that Voter has *granted permission for*
+
+      then respond with /Accepted/ Message sent to ALL Arbiters
+
+      - /Accepted/ message should have:
+        - Suggestion's Suggestion ID and value
+        - having the value allows Arbiter to determine WHEN the consensus has been reached and WHAT the consensual value is.
+
+    - Case 2: suggestion Id for request =<= previous request that was *granted permission for*
+
+      then ignore the suggestion
+
+      Usually ALSO send a Nack so that suggestors can detect and abandon futile resolution attempts. Not defined by the Paxos spec but it's good to have for efficient implementations
+
+*** Arbiter aka Learner
+- also purely passive role, just monitors Accepted Messages
+- Determines WHEN a consensus has been reached (optionally: WHAT the consensus value is)
+
+** 4. Paxos Algorithm
+*** Common Pitfalls
+Many people find paxos implementations exceedingly difficult likely because they're implemented in the trial-by-fire context where there's a complex distributed system requirement for which they need to use paxos for. So the unique requirements' constraints and Paxos' complexity gets muddled up.
+
+**** 1. Inherent Complexities of Distributed Systems
+Paxos is for achieving consensus on a single value, so the question is how to do it for a larger set of knowledge?
+
+Some approaches:
+1. break down the problem into individual decisions
+
+   orchestrated by higher-level logic to accomplish the goals of the application
+
+   Problems:
+
+   - the system design for this may introduce faulty logic using multiple values
+
+   - paxos doesn't isolate system designers from other difficult distributed systems problems:
+
+     - paxos guarantees single value will reach consensus but no guarantee that all peers are aware of that value $\implies$ need other mechanisms to do state synchronisation (non-paxos mechanism)
+
+     - achieving coordination is more than just achieving consensus on state e.g. on crash, there should be executor reassignment, logging...
+
+**** 2. Algorithm Modifications
+Implementers should avoid the temptation of prematurely modifying/extending the core algo with the goal of better suiting the needs of the application.
+
+Paxos algo should be an immutable set of rules that must be strictly adhered to, the extensions are merely extensions. The areas that the paxos algo has no spec on is where there's usually sufficient flexibility to meet our application's needs.
+
+_Flexibility:_
+1. tolerating any combination of dropped / delayed messages
+
+   especially important since app-level issues can be converted into problems that can be solved by intentionally dropping / delaying / injecting messages into unmodified algo.
+
+   e.g. see multipaxos TODO
+
+2. As long as we stick to the messaging rules, the core algo will be provably correct. Any mechanism based on this mechanism will also be guaranteed to be correct.
+
+   Detecting, diagnosing and repairing stalls is significantly easier than doing the same for errors in correctness.
+
+
+Most of the absolute limitations of Paxos are more of performance limitations instead of HOW the algo may be leveraged.
+
+**** 3. Software Design
+Usual design problems that people suffer from:
+
+1. poor encapsulation / separation of concerns
+
+   - when the app logic is spread throughout the app
+
+2. when defined as classes, logic littered with low-level networking concerns
+
+   - so correction: make the classes be network-layer agnostic. I think using OCaml here will be extremely useful since we can keep things abstract.
+
+_Solutions / Advice:_
+
+1. Design the code right
+   - should have a small set of classes that implement the core algo and no other responsibilities
+   - actual message passing logic should be ignored by the core classes
+
+2. Message Reception:
+   Each message reception can be *modeled simply as a method call* with the message’s content as the arguments and each *response message can be modeled as a returned object* from the corresponding receiver method.
+
+   Instances of these tightly-constrained, opaque classes then become the foundation upon which the *application-specific logic and networking strategy is based*.
+
+** 5. Multi-Paxos
+:LOGBOOK:
+CLOCK: [2025-10-28 Tue 07:57]--[2025-10-28 Tue 09:48] =>  1:51
+:END:
+The primary *reason for the interest* in multi-paxos is that it is exceptionally *well suited to maintaining the consistency of shared data* and a sizeable portion of the existing Paxos literature is dedicated specifically to this subject.
+
+Plain single-shot paxos has limited utility because it's only achieving concensus once. Typically we need multiple-sequential-chains of instances. When people make reference to "paxos", they typically mean "multi-paxos".
+
+We can maintain a consistent, replicated logs over a cluster of machines. Raft Algo works too for this and it does the replicated-log-maintenance well but multi-paxos typically has more implementation flexibility.
+
+*** Implementing a Replicated Log
+Log files are used in an append-only manner so a unique Paxos instance may be used to ensure that all peers agree on the outcome of each append operation.
+
+If all peers start with an empty file and they all agree on the exact order and content of every append operation, the *file will remain identical across all of the peers*.
+
+It has some problems it needs to solve:
+
+ a. How to prevent msg interference b/w different paxos instances?
+    - use length of the file (since append-only) using message headers
+    - assuming each instance gives a constant value blob, then we can use the byte-offset to identify the instance that has been received
+
+ b. How to detect when a peer misses one/many append operations?
+    - use length of file via message headers; if matching lengths then peers are in sync.
+
+      If different then skip processing of that message because it must mean there's a fall-behind:
+      - If receiver's length is more, then sender can be informed via a Nack
+
+      - if sender's length is more, then receiver must catch up
+
+ c. How to catch up when peers fall behind -- sync mechanism?
+    - request missing bytes from an up-to-date peer
+
+    - when local copy is updated, then its size matches rest of its peer $\implies$ may participate again in the resolution of paxos instances.
+
+ d. How can a peer know if it has the most up-to-date version?
+    - this matters when app-level logic needs to read the data and needs to know that the data it is reading is up-to-date
+
+    - there needs t obe a consensus on what the current version is $\implies$ can know whether a particular peer's log is current
+
+    - once known, peer can fetch missing data and respond to app-level read request with the data that will now be guaranteed to be consistent.
+
+*** Replicated State Machines
+Multi-Paxos gives a solid foundation for building /Replicated State Machines/, which is why it's exciting:
+
+based on the same principle underlying /replicated logs/ but are *generalized to arbitrary data structures*. If all machines exactly agree on the sequence and content of each instruction used to modify some arbitrary data structure, that data structure will be consistently replicated across all of those machines.
+
+_Value of replicated state machines:_
+a) serve as a convenient abstraction above the low-level consensus protocols for coordinating distributed systems.
+
+   The simplistic, transactional model this abstraction provides makes distributed application design significantly easier.
+
+b) Implemented in terms of a replicated log because that is a well-understood domain and we don't need to have custom state-machine specific implementations each time.
+*** Performance Considerations
+
+Typically there are 2 major performance limitations for Replicated State Machine implementations on-top of multi-paxos:
+
+1. affects writes:
+   - paxos (common, first shot) requires *a minimum of 2 round-trips* over network to achieve resolution
+   - each link to the multi-paxos chain $\implies$ additional 2 round trips
+   - writes are expensive operations with somewhat high-latency and low throughput
+
+2. affects reads:
+   - all peers equal $\implies$ any pair can add a link to the multi-paxos chain at any time
+   - if there are fall-behinds, then a full Paxos instance needed to gain consensus on what's the most recent state $\implies$ reads are equally expensive as writes.
+
+_Ideal Solutions:_
+1. write operations requiring a single trip
+2. read operations to be serviceable purely from local state
+
+This is possible if one of the peer is special: a single peer may add links to the multi-paxos chain $\implies$ leader voting.
+
+**** Master Peers
+- adding the constraint of "only master peers can update" helps with optimising R/W
+- optimising R:
+  - all writes go through the master
+  - local copy of the shared state of the master is guaranteed to be the most recent, so the master can be used to respond to read requests
+- optimising W:
+  - message injection technique can reduce the number of Round Trips for resolution on link additions down to one: *assuming no message loss*
+**** Resolution in a Single Round Trip
+In Paxos' 2-step process, if we avoid the need for the first step then we achieve a 1-step process $\implies$ when all peers can agree on WHICH peer should make the first suggestion then there's no need to send /Permission Request/ and /Permission Granted/ messages across the network $\implies$ each node can locally generate those messages and inject them into their Paxos implementations (answers how to extend from plain paxos easily).
+
+/*Bypassing the Permission Request and Permission Granted messages is only possible for the first suggestion in a Paxos instance*/
+
+_How it works (*non-failure case*):_
+1. suppose each link in multi-paxos chain is =(<next_master_uid>, <link_value>)=. Ignore the master election part for now and say all peers agree who is *the master for the next link*.
+2. so non-masters:
+   - generate and process a =Permission Request :==  =SuggestionID(0, master_uid)=
+
+     Master's initial Suggestion ID must be the lower
+
+     i.e. pretend the link came from the master
+3. master:
+   - generates and process /Permission Granted/ Messages for SuggestionID as if they came from all the other peers
+
+4. Paxos instance then takes *only a single round-trip to complete* as only the /Suggestion/ and /Accepted/ messages for =Suggestion ID (0,master_uid)= need to be sent over the network
+
+   this is identical to that of actually sending /Permission Request/ and /Permission Granted/ Messages without the latency issues.
+
+
+_Failure cases_
+
+In healthy networks, the first suggestion will almost always succeed so the bypassing will make a difference and the average latency for link additions will be of a single Round Trip.
+
+IF there are errors, then the normal 2-step resolution process resumes.
+**** Write-Batching
+Reduced resolution latency $\implies$ improves write throughput because more links in the multi-paxos chain may be added in the same amount of time.
+
+Dedicated masters can optimise throughput by batching multiple writes into each link in the chain (there's no constraint that it has to be 1:1 correspondence).
+
+Each link may contain a list of sequential modifications instead of just a value.
+
+Master can just buffer that composite of values until it's guaranteed that everyone has written it down.
+
+**** Mitigating the Single Point of Failure
+
+Master Peers end up being a single point of failure in this possibly robust model that is fault-tolerant.
+
+Can't eliminate this risk but can mitigate it $\implies$ allow new master to be elected _when current master fails_.
+
+Problems:
+1. R/W ops are blocks until failure of master peer is detected AND the re-election process completes AND clients are informed of new master's identity.
+
+   In most tuned implementations, reelections are rare so this master-approach is a net-gain.
+**** Master Leases
+Many ways to implement dedicated masters, one way is itme-bound leases -- the current lease holder is the designated master.
+
+_Leases are:_
+1. short in duration $\implies$ quicker detection of master failures tradeoff with increased network traffic dedicated to lease renewals.
+
+   Too short can lead to false positives so there's a limit. They don't affect correctness but master transitions end up being expensive (performance + availability POV).
+
+   This part needs tuning.
+
+2. can be renewed by the current master
+
+***** Master Lease Implementation Approaches
+2 implementations to choose from:
+1. parallel chain: managed outside of and in parallel to the multi-paxos chain
+2. chain-based: managed using the chain itself
+
+Generally using the chain itself is less error-prone. This avoids timing considerations but comes at the cost of reduced link addition throughput because some of the links need t obe used for managing the leases.
+
+Parallel lease implementations may be careful not to violate the rule for multi-paxos: ONLY master peer is permitted to make changes to the chain while the lease is held. This may be tough because of many reasons:
+- faulty hardware
+- clock drift
+- misconfigured systems
+***** Chain-Based Management of Master Leases
+Done by adding a layer of indirection to the app-level values generated by the chain.
+
+each value in the chain may instead be a pair of elements in which one of the two elements is always null. The pair may contain either the next application-level value or it may contain a new multi-paxos configuration; but never both.
+
+***** Master Lease Restrictions on Message Handling
+
+
+To safeguard against non-master link additions, all Permission Request and Suggestion messages originating from non-master peers must be dropped while the master lease is held.
+
+This delays recovery from master peer failures but ensures that *only the master is capable of making new link additions* while the lease is held. When the lease expires, the messaging restriction is lifted and the normal Paxos resolution process resumes.
+
+***** Timing Considerations for Master Leases
+
+NOTE: absolute time in distributed systems generally isn’t trustworthy. Even with type-sync protocols being used.
+
+A good rule of thumb in designing distributed systems is to avoid relying on synchronized clocks for correct operation whenever possible.
+
+_So how to manage time?_
+
+- use relative durations based exclusively off of their own local clocks.
+- Each peer defines the lease expiration time to be *the local time at which they learned of the lease’s existence plus the lease duration*.
+
+  Due to network latencies and variable load on the individual peers, few, if any, peers will *precisely* agree on the exact lease expiry time in an absolute sense
+
+  This is fine because the invariant for us to follow is that a peer must NOT assume master status before the lease truly expires.
+
+- similar argument for the lease holding mechanisms
+
+**** Handling Master Peer Failures
+- lease expiry $\implies$ peers just assume master has failed $\implies$ can elect a new one
+
+  NOTE: this feels very much like heartbeat pings
+
+- election is expensive so graceful transition where a master premptively hands off master status to another peer should be used whenever possible.
+
+**** Managing Peer Membership Over Time
+
+Realisitically, memership should be variable.
+
+This can be tricky to accomplish externally since all peers must agree on the peer membership for eah link in the chain and any errors here can violate the correctness of the protocol.
+
+Using the chain itself to manage peer membership works well. The member list can be the value within the chain link.
+
+** TODO 6. Paxos Variants
+* Requirements of my Demo
+
+Based on the readings, here are some uncollected thoughts about what my system would need:
+
+1. Pub Sub System
+
+   a) with abstract message types
+      - concrete forms: the 5 basic message types
+
+   b) Connectivity state needs to be modelled also
+
+2. Driver System: should be able to observe the pub-sub system from a birds-eye-view (the operating environment)
+
+   - should be able to "pause execution" / get snapshots and we should be able to inspect different node-state at that point in time
+
+   - possibly should have history roll-back? Does this mean that I should have immutable records and have a history stack of them? Should this be externalised to an Auditor module of some sort?
+
+3. Suggestion Value: if it's an abstract, opaque blob, what's a good way to TYPE it?
+   - a suggestion should be comparable -- so the whole total comparison and comparison witness and all that
+
+   - it should be a container type (for bufferring) probably $\implies$ can future proof it for multi-paxos extensions where batch writing is supported (master includes multiple values within a single link in the multi-paxos chain).
+
+   - lease management can be done via type, so it should be appropriately abstract typed
+
+4. Some hyperparams to tune:
+   we just need to have a way to tune these systems (manually at first / via config file first).
+
+   1. heartbeat rate or anything that fits that notion e.g. master lease duration
+
+5. paxos doesn't include the achieving forward progress part but I want to include it in. This will be a whole implementation of its own.
+
+6. Project extensions:
+   a) actually make it into a generic package
+
+   b) implement failure detectors for forward progress mechanisms
+
+7. Paxos is for single value consensus -- how to design good interfaces to extend to a collection of values?
