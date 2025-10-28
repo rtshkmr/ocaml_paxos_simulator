@@ -60,7 +60,7 @@ CLOCK: [2025-10-28 Tue 11:47]--[2025-10-28 Tue 11:57] =>  0:10
   b) [[https://github.com/cocagne/paxos?tab=readme-ov-file][single-shot paxos]]
   c) [[https://github.com/cocagne/multi-paxos-example][multi-paxos]] (includes other orchestration / driver logic)
 
-*** Learning from Reference Code
+*** DONE Learning from Reference Code
 This section is to gather some notes when reading other reference implementations on the paxos algo. The design of multi-paxos is the objective even if we merely wish to implement the basic paxos algo for now.
 
 The [[https://github.com/cocagne/multi-paxos-example][reference Repo is coccagne's multi-paxos-example]], it is written in python 3 and can be expected to be very imperative in style. Also it's async from the beginning and for our v0 implementation, we want to avoid using async.
@@ -128,17 +128,122 @@ Mixin class with logic for:
 2. anti inter-peer interference is handled here
 
 ** Designing
-*** TODO Design Messages & State Types
+*** DONE Design Messages & State Types
+CLOSED: [2025-10-28 Tue 20:52]
 :PROPERTIES:
 :EFFORT:   2h
 :END:
-- consider using one of the default distributed computing libraries for this setup. [[https://ocamlverse.net/content/parallelism.html][See this]] for the libraries used in ocaml for distributed computing.
+- CLOSING NOTE [2025-10-28 Tue 20:52] \\
+  This looks right, I have a good idea of how I've layerd and separated concerns using the different interfaces.
+
+  Let's move on.
+:LOGBOOK:
+CLOCK: [2025-10-28 Tue 18:50]--[2025-10-28 Tue 20:24] =>  1:34
+CLOCK: [2025-10-28 Tue 18:22]--[2025-10-28 Tue 18:25] =>  0:03
+CLOCK: [2025-10-28 Tue 16:54]--[2025-10-28 Tue 18:09] =>  1:15
+CLOCK: [2025-10-28 Tue 16:26]--[2025-10-28 Tue 16:36] =>  0:10
+:END:
+
+We shall start with defining the interface for some basic types and attempt to make things reasonably generic.
+
+**** General Notes
+Some general things to consider:
+
 - Define algebraic data types for messages and node states
 - Identify which invariants can be encoded in the type system
 - Document assumptions about immutability and side effects
-**** Value type
-if it's an abstract, opaque blob, what's a good way to TYPE it?
-   - a suggestion should be comparable -- so the whole total comparison and comparison witness and all that
+- consider using one of the default distributed computing libraries for this setup. [[https://ocamlverse.net/content/parallelism.html][See this]] for the libraries used in ocaml for distributed computing, we may not directly use these libraries yet but I want my interfaces to be designed such that it's easier to just adapt to those external libs.
+
+
+***** Things to avoid:
+1. interface explosion to avoided, but I think my current ideas on the interfaces make sense. There's a clear separation of concerns happening here: IDs, messages, node states, storage, network, simulation, and strategy layers
+2. remember modules that need it should have system meta information (=quorum=, =num_peers=) and so on
+3. just keep the strategy mixins as functors instead of inheritance-style mixins
+
+**** ID type
+- there's going to be peer id / node id
+- there's going to be message id that would be parameterised based on the message type probably
+- there's going to be proposal ids which would be a product type of peer and message ids
+**** Message type
+- for our paxos implementations there's going to be 5 message types and they're going to hold a bunch of metadata as well
+
+- meta should probably be a sub module within message so that we can standardise some
+
+**** Node Type
+- Keeps things clean on what a peer node can do
+- We could use a GADT here
+- a node should probably also have some meta information about it
+    * e.g. number of peers maybe
+      #+begin_quote
+number of peers must be fixed and known ahead of time
+
+This helps all peers determine what constitutes a majority (since it’s a fixed target). If it varies, then it’s impossible to reliably determine when majority had been reached.
+#+end_quote
+
+***** Node State
+- this is a good candidate for GADTs and we should use them for compile time correctness checks
+  * certain messages / actions specific to certain node states
+  * transition invariants should be managed well
+- this has a clear FSM
+
+**** Event Type
+- an event is a time-based action that has may be in the past / present or future
+
+- Our objective is to do some event-driven simulations here, so I expect to draw inspiration from some libraries for this?
+
+  - anyway we should have a Base_event that we can continually extend off of or use functors to morph functionality
+
+- message meta and event meta may have some overlaps here, I may expect message meta to contain within it event(s)
+
+**** Value Type
+- this will represent the replicable value, which needs to be abstract
+- questions:
+  if it's an abstract, opaque blob, what's a good way to TYPE it?
+     - a suggestion should be comparable -- so the whole total comparison and comparison witness and all that
+**** Storage Type
+- just to formalise the persistance medium that a value may use
+- likely to just be a file, but I would like to treat this as a generic IO channel and build in a generic fashion.
+
+**** Network Types
+Since the v0 of this implementation will be synchronous but allow for an async framework drop-in, I want to also ensure that this eventually goes beyond a demo and actually ends up being able to quickly extend it into a networking interface.
+
+We should add in some interfaces for this so that it's easy to do so.
+
+off the top of the head, this relates to things like a socket interface and such communication I/O interfaces
+
+**** Driver / Simulator Types
+- not sure what this should be, but I think it's worth adding in some wrappers for defining my simulations.
+
+***** Fault Types
+- the kind of faults that we would wish to introduce (either randomly or deterministically via timeout or something of that nature)
+- this is entirely for the purpose of having good simulations
+
+**** Application Type
+- the literature does a distinction between parallel application state and actual peer node state. I think there's some value to consider these aspects. I can see how A driver / simulator drives an application within its simulation operating environment. Sometime in the future when this project matures, then we could just yoink that and put it in an actual operating environment instead of a simulated one.
+- Just a note: I expect the application state to be largely imperatively defined while the rest of the paxos logic to be pure and performant.
+
+**** PaxosStrategy Types
+- note that in the course of this project, we will be adding in different mixin-like strategies. The purpose of this is to make Paxos composable -- to eventually implement the
+
+- some of them are mandatory based on paxos / multi-paxos spec
+- some of them are interchangeable "modules" that answer questions for which the spec doesn't give an opinion:
+  a) ForwardProgress Strategy
+  b) Anti-Inter-Peer Interference Strategy
+
+  these strategies would have their own sub-strategies that we might pick and chose.
+
+- i forsee a combinator pattern being used for this. Wherein we could attempt to use some sort of state machine builder style pipelining.
+
+  It would be amazing to see how peers with DIFFERENT strategies may / may not work together.
+
+***** Decision: Naming Policy vs Strategy
+Paxos Strategy Naming — PaxosPolicy
+
+Name	Connotation	When to Use
+
+PaxosStrategy	emphasizes algorithmic approach — “how we handle proposals”	if you want to model algorithmic variation (e.g., Multi-Paxos, Fast-Paxos)
+
+PaxosPolicy	emphasizes behavioral rules — “what policy we apply under conditions”	if you’re abstracting decision heuristics (timeouts, retries, etc.)
 
 *** Design Scaffolding
 **** TODO Define Subsystems
