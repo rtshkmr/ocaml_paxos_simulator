@@ -2,7 +2,6 @@ open Types
 
 module Message = struct
 
-  (** Metadata about a message that is useful for displaying.  *)
   module Meta = struct
     type t = {
       id : Uuidm.t;

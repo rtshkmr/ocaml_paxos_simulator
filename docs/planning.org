@@ -244,36 +244,34 @@ Name	Connotation	When to Use
 PaxosStrategy	emphasizes algorithmic approach — “how we handle proposals”	if you want to model algorithmic variation (e.g., Multi-Paxos, Fast-Paxos)
 
 PaxosPolicy	emphasizes behavioral rules — “what policy we apply under conditions”	if you’re abstracting decision heuristics (timeouts, retries, etc.)
-
-*** Design Scaffolding
-**** TODO Define Subsystems
+*** TODO Implement types
+The interfaces need to be all defined properly.
+This technically is an over-arching task, includes the scaffolding works as well
+**** TODO Design Scaffolding
+This part is more of a wiring task
+***** TODO Define Subsystems
 :PROPERTIES:
 :EFFORT:   2h
 :END:
-***** Subsystem: Simulation/Driver Subsystem
+****** Subsystem: Simulation/Driver Subsystem
 - might want to look into existing pub-sub systems within ocaml ([[https://ocamlverse.net/content/parallelism.html][see this ref on the libraries that support some useful things]])
 - should be able to define connectivity states / network partitioning / random events and so on (similar to the TigerBeetle demo possibilities)
 - nice to haves:
   - record log, so that we can do record-replay / pause execution / history stack and so on.
 
-***** Subsystem: Visualisation Subsystem
+****** Subsystem: Visualisation Subsystem
 - a basic one should be in some sort of log format (JSON, timeline format). We could define a simple log schema here too.
-***** Subsystem: Actual Paxos Consensus Derivation Subsystem
-****** Should include forward progress achievement
-***** Subsystem: Fault Injection Subsystem
-**** TODO Define subsystem interfaces
+****** Subsystem: Actual Paxos Consensus Derivation Subsystem
+******* Should include forward progress achievement
+****** Subsystem: Fault Injection Subsystem
+***** TODO Define subsystem interfaces
 :PROPERTIES:
 :EFFORT:   2h
 :END:
 - Simulation <-> Paxos Consensus: event scheduling and message delivery
 - Paxos Consensus <-> Fault Injection: injection hooks for dropped/delayed messages
 - Paxos Consensus <-> Visualization: event log or trace API
-*** TODO Design OCaml modules
-:PROPERTIES:
-:EFFORT:   2h
-:END:
-- Define signatures for Proposer, Acceptor, Learner, and Network
-- needs an understanding of design patterns from the reference python repo
+**** TODO Implement modules to support
 *** TODO Review OCaml module / dune basics
 :PROPERTIES:
 :EFFORT:   2h
