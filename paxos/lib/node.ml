@@ -1,92 +1,115 @@
 open Base
+open Event_bus
 open Types
+open Value
 open Message
+open Storage
 
-module Node = struct
+module Node (V : sig type t [@@deriving sexp, compare, equal] val to_string : t -> string end)
+  (Storage : Storage)
+  (Bus : sig
+     include module type of Event_bus
+     (* For type compatibility we assume the Event_bus was compiled with 'a t etc *)
+   end) =
+struct
+  type role = Proposer | Acceptor | Learner
+  type roles = role list
+
   module State = struct
-    type _ t =
-      | Idle : 'v t
-      | AwaitingPermission : { pending : Types.node_id list } -> unit t
-      | Proposing : { proposal : 'v } -> 'v t
+    type t =
+      | Idle
+      | Preparing of { current_proposal : Types.proposal_id; awaiting : Types.node_id list }
+      | WaitingForPromises of {
+          proposal : Types.proposal_id;
+          promises_received : (Types.node_id * (Types.proposal_id * V.t) option) list;
+        }
+      | Accepting of { proposal : Types.proposal_id; value : V.t; acks : Types.node_id list }
+      | AcceptedLocally of { proposal : Types.proposal_id; value : V.t }
+      | Decided of V.t
     [@@deriving sexp]
   end
 
-  type 'v state_box = StateBox : 'v State.t -> 'v state_box
-
-  type 'v t = {
+  type t = {
     id : Types.node_id;
-    inbox : 'v Message.t Queue.t;
-    state : 'v state_box;
+    roles : roles;
+    mutable state : State.t;
+    storage : Storage.t;
+    mutable subs : Bus.sub_handle list;
+    transitions : string list ref;  (* light-weight history for debugging *)
   }
 
-  let create (id : Types.node_id) : 'v t =
-    { id; inbox = Queue.create (); state = StateBox State.Idle }
+  let create ~id ~roles ~storage ~bus () =
+    let node = {
+      id;
+      roles;
+      state = State.Idle;
+      storage;
+      subs = [];
+      transitions = ref [];
+    } in
 
+    (* subscribe generic handler on coordination topics *)
+    let handler (msg : V.t Message.t) =
+      (* wrapper calling node_handle *)
+      let () = (* call node's message handler *)
+        match msg with
+        | PermissionRequest _ -> ()
+        | PermissionGranted _ -> ()
+        | Suggestion _ -> ()
+        | Accepted _ -> ()
+        | Nack _ -> ()
+      in ()
+    in
 
-   let enqueue_message (node : 'v t) (msg : 'v Message.t) : 'v t =
-    let new_inbox = Queue.copy node.inbox in
-    Queue.enqueue new_inbox msg;
-   { node with inbox = new_inbox }
+    (* For v0 we subscribe to Coordination and Suggestion topics (example) *)
+    let h1 = Bus.subscribe bus ~topic:Types.Coordination (fun m -> handler (m : V.t Message.t)) in
+    let h2 = Bus.subscribe bus ~topic:Types.Suggestion (fun m -> handler (m : V.t Message.t)) in
+    node.subs <- [h1; h2];
+    node
 
-  let dequeue_message (node : 'v t) : 'v Message.t option * 'v t =
-    match Queue.dequeue node.inbox with
-    | Some msg ->
-        let new_inbox = Queue.copy node.inbox in
-        (Some msg, { node with inbox = new_inbox })
-    | None -> (None, node)
+  let id t = t.id
+  let roles t = t.roles
+  let state t = t.state
 
-  (** STUB: implement this*)
-  let subscribe (node: 'v t) (_topic: Types.topic) = node
+  let dump_state t = State.sexp_of_t t.state
 
-  (** STUB: implement this*)
-  let unsubscribe (node: 'v t) (_topic: Types.topic) = node
+  (* helper to persist acceptor record *)
+  module Acceptor_record = struct
+    type value = {
+      promised : Types.proposal_id option;
+      accepted : (Types.proposal_id * V.t) option;
+    } [@@deriving sexp]
+  end
 
-  (**
-     [handle_message node msg]
+  (* TODO Node's message handler: skeleton (detailed logic to be filled) *)
+  let handle_message (t : t) (msg : V.t Message.t) =
+    (* pattern match and implement acceptor / proposer behavior *)
+    match msg with
+    | PermissionRequest { from; proposal; _ } ->
+      (* as an acceptor, consult storage, decide whether to promise *)
+      (* Pseudocode:
+         let open Storage in
+         match Storage.load t.storage ~key:t.id with
+         | Ok (Some record) -> check record.promised
+         | Ok None -> grant and persist promised=proposal
+      *)
+      ()
+    | PermissionGranted _ -> ()
+    | Suggestion { from; proposal; value; _ } ->
+      ()
+    | Accepted _ -> ()
+    | Nack _ -> ()
+  ;;
 
-     Pure state-transition function.
+  (* Node propose: create PermissionRequest and rely on simulator/bus to broadcast *)
+  let propose ~bus t ~proposal ~value =
+    (* Build PermissionRequest for this node *)
+    let msg = Message.make_permission_request ~topic:Types.Coordination ~from:t.id ~proposal in
+    (* For v0 we'll have simulator broadcast on behalf of node; but provide direct publish too *)
+    Bus.enqueue bus ~topic:Types.Coordination (msg : V. Message.t)
 
-     It inspects the node's current state and the incoming message and returns
-     an updated node record.  The function is intentionally pure and synchronous.
-
-     Implementation note:
-     - We use a locally abstract type for the implementation so OCaml treats the
-       function as polymorphic in ['v], matching the signature in the .mli.
-
-     Future note: when we move to an async runtime, this function should be turned
-     into a monadic function that returns 'v t in the desired monad (Lwt/Async).
-
-    FIXME: this  is likely wrong, need to check correctness with the paxos write up notes.
-  *)
-  let handle_message : type v. v t -> v Message.t -> v t =
-   fun node msg ->
-    let (StateBox current_state) = node.state in
-    match (current_state, msg) with
-    (* Idle node receives a permission request: respond with PermissionGranted *)
-    | State.Idle, PermissionRequest { meta; from = _ } ->
-        let response = Message.PermissionGranted { meta; from = node.id } in
-        let (_, new_node) = dequeue_message node in
-        enqueue_message new_node response
-
-    (* Idle node receives a Suggestion: become Proposing *)
-    | State.Idle, Suggestion { value; _ } ->
-        let new_state = State.Proposing { proposal = value } in
-        { node with state = StateBox new_state }
-
-    (* Proposer receives PermissionGranted: for the v0 scaffold we simply
-       remain or move to a state that could later trigger AcceptReqs.
-       Here: we go back to Idle to indicate we've acted (simplified). *)
-    | State.Proposing _, PermissionGranted _ ->
-        { node with state = StateBox State.Idle }
-
-    (* Proposer receives Nack: move to Idle (or later we could implement backoff) *)
-    | State.Proposing _, Nack _ ->
-        { node with state = StateBox State.Idle }
-
-    (* Suggestion received while in Proposing: ignore or update proposal (keep simple) *)
-    | State.Proposing { proposal = _ }, Suggestion _ ->
-        node
-
-    (* default: ignore *)
-    | _, _ -> node
+  (* unsubscribe helpers *)
+  let shutdown t ~bus =
+    List.iter t.subs ~f:(fun h -> Bus.unsubscribe bus h);
+    t.subs <- []
 end

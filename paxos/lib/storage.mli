@@ -3,6 +3,8 @@ open Base
 (**
   Abstract storage signature for acceptor persistence.
 
+  Storage persists the latest promise or acceptance that underlies the current state.
+
   Intent:
   - Provide a minimal abstraction over persistence so acceptors can persist their
     promised/accepted records.
@@ -15,7 +17,11 @@ open Base
 *)
 module type Storage = sig
   type t
+
+  (** typically the <node_id> / <slot_id>*)
   type key [@@deriving sexp]
+
+  (** value will typically be a compact record*)
   type value [@@deriving sexp]
 
   val create : ?config:string -> unit -> t

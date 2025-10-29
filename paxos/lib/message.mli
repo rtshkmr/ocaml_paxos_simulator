@@ -1,3 +1,4 @@
+open Base
 open Types
 
 
@@ -13,25 +14,29 @@ open Types
   - Allow transports to attach or override Meta as needed.
 *)
 module Message : sig
-
   (** Metadata about a message that is useful for displaying.  *)
   module Meta : sig
     type t = {
       id : Uuidm.t;
       timestamp : Time.t;  (** Logical / real timestamp*)
-      topic : Types.topic; (** Logical message topic*)
+      topic : Types.topic; (** bus-level topic -- this is @ the simulation layer*)
     }
     [@@deriving sexp, compare, equal]
   end
 
   (** Messages are parameterized by payload type ['v].
-      The Paxos algo defines these 5 variants in its spec.*)
+      The Paxos algo defines these 5 variants in its spec.
+
+      Notes:
+
+      1. [Nack] variant has an optional [hint] which helps to inform about the highest promise seen.
+  *)
   type 'v t =
-    | PermissionRequest of { meta : Meta.t; from : Types.node_id }
-    | PermissionGranted of { meta : Meta.t; from : Types.node_id }
-    | Suggestion of { meta : Meta.t; from : Types.node_id; value : 'v }
-    | Accepted of { meta : Meta.t; from : Types.node_id; value : 'v }
-    | Nack of { meta : Meta.t; from : Types.node_id }
+    | PermissionRequest of { meta : Meta.t; from : Types.node_id; proposal : Types.proposal_id }
+    | PermissionGranted of { meta : Meta.t; from : Types.node_id; last_accepted : (Types.proposal_id * 'v) option }
+    | Suggestion of { meta : Meta.t; from : Types.node_id; proposal : Types.proposal_id; value : 'v }
+    | Accepted of { meta : Meta.t; from : Types.node_id; proposal : Types.proposal_id; value : 'v }
+    | Nack of { meta : Meta.t; from : Types.node_id; hint : Types.proposal_id option }
   [@@deriving sexp, compare, equal]
 
 
@@ -41,7 +46,11 @@ module Message : sig
   (** [sender_of] extracts the sender node ID. *)
   val sender_of : _ t -> Types.node_id
 
-  (** Create a new message of a given topic*)
-  val make: Types.topic -> ('v -> 'v t) -> 'v -> from:Types.node_id -> 'v t
+  (* helpers to construct messages; ensure meta.topic matches provided topic *)
+  val make_permission_request : topic:Types.topic -> from:Types.node_id -> proposal:Types.proposal_id -> 'v t
+  val make_permission_granted : topic:Types.topic -> from:Types.node_id -> last_accepted:(Types.proposal_id * 'v) option -> 'v t
+  val make_suggestion : topic:Types.topic -> from:Types.node_id -> proposal:Types.proposal_id -> value:'v -> 'v t
+  val make_accepted : topic:Types.topic -> from:Types.node_id -> proposal:Types.proposal_id -> value:'v -> 'v t
+  val make_nack : topic:Types.topic -> from:Types.node_id -> hint:Types.proposal_id option -> 'v t
 
 end

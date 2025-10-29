@@ -252,7 +252,7 @@ This technically is an over-arching task, includes the scaffolding works as well
 :EFFORT:   4h
 :END:
 :LOGBOOK:
-CLOCK: [2025-10-29 Wed 08:49]
+CLOCK: [2025-10-29 Wed 08:49]--[2025-10-29 Wed 11:13] =>  2:24
 :END:
 ***** Subsystem: Event Subsystem
 - the big picture:
