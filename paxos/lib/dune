@@ -1,10 +1,4 @@
 (library
  (name paxos)
- (libraries base stdio uuidm)
- (modules_without_implementation
-  value
-  event
-  storage
-  broker
-  paxos_policy
-  paxos_strategy))
+ (libraries base stdio uuidm unix)
+ (modules_without_implementation value event storage broker))

@@ -39,6 +39,12 @@ module Node : sig
 
   val create : Types.node_id -> 'v t
 
+  (** Subscribe to a topic to receive messages*)
+  val subscribe: 'v t -> Types.topic -> 'v t
+
+  (** Unsubscribe to a topic to stop receiving messages *)
+  val unsubscribe: 'v t -> Types.topic -> 'v t
+
   (** handle_message :
       - Polymorphic over the payload type 'v (see the locally-abstract type in the implementation).
       - Inspects the node's current State and the incoming message and returns an updated node.

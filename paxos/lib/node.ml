@@ -1,7 +1,3 @@
-(*
-   Implementation of Node as declared in node.mli.
-*)
-
 open Base
 open Types
 open Message
@@ -38,6 +34,12 @@ module Node = struct
         let new_inbox = Queue.copy node.inbox in
         (Some msg, { node with inbox = new_inbox })
     | None -> (None, node)
+
+  (** STUB: implement this*)
+  let subscribe (node: 'v t) (_topic: Types.topic) = node
+
+  (** STUB: implement this*)
+  let unsubscribe (node: 'v t) (_topic: Types.topic) = node
 
   (**
      [handle_message node msg]

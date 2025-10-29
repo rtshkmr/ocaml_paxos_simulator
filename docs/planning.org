@@ -247,24 +247,299 @@ PaxosPolicy	emphasizes behavioral rules — “what policy we apply under condit
 *** TODO Implement types
 The interfaces need to be all defined properly.
 This technically is an over-arching task, includes the scaffolding works as well
-**** TODO Design Scaffolding
-This part is more of a wiring task
-***** TODO Define Subsystems
+**** TODO Design Scaffolding for Subsystems
 :PROPERTIES:
-:EFFORT:   2h
+:EFFORT:   4h
 :END:
-****** Subsystem: Simulation/Driver Subsystem
+:LOGBOOK:
+CLOCK: [2025-10-29 Wed 08:49]
+:END:
+***** Subsystem: Event Subsystem
+- the big picture:
+
+  1. the events subsystem has the following responsibilities:
+     a. define event buses / dispatchers
+
+        this relates to a topic-callback registry of some sort
+
+     b. provides an event-loop mechanism
+
+        this is for the sequencing and scheduling
+
+     c. routes messages to nodes that subscribed to a topic $\implies$ message-passing plumbing
+
+        topic-based pub-sub plumbing
+
+     d. allows testing by simulating multiple nodes exchanging messages via in-memory event loop
+
+        this is the test-harness for node-communication
+
+  2. Relationships:
+     There may be more guiding questions to determine if we've designed satisfactorily:
+
+
+     a) who owns the event loop? [Bus or Loop Ownership]
+
+        the event loop is the simulation runtime
+
+        _possible actors:_
+        1. app simulator that uses nodes (passive model)
+
+           this is external, so like a simulation runtime.
+           If this, our event bus will be passive so just a registry with a synchronous =publish=
+
+        2. the nodes that react to messages (reactive model)
+
+           this means it's owned by the bus -- then the bus will actively dequeue and dispatch events
+
+        *We can always lift up the passive model and make it reactive.*
+
+        I think that it should be nodes that react to messages, the simulation runtime should probably have the ability to nudge a node for active actions such as proposals.
+
+     b) Who sends messages?
+
+        Nodes will send messages, but the actor is probably a separate application simulator that will use the nodes to send messages
+
+        Nodes plug-in to the event bus (?) I'm not sure about this relationship yet, likely depends on the specifics of subscribing / unsubscribing w.r.t the event bus
+
+        Some possible clarity:
+        * The *bus* manages topics and callback registration
+        * the *simulation runtime* (event loop) is responsible for wiring nodes to those topics
+
+        There are a few models that may work here and we need to make a decision on which:
+
+     c) actor model
+        - functional message-passing graph
+        - brokered simulation
+
+        I think my premature thoughts are that they should be OCaml-idomatic and with a view towards an async framework future that communicates over the socket.
+
+     d) What is a message?
+
+        ADT, parameterised by its value payload -- the variants are fixed and known (5 types of message as per the paxos spec)
+
+        Messages are topic specific, always
+
+     e) message semantics vs events semantics
+
+        I think I don't have a clear separation of concerns on this yet.
+
+        What I have in mind is that events are more of a meta-level abstraction that is more for the simulation exercise I'm doing. I expected it to be used for meta-level logging so that the log outputs will DEMONSTRATE how the different nodes are experiencing reality from their POV and I wanted the event log to be the initial medium through which this teaching is done.
+
+        Therefore, I expected the following kinds of events:
+        - simulation specific events:
+          - timed start "alice starts acting on node X ..."
+          - fault injections: random faults, deterministic faults, timed faults
+        - meta events / processes happening @ paxos algo:
+          - e.g. forward progress happening to come to a final consensus value
+          - e.g. inter-peer interference happening right now
+
+                At the moment, it seems almost like message == event playload. I'm not sure if this is alright for now.
+
+                I think a composite event type would work as well:
+                #+begin_src ocaml
+        type 'v sim_event =
+          | ProtocolMsg of 'v Message.t
+          | Fault of { node_id : int; reason : string }
+          | Tick of int
+                #+end_src
+
+     f) Message delivery semantics
+
+        Guiding questions:
+        - Synchronous (inline callback) or asynchronous (queued delivery)?
+        - Is message order guaranteed per topic? per node?
+
+        I think for this it would be nice to get the async delivery handled.
+
+        It should be ordered per node.
+
+     g) Type uniformity in topics
+
+        All topics should be carrying the same ='v Mesage.t= payload type.
+
+     h) Simulator responsibilities:
+        1. Simulation control:
+           - we should be able to inspect the state of the bus as well as the node states at any point in time during the simulation!
+
+           - not sure how we should simulate the ticks / steps for driving the simulation deterministically though
+
+        2. subscription model and node registration
+
+
+- The events pub sub system is foundational to all this work and comes even before wiring up a basic simulation subsystem.
+
+- I think we should be able to directly use the primitives within one of the MQ libraries to setup pub sub capabilities but I'm unfamiliar with any of the OCaml libraries for this. Therefore, my priority is to just get something up and running, the broker interface I use can be precursor adaptor interface to one of the message queues.
+
+  * this is a decision for later but for some reason, ocaml-zmq is now [[https://github.com/IssuuArchive/ocaml-zmq][a public repo that is archived]] -- doesn't inspire confidence
+  * seemsl like there are better libraries from the ecosystem surrounding the latest ocaml release, which has multicore support
+
+- We have a basic boilerplate for the broker. I think it has drifted from the other interfaces a little, so we need a relook.
+  interface
+  #+begin_src ocaml
+open Base
+
+(**
+  Minimal in-process pub/sub broker signature.
+
+  Intent:
+  - Synchronous publish/subscribe API for v0 deterministic simulation.
+  - Keep type generic so the same broker signature can be implemented later with Lwt/Async.
+  - Subscriber callbacks run synchronously during publish (for the pure simulation).
+*)
+module type Broker = sig
+  type 'a t
+  type sub_handle (** self-referential handle*)
+
+  val create : unit -> 'a t
+
+  (** subscribe returns a handle that can be used to unsubscribe *)
+  val subscribe : 'a t -> topic:string -> ('a -> unit) -> sub_handle
+  val unsubscribe : 'a t -> sub_handle -> unit
+
+  (** publish synchronously invokes subscriber callbacks *)
+  val publish : 'a t -> topic:string -> 'a -> unit
+
+  val stats : 'a t -> (string * int) list
+end
+
+  #+end_src
+****** Conceptual Model
+
+Key moving parts and how they relate to one another
+
+******* A: Ownership and Control Flow
+
+Here's what happens at runtime (for the simulation).
+
+1. Simulation Runtime (Event Loop)
+   - owns the main ticking / stepping logic
+   - drives the overall simulation:
+
+     - generating timed events (e.g. node x initiates proposal), faults and stimuli
+
+     - Calls into =EventBus.publish= to simulate the network transmission
+
+2. Event Bus
+   - a pure registry & routing layer
+   - holds subscriptions =(topic, callback)=
+   - doesn't manage time or scheduling and is purely REACTIVE
+
+3. Nodes
+   - they react to incoming messages via callbacks
+   - may generate outgoing messages by publishing to the bus
+   - they should be able to handle the bulk of the message flow autonomously
+   - the simulation loop could occasionally, as part of its stimuli-creation be able to nudge a node to make a proposal.
+
+******* B: Disambiguating Messages and Events
+
+| layer   | concept                         | example                                                  |
+| --      |                                 |                                                          |
+| message | paxos protocol-level unit       | PermissionRequest, Suggestion...                         |
+| event   | Simulation/meta-level occurence | "Node 1 published message X at time T", "Fault injected" |
+
+  * *messages* are what nodes send, *events* are what simulation records
+
+    =Event= may wrap message or meta-actions
+
+    an example:
+    #+begin_src ocaml -n
+type 'v event =
+  | MsgDelivered of { from: node_id; to_: node_id; msg: 'v Message.t; timestamp: Time.t }
+  | FaultInjected of { node: node_id; fault: string; timestamp: Time.t }
+  | SimulationTick of int
+
+    #+end_src
+  * following,
+    - =EventBus=: routes messages between NODES -- so this is an active registry
+
+    - =EventLog= kind of thing: collects events for introspection, debugging, visualisation
+******* C: Delivery Semantics
+
+The end-goal is to use async delivery mechanisms in an ordered format.
+
+_For v0: more like a functional graph_
+ - we will use a sync publish -- so directly invoking callback
+ - we make things deterministic to be easy
+
+_For v1: more of a timed-actor simulation_
+ - dispatch queue per subscriber (=node_id=) which will be serviced by the simulation loop
+
+ - we can model network latency or dropped packets here
+
+ - even better would be to directly use the socket instead of spending effort with all this simulation plumbing
+******* D: Type Uniformity
+
+All topics should just carry the same ='v Message.t= because it will be easier to implement and we can use a single event-bus for the whole simulation
+
+If we need heterogeneous payloads (e.g. meta-events, logs...) then we can wrap ='v Message.t= in a polymorphic variant or GDT @ the event layer (just for simulations)
+
+******* E: Simulation Runtime -- "Pseudoconcurrent" simulation
+
+It's "Pseudoconcurrent" because we can pause, inspect, step and replay
+
+Needs to support the 2 key features:
+1. ability to inspect:
+   - the state of the bus
+   - the state of ALL the nodes
+
+2. Should be deterministic in its stepping / tick driving
+
+******* KIV guiding questions
+KIV these at the back of the mind first:
+
+1. Bus vs Loop boundary:
+
+   - Should the bus know about “ticks” or remain purely reactive?
+
+     THOUGHT: bus should be purely reactive, whichever makes it a better simulation for an event bus like a network socket (for the future).
+
+     maybe this means that the event bus interface should support
+     for the sync dispatch @ each tick
+     #+begin_src ocaml
+val enqueue : 'a t -> topic:string -> 'a -> unit
+val drain   : 'a t -> unit
+     #+end_src
+
+2. Node lifecycle:
+
+   - How do nodes register and deregister themselves from topics (static or dynamic)?
+
+     Not too sure about this, my intent was that it's not up to them. If we were to simulate events such as a network partitioning / outage then in real life, the nodes may know it (ping test failure) but they don't have a birds-eye view on things. So node lifecycle should probably be managed by the simulator
+
+
+3. Event visibility:
+
+   - Should all publishes be automatically logged as simulation events?
+
+     Yeah we an have levels.
+
+
+4. Time modeling:
+
+   - Is time discrete (ticks) or continuous (real-time timestamps)?
+
+
+   - For teaching/visualization, discrete ticks are easier. We shall go with the easier approach.
+
+   - Testing hooks:
+
+     - How do you pause and inspect the bus queues and node inboxes between ticks?
+
+       The simulator should expose a shell like command panel probably. We can focus on this part a little later as I come closer to finishing my v0 of the project.
+
+
+***** Subsystem: Simulation/Driver Subsystem
 - might want to look into existing pub-sub systems within ocaml ([[https://ocamlverse.net/content/parallelism.html][see this ref on the libraries that support some useful things]])
 - should be able to define connectivity states / network partitioning / random events and so on (similar to the TigerBeetle demo possibilities)
 - nice to haves:
   - record log, so that we can do record-replay / pause execution / history stack and so on.
-
-****** Subsystem: Visualisation Subsystem
+***** Subsystem: Visualisation Subsystem
 - a basic one should be in some sort of log format (JSON, timeline format). We could define a simple log schema here too.
-****** Subsystem: Actual Paxos Consensus Derivation Subsystem
-******* Should include forward progress achievement
-****** Subsystem: Fault Injection Subsystem
-***** TODO Define subsystem interfaces
+***** Subsystem: Actual Paxos Consensus Derivation Subsystem
+****** Should include forward progress achievement
+***** Subsystem: Fault Injection Subsystem
+**** TODO Define subsystem interfaces
 :PROPERTIES:
 :EFFORT:   2h
 :END:

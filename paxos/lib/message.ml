@@ -33,4 +33,28 @@ module Message = struct
     | Suggestion { from; _ }
     | Accepted { from; _ }
     | Nack { from; _ } -> from
+
+  let make (topic : Types.topic) (construct : 'v -> 'v t) (value : 'v) ~(from : Types.node_id) : 'v t =
+    let meta = {
+      Meta.id = Uuidm.v4 (Bytes.create 16);
+      timestamp = Unix.gettimeofday ();
+      topic;
+    } in
+    construct value |> function
+    | PermissionRequest _ | PermissionGranted _ | Nack _ as msg ->
+      (* For now, these variants do not have a 'value', so construct cannot create them,
+         so just build the message with meta and from -- I'm not sure if they should be carrying a value*)
+      (match msg with
+       | PermissionRequest _ -> PermissionRequest { meta; from }
+       | PermissionGranted _ -> PermissionGranted { meta; from }
+       | Nack _ -> Nack { meta; from }
+       | _ -> assert false)
+    | Suggestion _ as msg ->
+      (match msg with
+       | Suggestion { value; _ } -> Suggestion { meta; from; value }
+       | _ -> assert false)
+    | Accepted _ as msg ->
+      (match msg with
+       | Accepted { value; _ } -> Accepted { meta; from; value }
+       | _ -> assert false)
 end

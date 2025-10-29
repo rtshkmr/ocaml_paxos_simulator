@@ -18,12 +18,14 @@ module Message : sig
   module Meta : sig
     type t = {
       id : Uuidm.t;
-      timestamp : Time.t;
-      topic : Types.topic;
+      timestamp : Time.t;  (** Logical / real timestamp*)
+      topic : Types.topic; (** Logical message topic*)
     }
     [@@deriving sexp, compare, equal]
   end
 
+  (** Messages are parameterized by payload type ['v].
+      The Paxos algo defines these 5 variants in its spec.*)
   type 'v t =
     | PermissionRequest of { meta : Meta.t; from : Types.node_id }
     | PermissionGranted of { meta : Meta.t; from : Types.node_id }
@@ -38,5 +40,8 @@ module Message : sig
 
   (** [sender_of] extracts the sender node ID. *)
   val sender_of : _ t -> Types.node_id
+
+  (** Create a new message of a given topic*)
+  val make: Types.topic -> ('v -> 'v t) -> 'v -> from:Types.node_id -> 'v t
 
 end
