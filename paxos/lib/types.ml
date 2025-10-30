@@ -13,7 +13,7 @@ module Types = struct
   let next_proposal_id prev ~node = {seq= prev.seq + 1; node}
 
   type topic = Coordination | Suggestion | Control | Gossip | Metrics
-  [@@deriving sexp, compare, equal]
+  [@@deriving sexp, compare, equal, hash]
 end
 
 module Time = struct

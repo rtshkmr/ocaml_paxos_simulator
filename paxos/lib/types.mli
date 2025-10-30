@@ -21,7 +21,7 @@ module Types : sig
 
   (** Explicit topics for which nodes communicate*)
   type topic = Coordination | Suggestion | Control | Gossip | Metrics
-  [@@deriving sexp, compare, equal]
+  [@@deriving sexp, compare, hash, equal]
 
   val make_proposal_id : seq:int -> node:node_id -> proposal_id
   (** Convenience builder helpers *)

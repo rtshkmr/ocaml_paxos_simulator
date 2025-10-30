@@ -5,6 +5,9 @@ open Event_bus
 open Types
 open Message
 
+(** Make_node is functor that allows us to create a Node.
+    This allows us to effectively bind together an Value, Storage and Bus over which communication happens.
+*)
 module Make_node (V : Value.S)
   (Storage : Storage.S)
   (Bus : sig
@@ -30,20 +33,28 @@ struct
     [@@deriving sexp]
   end
 
+
   type t = {
     id : Types.node_id;
     roles : roles;
     mutable state : State.t;
     storage : Storage.t;
-    mutable subs : Bus.sub_handle list;
+    mutable subs : (Bus.sub_handle, V.t Message.t Bus.t) Hashtbl.t;
     transitions : string list ref;  (* light-weight history for debugging *)
   }
 
   let id t = t.id
   let roles t = t.roles
   let state t = t.state
+  let bus_for_handle t handle =
+    match Hashtbl.Poly.find t.subs handle with
+    | Some bus -> bus
+    | None -> failwith "Handle not found"
 
   let dump_state t = State.sexp_of_t t.state
+
+
+
 
   (* helper to persist acceptor record *)
   module Acceptor_record = struct
@@ -70,6 +81,7 @@ struct
       *)
       Stdio.printf "Echo received message at node %d: %s\n %!" t.id
         (Sexplib.Sexp.to_string (Message.sexp_of_t V.sexp_of_t msg));
+
       (* Bus.publish t.bus ~topic:Types.Coordination msg; *)
       ()
     | _, PermissionGranted _ -> ()
@@ -89,25 +101,29 @@ struct
     t.state <- new_state
 
   (* unsubscribe helpers *)
-  let shutdown t ~bus =
-    List.iter t.subs ~f:(fun h -> Bus.unsubscribe bus h);
-    t.subs <- []
-
+  let shutdown t =
+    Hashtbl.iteri t.subs ~f:(fun ~key ~data -> Bus.unsubscribe data key);
+    Hashtbl.clear t.subs
 
   let create ?(topics=[]) ?(state=State.Idle) ~id ~roles ~storage ~bus () =
-    let node = {
-      id;
-      roles;
-      state;
-      storage;
-      subs = [];
-      transitions = ref [];
-    } in
+  let node = {
+    id;
+    roles;
+    state;
+    storage;
+    subs= Hashtbl.Poly.create ();
+    transitions = ref [];
+  } in
+  let handler (msg: V.t Message.t) = handle_message node msg in
+  List.iter topics ~f:(fun topic ->
+    let handle = Bus.subscribe bus ~topic (fun msg -> handler (msg : V.t Message.t)) in
+    Hashtbl.add_exn node.subs ~key:handle ~data:bus
+  );
 
-    let handler (msg: V.t Message.t) = handle_message node msg in
-    node.subs <-
-      List.map topics ~f:(fun topic ->
-        Bus.subscribe bus ~topic (fun msg -> handler (msg : V.t Message.t)));
-        Stdio.eprintf "Node %d subscribed to topics %s\n%!" node.id (topics |> List.map ~f:(fun topic -> Sexp.to_string(Types.sexp_of_topic topic)) |> String.concat ~sep:", ");
-    node
+  Stdio.eprintf "Node %d subscribed to topics %s\n%!"
+    node.id
+    (topics |> List.map ~f:(fun topic -> Sexp.to_string (Types.sexp_of_topic topic))
+     |> String.concat ~sep:", ");
+  node
+
 end

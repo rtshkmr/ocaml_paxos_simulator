@@ -4,7 +4,7 @@ open Types
 module type S = sig
   type 'a t
 
-  type sub_handle
+  type sub_handle [@@deriving sexp, compare, equal, hash]
 
   val create : ?logger:(Types.topic -> 'a -> string) -> unit -> 'a t
   (** Create a bus for payload type 'a.

@@ -7,7 +7,7 @@ open Types
 module type S = sig
   type 'a t
 
-  type sub_handle
+  type sub_handle [@@deriving sexp, compare, equal, hash]
 
   val create : ?logger:(Types.topic -> 'a -> string) -> unit -> 'a t
 
@@ -25,7 +25,11 @@ module type S = sig
 end
 
 module Event_bus : S = struct
+  (** sub_handle is the type for what a subscription handle looks like.
+      -  [id] here refers to a subscription id (arbitrary for now)
+  *)
   type sub_handle = {topic: Types.topic; id: int}
+  [@@deriving sexp, compare, equal, hash]
 
   type 'a callback = 'a -> unit
 
