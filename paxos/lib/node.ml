@@ -18,6 +18,7 @@ struct
   module State = struct
     type t =
       | Idle
+      | Echo
       | Preparing of { current_proposal : Types.proposal_id; awaiting : Types.node_id list }
       | WaitingForPromises of {
           proposal : Types.proposal_id;
@@ -38,35 +39,6 @@ struct
     transitions : string list ref;  (* light-weight history for debugging *)
   }
 
-  let create ~id ~roles ~storage ~bus () =
-    let node = {
-      id;
-      roles;
-      state = State.Idle;
-      storage;
-      subs = [];
-      transitions = ref [];
-    } in
-
-    (* subscribe generic handler on coordination topics *)
-    let handler (msg : V.t Message.t) =
-      (* wrapper calling node_handle *)
-      let () = (* call node's message handler *)
-        match msg with
-        | PermissionRequest _ -> ()
-        | PermissionGranted _ -> ()
-        | Suggestion _ -> ()
-        | Accepted _ -> ()
-        | Nack _ -> ()
-      in ()
-    in
-
-    (* For v0 we subscribe to Coordination and Suggestion topics (example) *)
-    let h1 = Bus.subscribe bus ~topic:Types.Coordination (fun m -> handler (m : V.t Message.t)) in
-    let h2 = Bus.subscribe bus ~topic:Types.Suggestion (fun m -> handler (m : V.t Message.t)) in
-    node.subs <- [h1; h2];
-    node
-
   let id t = t.id
   let roles t = t.roles
   let state t = t.state
@@ -84,8 +56,11 @@ struct
   (* TODO Node's message handler: skeleton (detailed logic to be filled) *)
   let handle_message (t : t) (msg : V.t Message.t) =
     (* pattern match and implement acceptor / proposer behavior *)
-    match msg with
-    | PermissionRequest { from; proposal; _ } ->
+    match t.state, msg with
+    | State.Idle, _ ->
+      Stdio.print_endline ("Bro I'm idle - Node" ^ ( Int.to_string t.id ));
+      ()
+    | _, PermissionRequest { from; proposal; _ } ->
       (* as an acceptor, consult storage, decide whether to promise *)
       (* Pseudocode:
          let open Storage in
@@ -93,24 +68,46 @@ struct
          | Ok (Some record) -> check record.promised
          | Ok None -> grant and persist promised=proposal
       *)
+      Stdio.printf "Echo received message at node %d: %s\n %!" t.id
+        (Sexplib.Sexp.to_string (Message.sexp_of_t V.sexp_of_t msg));
+      (* Bus.publish t.bus ~topic:Types.Coordination msg; *)
       ()
-    | PermissionGranted _ -> ()
-    | Suggestion { from; proposal; value; _ } ->
+    | _, PermissionGranted _ -> ()
+    | _,Suggestion { from; proposal; value; _ } ->
       ()
-    | Accepted _ -> ()
-    | Nack _ -> ()
-  ;;
+    | _, Accepted _ -> ()
+    | _, Nack _ -> ()
 
   (* Node propose: create PermissionRequest and rely on simulator/bus to broadcast *)
   let propose ~bus t ~proposal ~value =
-    Stdio.print_endline("proposing");
     (* Build PermissionRequest for this node *)
-    let msg = Message.make_permission_request ~topic:Types.Coordination ~from:t.id ~proposal in
+    let msg = Message.make_permission_request ~topic:Types.Coordination ~from:t.id ~proposal ~value in
     (* For v0 we'll have simulator broadcast on behalf of node; but provide direct publish too *)
     Bus.enqueue bus ~topic:Types.Coordination (msg : V.t Message.t)
+
+  let set_node_state (t : t) (new_state : State.t) : unit =
+    t.state <- new_state
 
   (* unsubscribe helpers *)
   let shutdown t ~bus =
     List.iter t.subs ~f:(fun h -> Bus.unsubscribe bus h);
     t.subs <- []
+
+
+  let create ?(topics=[]) ?(state=State.Idle) ~id ~roles ~storage ~bus () =
+    let node = {
+      id;
+      roles;
+      state;
+      storage;
+      subs = [];
+      transitions = ref [];
+    } in
+
+    let handler (msg: V.t Message.t) = handle_message node msg in
+    node.subs <-
+      List.map topics ~f:(fun topic ->
+        Bus.subscribe bus ~topic (fun msg -> handler (msg : V.t Message.t)));
+        Stdio.eprintf "Node %d subscribed to topics %s\n%!" node.id (topics |> List.map ~f:(fun topic -> Sexp.to_string(Types.sexp_of_topic topic)) |> String.concat ~sep:", ");
+    node
 end

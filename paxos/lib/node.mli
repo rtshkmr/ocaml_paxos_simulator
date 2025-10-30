@@ -33,6 +33,7 @@ module Make_node :
        module State : sig
          type t =
            | Idle
+           | Echo
            | Preparing of { current_proposal : Types.proposal_id; awaiting : Types.node_id list }
            | WaitingForPromises of {
                proposal : Types.proposal_id;
@@ -47,12 +48,15 @@ module Make_node :
        type t
 
        val create :
+         ?topics:Types.topic list ->
+         ?state:State.t ->
          id:Types.node_id ->
          roles:roles ->
          storage:Storage.t ->
          bus:(V.t Message.t) Bus.t ->
          unit -> t
 
+       val set_node_state : t -> State.t -> unit
        val id : t -> Types.node_id
        val roles : t -> roles
        val state : t -> State.t

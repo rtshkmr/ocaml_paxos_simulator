@@ -647,14 +647,49 @@ CLOSED: [2025-10-30 Thu 15:37]
   I'm not going to rely on AI code generation henceforth, the boilerplate code has whacked out types which mess things up.
 
   We need to be intentional about how we design the interfaces and using AI code is like a big-bang.
+**** [ ] Node lifecycle control
+- we start nodes off as idle. we can actually set states there after.
+- these are technically supposed to be acceptor states and follow the acceptor FSMs, have to get back to this soon to actually make it follow
+- Key tasks:
+  - [X] should be able to set the node as idle (without a shutdown)
+  - [X] should be able to change state (state setter)
+  - [ ] node should be able to listen to simulation topic and set itself on or off based on what the simulator says (low priority)
 **** [ ] Ensure =event_bus= works
 :LOGBOOK:
+CLOCK: [2025-10-30 Thu 16:31]
+CLOCK: [2025-10-30 Thu 16:00]--[2025-10-30 Thu 16:31] =>  0:31
 CLOCK: [2025-10-30 Thu 15:41]--[2025-10-30 Thu 15:42] =>  0:01
 :END:
 
 We know that we can send messages over from node A to node B, we need to be able to send messages back.
 
-Confirm event bus publish/subscribe works with dummy print callbacks
+- [X] Confirm event bus publish/subscribe works with dummy print callbacks
+- [ ] Confirm that responding works. Handle event can respond to things.
+
+***** Notes
+- I notice that the print statements within the subscribe functions and all are coming out in an order that doesn't make sense to me. I suspect it's because the print functions are batched / buffered.
+
+  I had to explicitly flush buffers when i use print statements (by finishing the string with =%!=) and then the ordering makes sense
+
+  Before:
+  #+begin_example
+ॐ ❯ dune exec bin/simulation.exe
+Draining the queue of 1 items
+Echo received message at node 2: (PermissionRequest(meta((id 00000000-0000-4000-8000-000000000000)(timestamp 1761816715.7327721)(topic Coordination)))(from 1)(proposal((seq 1)(node 1))))
+Echo received message at node 1: (PermissionRequest(meta((id 00000000-0000-4000-8000-000000000000)(timestamp 1761816715.7327721)(topic Coordination)))(from 1)(proposal((seq 1)(node 1))))
+Draining the queue of 1 items
+Echo received message at node 2: (PermissionRequest(meta((id 00000000-0000-4000-8000-000000000000)(timestamp 1761816715.732795)(topic Coordination)))(from 2)(proposal((seq 2)(node 2))))Bro I'm idle - Node 1
+Node 1 subscribed to topics Coordination, Suggestion
+  #+end_example
+  After:
+  #+begin_src example
+ॐ ❯ dune exec bin/simulation.exe
+Node 1 subscribed to topics Coordination, Suggestion
+Node 2 subscribed to topics Coordination, Suggestion
+Draining the queue of 1 items
+Echo received message at node 2: (PermissionRequest(meta((id 00000000-0000-4000-8000-000000000000)(timestamp 1761816886.230041)(topic Coordination)))(from 1)(proposal((seq 1)(node 1))))Echo received message at node 1: (PermissionRequest(meta((id 00000000-0000-4000-8000-000000000000)(timestamp 1761816886.230041)(topic Coordination)))(from 1)(proposal((seq 1)(node 1))))Draining the queue of 1 items
+Echo received message at node 2: (PermissionRequest(meta((id 00000000-0000-4000-8000-000000000000)(timestamp 1761816886.230056)(topic Coordination)))(from 2)(proposal((seq 2)(node 2))))Bro I'm idle - Node 1
+  #+end_src
 
 **** [ ] Add better logging to simulation
 
