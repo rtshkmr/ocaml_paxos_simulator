@@ -39,21 +39,19 @@ struct
     roles : roles;
     mutable state : State.t;
     storage : Storage.t;
-    mutable subs : (Bus.sub_handle, V.t Message.t Bus.t) Hashtbl.t;
+    mutable subs : (Types.topic, (Bus.sub_handle, V.t Message.t Bus.t) Hashtbl.t) Hashtbl.t;
     transitions : string list ref;  (* light-weight history for debugging *)
   }
 
   let id t = t.id
   let roles t = t.roles
   let state t = t.state
-  let bus_for_handle t handle =
-    match Hashtbl.Poly.find t.subs handle with
-    | Some bus -> bus
-    | None -> failwith "Handle not found"
+  let buses_for_topic t topic =
+  match Hashtbl.find t.subs topic with
+  | Some table -> Hashtbl.fold table ~init:[] ~f:(fun ~key:_ ~data:bus acc -> bus :: acc)
+  | None -> []
 
   let dump_state t = State.sexp_of_t t.state
-
-
 
 
   (* helper to persist acceptor record *)
@@ -64,12 +62,29 @@ struct
     } [@@deriving sexp]
   end
 
+  let set_node_state (t : t) (new_state : State.t) : unit =
+    t.state <- new_state
+
   (* TODO Node's message handler: skeleton (detailed logic to be filled) *)
-  let handle_message (t : t) (msg : V.t Message.t) =
+  let handle_message (node : t) (msg : V.t Message.t) =
     (* pattern match and implement acceptor / proposer behavior *)
-    match t.state, msg with
+    match node.state, msg with
     | State.Idle, _ ->
-      Stdio.print_endline ("Bro I'm idle - Node" ^ ( Int.to_string t.id ));
+      Stdio.print_endline ("Bro I'm idle - Node" ^ ( Int.to_string node.id ));
+      ()
+    | State.Echo, PermissionRequest { from; proposal; _ } ->
+      Stdio.printf ">>> Rcv @ echo node %d: \n\t%s\n %!" node.id
+        (Sexplib.Sexp.to_string (Message.sexp_of_t V.sexp_of_t msg));
+
+      let response_topic = Message.topic_of msg in
+      let buses = buses_for_topic node response_topic in
+         (* TODO: TEST: this is just to echo back the same thing -- it will keep echoing each other back infinitely lol.*)
+        List.iter buses ~f:(fun bus -> (Bus.publish bus ~topic:response_topic msg));
+        (* SEE ME: how can i call something like
+                  Node.set_node_state n1 Node.State.Idle
+ here?
+ *)
+        set_node_state node State.Idle;
       ()
     | _, PermissionRequest { from; proposal; _ } ->
       (* as an acceptor, consult storage, decide whether to promise *)
@@ -79,10 +94,13 @@ struct
          | Ok (Some record) -> check record.promised
          | Ok None -> grant and persist promised=proposal
       *)
-      Stdio.printf "Echo received message at node %d: %s\n %!" t.id
+      Stdio.printf "Echo received message at node %d: %s\n %!" node.id
         (Sexplib.Sexp.to_string (Message.sexp_of_t V.sexp_of_t msg));
 
-      (* Bus.publish t.bus ~topic:Types.Coordination msg; *)
+      (* let response_topic = Message.topic_of msg in *)
+      (* let buses = buses_for_topic t response_topic in *)
+      (*    (\* TODO: TEST: this is just to echo back the same thing -- it will keep echoing each other back infinitely lol.*\) *)
+      (*   List.iter buses ~f:(fun bus -> (Bus.publish bus ~topic:response_topic msg)); *)
       ()
     | _, PermissionGranted _ -> ()
     | _,Suggestion { from; proposal; value; _ } ->
@@ -97,16 +115,18 @@ struct
     (* For v0 we'll have simulator broadcast on behalf of node; but provide direct publish too *)
     Bus.enqueue bus ~topic:Types.Coordination (msg : V.t Message.t)
 
-  let set_node_state (t : t) (new_state : State.t) : unit =
-    t.state <- new_state
-
   (* unsubscribe helpers *)
   let shutdown t =
-    Hashtbl.iteri t.subs ~f:(fun ~key ~data -> Bus.unsubscribe data key);
+    Hashtbl.iteri t.subs ~f:(fun ~key:_ ~data:inner_table ->
+        Hashtbl.iteri inner_table ~f:(fun ~key:handle ~data:bus ->
+            Bus.unsubscribe bus handle
+          );
+        Hashtbl.clear inner_table
+      );
     Hashtbl.clear t.subs
 
   let create ?(topics=[]) ?(state=State.Idle) ~id ~roles ~storage ~bus () =
-  let node = {
+    let node = {
     id;
     roles;
     state;
@@ -116,13 +136,19 @@ struct
   } in
   let handler (msg: V.t Message.t) = handle_message node msg in
   List.iter topics ~f:(fun topic ->
-    let handle = Bus.subscribe bus ~topic (fun msg -> handler (msg : V.t Message.t)) in
-    Hashtbl.add_exn node.subs ~key:handle ~data:bus
-  );
+    let topic_table =
+      match Hashtbl.find node.subs topic with
+      | Some table -> table
+      | None ->
+        let table = Hashtbl.Poly.create () in
+        Hashtbl.add_exn node.subs ~key:topic ~data:table;
+        table
+    in
+    let handle = Bus.subscribe bus ~topic (fun msg -> handler msg) in
+    Hashtbl.add_exn topic_table ~key:handle ~data:bus
+    );
 
-  Stdio.eprintf "Node %d subscribed to topics %s\n%!"
-    node.id
-    (topics |> List.map ~f:(fun topic -> Sexp.to_string (Types.sexp_of_topic topic))
+    Stdio.eprintf "Node %d subscribed to topics %s\n%!" node.id (topics |> List.map ~f:(fun topic -> Sexp.to_string (Types.sexp_of_topic topic))
      |> String.concat ~sep:", ");
   node
 

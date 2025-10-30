@@ -45,8 +45,14 @@ let () = B.drain bus
 
 let () = Node.set_node_state n1 Node.State.Idle
 
-let () =
-  let proposal = Types.Types.make_proposal_id ~seq:2 ~node:2 in
-  Node.propose ~bus n2 ~proposal ~value:my_2_val
+let () = Node.set_node_state n2 Node.State.Idle
 
 let () = B.drain bus
+
+(* let () = Node.set_node_state n1 Node.State.Idle *)
+
+(* let () = *)
+(*   let proposal = Types.Types.make_proposal_id ~seq:2 ~node:2 in *)
+(*   Node.propose ~bus n2 ~proposal ~value:my_2_val *)
+
+(* let () = B.drain bus *)
