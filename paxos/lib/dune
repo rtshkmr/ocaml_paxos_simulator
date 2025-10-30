@@ -1,2 +1,6 @@
 (library
- (name paxos))
+ (name paxos)
+ (libraries base stdio uuidm unix)
+ (preprocess
+  (pps ppx_jane))
+ (modules_without_implementation event value storage))

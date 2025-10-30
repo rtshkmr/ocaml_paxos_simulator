@@ -1,4 +1,4 @@
 (executable
  (public_name paxos)
- (name main)
- (libraries paxos))
+ (name simulation)
+ (libraries paxos base))
