@@ -1,27 +1,24 @@
+[@@@ocaml.warning "-26"]
+
 open Paxos
+open Base
 
-(* --- we use this for the simulation harness! *)
-let () = Stdio.print_endline Msg.greeting
-
-
-(* module Topic = struct *)
-(*   type t = Types.topic [@@deriving compare, sexp] *)
-(* end *)
-
-(* module Bus = Event_bus.Make(Topic) *)
-(* module V = Value_string *)
-(* module Storage = Storage_mem.Make_storage_mem(V) *)
-(* module Node = Node.Make_node(V)(Storage)(Bus) *)
-
-(* let () = *)
-(*   let bus = Bus.create () in *)
-(*   let s1 = Storage.create () in *)
-(*   let s2 = Storage.create () in *)
-(*   let n1 = Node.create ~id:"n1" ~roles:["Proposer"] ~storage:s1 in *)
-(*   let n2 = Node.create ~id:"n2" ~roles:["Acceptor"] ~storage:s2 in *)
-(*   Node.attach_handlers n2 ~bus ~topics:[Types.Coordination] ~handle_message:Node.handle_message; *)
-(*   Node.propose n1 ~bus ~proposal:1 ~value:"hi there"; *)
-(*   Stdio.printf "n2 state: %s\n" (Sexp.to_string_hum (Node.dump_state n2)); *)
-(*   Node.shutdown n1 ~bus; *)
-(*   Node.shutdown n2 ~bus; *)
-(*   () *)
+let () =
+  let module V = Value_string.Value_string in
+  let module S = Storage_mem.Storage_mem (V) in
+  let storage = S.create () in
+  let module B = Event_bus.Event_bus in
+  let bus =
+    Event_bus.Event_bus.create
+      ~logger:(fun topic msg ->
+        Printf.sprintf "[LOG][%s] %s"
+          (Sexplib.Sexp.to_string (Types.Types.sexp_of_topic topic))
+          (Sexplib.Sexp.to_string (Message.Message.sexp_of_t V.sexp_of_t msg)) )
+      ()
+  in
+  let module Node = Node.Make_node (V) (S) (B) in
+  let n1 = Node.create ~id:1 ~roles:[Proposer] ~storage ~bus () in
+  let n2 = Node.create ~id:2 ~roles:[Acceptor] ~storage ~bus () in
+  let proposal = Types.Types.make_proposal_id ~seq:1 ~node:1 in
+  Node.propose ~bus n1 ~proposal ~value:(V.t_of_sexp (Sexplib.Sexp.Atom "foo")) ;
+  Event_bus.Event_bus.drain bus

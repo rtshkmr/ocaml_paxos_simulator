@@ -29,3 +29,4 @@ module type S = sig
   val load : t -> key -> (value option, Error.t) Result.t
   val snapshot : t -> (unit, Error.t) Result.t
 end
+

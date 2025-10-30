@@ -1,5 +1,3 @@
-open Base
-
 
 (* module type Value = sig *)
 (*   type t [@@deriving sexp, compare, equal, hash] *)

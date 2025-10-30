@@ -103,6 +103,7 @@ struct
 
   (* Node propose: create PermissionRequest and rely on simulator/bus to broadcast *)
   let propose ~bus t ~proposal ~value =
+    Stdio.print_endline("proposing");
     (* Build PermissionRequest for this node *)
     let msg = Message.make_permission_request ~topic:Types.Coordination ~from:t.id ~proposal in
     (* For v0 we'll have simulator broadcast on behalf of node; but provide direct publish too *)

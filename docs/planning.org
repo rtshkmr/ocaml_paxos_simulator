@@ -146,6 +146,8 @@ CLOCK: [2025-10-28 Tue 16:26]--[2025-10-28 Tue 16:36] =>  0:10
 
 We shall start with defining the interface for some basic types and attempt to make things reasonably generic.
 
+These sections will have notes that describe some requirements and should have some updated implementation notes within an "Implementation" subtree.
+
 **** General Notes
 Some general things to consider:
 
@@ -153,21 +155,31 @@ Some general things to consider:
 - Identify which invariants can be encoded in the type system
 - Document assumptions about immutability and side effects
 - consider using one of the default distributed computing libraries for this setup. [[https://ocamlverse.net/content/parallelism.html][See this]] for the libraries used in ocaml for distributed computing, we may not directly use these libraries yet but I want my interfaces to be designed such that it's easier to just adapt to those external libs.
-
-
 ***** Things to avoid:
 1. interface explosion to avoided, but I think my current ideas on the interfaces make sense. There's a clear separation of concerns happening here: IDs, messages, node states, storage, network, simulation, and strategy layers
+
+   I think I ended up sufferring from this because of some reliance on chatbots to generate the boilerplate.
+
 2. remember modules that need it should have system meta information (=quorum=, =num_peers=) and so on
+
 3. just keep the strategy mixins as functors instead of inheritance-style mixins
 
 **** ID type
 - there's going to be peer id / node id
 - there's going to be message id that would be parameterised based on the message type probably
 - there's going to be proposal ids which would be a product type of peer and message ids
+
+***** Implementation
+
+Kept this within the general types module,
+
 **** Message type
 - for our paxos implementations there's going to be 5 message types and they're going to hold a bunch of metadata as well
 
 - meta should probably be a sub module within message so that we can standardise some
+
+***** Implementation
+A message is sent over a communication channel (=event_bus=) for a particular topic (simulation-level meta topic =Types.topic=)
 
 **** Node Type
 - Keeps things clean on what a peer node can do
@@ -186,6 +198,18 @@ This helps all peers determine what constitutes a majority (since it’s a fixed
   * transition invariants should be managed well
 - this has a clear FSM
 
+***** Implementation
+
+We have a good idea of what a node looks like since it's a peer in the paxos protocol.
+
+Everything it uses is polymorphic, that why I've modelled it as a functor.
+
+ - A node reaches consensus with it's peers about a Value
+
+ - A node persists that Value using a Storage
+
+ - A node receives messages via a Bus (communication channel)
+
 **** Event Type
 - an event is a time-based action that has may be in the past / present or future
 
@@ -195,14 +219,30 @@ This helps all peers determine what constitutes a majority (since it’s a fixed
 
 - message meta and event meta may have some overlaps here, I may expect message meta to contain within it event(s)
 
+
+***** Implementation
+
+This is supposed to be for meta events relevant to the simulation system, we shall ignore this for the time-being.
+
 **** Value Type
 - this will represent the replicable value, which needs to be abstract
 - questions:
   if it's an abstract, opaque blob, what's a good way to TYPE it?
      - a suggestion should be comparable -- so the whole total comparison and comparison witness and all that
+
+***** Implementation
+
+ Just an interface that we can extend in the future.
+
 **** Storage Type
 - just to formalise the persistance medium that a value may use
 - likely to just be a file, but I would like to treat this as a generic IO channel and build in a generic fashion.
+
+***** Implementation
+
+For now just stores a key and a value.
+
+Storage has lifecycle functions that we can use. Node controls the Storage lifecycle.
 
 **** Network Types
 Since the v0 of this implementation will be synchronous but allow for an async framework drop-in, I want to also ensure that this eventually goes beyond a demo and actually ends up being able to quickly extend it into a networking interface.
@@ -211,6 +251,12 @@ We should add in some interfaces for this so that it's easy to do so.
 
 off the top of the head, this relates to things like a socket interface and such communication I/O interfaces
 
+***** Implementation
+
+Our =Event_Bus= is the communication channel that we're using for message passing between nodes.
+
+=Event_Bus= passes =Messages= using callback registry over dedicated topics. Nodes can register with the =event_bus= and subscribe to receive messages over topics that they're interested in.
+
 **** Driver / Simulator Types
 - not sure what this should be, but I think it's worth adding in some wrappers for defining my simulations.
 
@@ -218,23 +264,31 @@ off the top of the head, this relates to things like a socket interface and such
 - the kind of faults that we would wish to introduce (either randomly or deterministically via timeout or something of that nature)
 - this is entirely for the purpose of having good simulations
 
+***** Implementation
+
+The simulation harness is our main application entrypoint @ =bin/simulation.ml=
+
 **** Application Type
 - the literature does a distinction between parallel application state and actual peer node state. I think there's some value to consider these aspects. I can see how A driver / simulator drives an application within its simulation operating environment. Sometime in the future when this project matures, then we could just yoink that and put it in an actual operating environment instead of a simulated one.
 - Just a note: I expect the application state to be largely imperatively defined while the rest of the paxos logic to be pure and performant.
 
-**** PaxosStrategy Types
-- note that in the course of this project, we will be adding in different mixin-like strategies. The purpose of this is to make Paxos composable -- to eventually implement the
+***** Implementation
+
+For now we shall just keep it the same as =Simulation=
+
+**** PaxosPolicy Types
+- note that in the course of this project, we will be adding in different mixin-like policies. The purpose of this is to make Paxos composable -- to eventually implement the
 
 - some of them are mandatory based on paxos / multi-paxos spec
 - some of them are interchangeable "modules" that answer questions for which the spec doesn't give an opinion:
-  a) ForwardProgress Strategy
-  b) Anti-Inter-Peer Interference Strategy
+  a) ForwardProgress Policy
+  b) Anti-Inter-Peer Interference Policy
 
-  these strategies would have their own sub-strategies that we might pick and chose.
+  these policies would have their own sub-policies that we might pick and chose.
 
 - i forsee a combinator pattern being used for this. Wherein we could attempt to use some sort of state machine builder style pipelining.
 
-  It would be amazing to see how peers with DIFFERENT strategies may / may not work together.
+  It would be amazing to see how peers with DIFFERENT policies may / may not work together.
 
 ***** Decision: Naming Policy vs Strategy
 Paxos Strategy Naming — PaxosPolicy
@@ -244,13 +298,25 @@ Name	Connotation	When to Use
 PaxosStrategy	emphasizes algorithmic approach — “how we handle proposals”	if you want to model algorithmic variation (e.g., Multi-Paxos, Fast-Paxos)
 
 PaxosPolicy	emphasizes behavioral rules — “what policy we apply under conditions”	if you’re abstracting decision heuristics (timeouts, retries, etc.)
-*** TODO Implement types
+***** Implementation
+
+Different paxos implmentations shall be Strategies
+
+Different extensions that the spec doesn't make a judgement on shall be Policies.
+
+*** DONE Design types
+CLOSED: [2025-10-30 Thu 15:31]
+- CLOSING NOTE [2025-10-30 Thu 15:31] \\
+  Done
 The interfaces need to be all defined properly.
 This technically is an over-arching task, includes the scaffolding works as well
-**** TODO Design Scaffolding for Subsystems
+**** DONE Design Scaffolding for Subsystems
+CLOSED: [2025-10-30 Thu 15:21]
 :PROPERTIES:
 :EFFORT:   4h
 :END:
+- CLOSING NOTE [2025-10-30 Thu 15:21] \\
+  This was done a while ago, need to write some notes on "subsystems" though.
 :LOGBOOK:
 CLOCK: [2025-10-29 Wed 08:49]--[2025-10-29 Wed 11:13] =>  2:24
 :END:
@@ -528,7 +594,6 @@ val drain   : 'a t -> unit
 
        The simulator should expose a shell like command panel probably. We can focus on this part a little later as I come closer to finishing my v0 of the project.
 
-
 ***** Subsystem: Simulation/Driver Subsystem
 - might want to look into existing pub-sub systems within ocaml ([[https://ocamlverse.net/content/parallelism.html][see this ref on the libraries that support some useful things]])
 - should be able to define connectivity states / network partitioning / random events and so on (similar to the TigerBeetle demo possibilities)
@@ -539,23 +604,28 @@ val drain   : 'a t -> unit
 ***** Subsystem: Actual Paxos Consensus Derivation Subsystem
 ****** Should include forward progress achievement
 ***** Subsystem: Fault Injection Subsystem
-**** TODO Define subsystem interfaces
+**** DONE Define subsystem interfaces
+CLOSED: [2025-10-30 Thu 15:30]
 :PROPERTIES:
 :EFFORT:   2h
 :END:
+
+- CLOSING NOTE [2025-10-30 Thu 15:30] \\
+  Going to mark this as done, this task is a little stale, more granualar ones are necessary in the implementation section
+This relates to how the different parts work together.
+
+Perhaps:
+
 - Simulation <-> Paxos Consensus: event scheduling and message delivery
 - Paxos Consensus <-> Fault Injection: injection hooks for dropped/delayed messages
 - Paxos Consensus <-> Visualization: event log or trace API
-**** TODO Implement modules to support
-*** TODO Review OCaml module / dune basics
-:PROPERTIES:
-:EFFORT:   2h
-:END:
-small refresher on how to structure a library with submodules
-*** TODO Module design review
+*** DONE Module design review
+CLOSED: [2025-10-30 Thu 15:31]
 :PROPERTIES:
 :EFFORT:   1h
 :END:
+- CLOSING NOTE [2025-10-30 Thu 15:31] \\
+  Done
 - For each module, write short notes:
   - responsibility
   - key functions
@@ -569,12 +639,42 @@ small refresher on how to structure a library with submodules
 - the driver of the events
 - the setup of the "stubs" or dummy nodes for simulation
 - event logging
+**** [X] Add simulation harness and wire up without compilation issues
+CLOSED: [2025-10-30 Thu 15:37]
+- CLOSING NOTE [2025-10-30 Thu 15:37] \\
+  This took a while. I had to rewrite the code and solve the typing issues.
+
+  I'm not going to rely on AI code generation henceforth, the boilerplate code has whacked out types which mess things up.
+
+  We need to be intentional about how we design the interfaces and using AI code is like a big-bang.
+**** [ ] Ensure =event_bus= works
+:LOGBOOK:
+CLOCK: [2025-10-30 Thu 15:41]--[2025-10-30 Thu 15:42] =>  0:01
+:END:
+
+We know that we can send messages over from node A to node B, we need to be able to send messages back.
+
+Confirm event bus publish/subscribe works with dummy print callbacks
+
+**** [ ] Add better logging to simulation
+
+We can add logging at every callback level so all the message passing is logged out.
+
+**** [ ] Add storage pattern, in memory
+
+**** [ ] Basic
 *** TODO Implement v0 (core algorithm)
 :PROPERTIES:
 :EFFORT:   3h
 :END:
 — deterministic single-threaded simulation
 - then, an integration between this and the orchestration code
+**** [ ] Add in proper logic for Node's @ =handle_event=
+***** [ ] for acceptor logic
+***** [ ] for state transitions
+***** [ ] learner behaviour
+
+**** [ ] Make Simulation into a loop
 *** TODO Implementation v1 (with async frameworks) [optional]
 ** Testing
 *** TODO Iterate and test scenarios
