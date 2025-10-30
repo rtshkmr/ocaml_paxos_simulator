@@ -1,8 +1,7 @@
 open Base
 open Types
-open Storage
 
-module Storage_mem (V : Storage) = struct
+module Storage_mem (V : Storage.S) = struct
   type key = Types.node_id
   type value = {
     promised : Types.proposal_id option;

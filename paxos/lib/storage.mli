@@ -15,8 +15,8 @@ open Base
   - The 'key' and 'value' are abstract; an implementation for acceptor state will
     concretize these types (e.g., string -> serialized bytes or a small record).
 *)
-module type Storage = sig
-  type t
+module type S = sig
+  type t [@@deriving sexp]
 
   (** typically the <node_id> / <slot_id>*)
   type key [@@deriving sexp]

@@ -1,12 +1,12 @@
+[@@@ocaml.warning "-32-33-27-69"] (** TODO: remove unused variable warnings*)
+
 open Base
 open Event_bus
 open Types
-open Value
 open Message
-open Storage
 
-module Node (V : sig type t [@@deriving sexp, compare, equal] val to_string : t -> string end)
-  (Storage : Storage)
+module Make_node (V : Value.S)
+  (Storage : Storage.S)
   (Bus : sig
      include module type of Event_bus
      (* For type compatibility we assume the Event_bus was compiled with 'a t etc *)
@@ -106,7 +106,7 @@ struct
     (* Build PermissionRequest for this node *)
     let msg = Message.make_permission_request ~topic:Types.Coordination ~from:t.id ~proposal in
     (* For v0 we'll have simulator broadcast on behalf of node; but provide direct publish too *)
-    Bus.enqueue bus ~topic:Types.Coordination (msg : V. Message.t)
+    Bus.enqueue bus ~topic:Types.Coordination (msg : V.t Message.t)
 
   (* unsubscribe helpers *)
   let shutdown t ~bus =

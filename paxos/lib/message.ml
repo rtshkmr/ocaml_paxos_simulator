@@ -2,14 +2,36 @@ open Base
 open Types
 
 module Message = struct
+
+  (** Wrapper over Uuidm type so that the ppx derivation will work (the OG lib doesn't provide these functions.)*)
+  module Uuid_sexp = struct
+    type t = Uuidm.t
+
+    let sexp_of_t (u : t) = Sexplib.Sexp.Atom (Uuidm.to_string u)
+
+    let t_of_sexp = function
+      | Sexplib.Sexp.Atom s -> (
+          match Uuidm.of_string s with
+          | Some u -> u
+          | None -> failwith "Invalid UUID string for Uuid_sexp.t"
+        )
+      | _ -> failwith "Expected atom for Uuid_sexp.t"
+
+    let compare (a : t) (b : t) =
+      String.compare (Uuidm.to_string a) (Uuidm.to_string b)
+
+    let equal (a : t) (b : t) =
+      String.equal (Uuidm.to_string a) (Uuidm.to_string b)
+  end
+
   module Meta = struct
+    (* Manual conversion functions for Uuidm.t *)
     type t = {
-      id : Uuidm.t;
+      id : Uuid_sexp.t;
       timestamp : Time.t;
       topic : Types.topic;
     } [@@deriving sexp, compare, equal]
   end
-
   type 'v t =
     | PermissionRequest of { meta : Meta.t; from : Types.node_id; proposal : Types.proposal_id }
     | PermissionGranted of { meta : Meta.t; from : Types.node_id; last_accepted : (Types.proposal_id * 'v) option }
