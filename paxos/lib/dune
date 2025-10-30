@@ -3,4 +3,4 @@
  (libraries base stdio uuidm unix)
  (preprocess
   (pps ppx_jane))
- (modules_without_implementation event broker value storage))
+ (modules_without_implementation event value storage))

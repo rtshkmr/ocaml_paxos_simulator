@@ -1,3 +1,3 @@
 (test
-  (libraries paxos base stdio)
- (name hello))
+ (libraries paxos base stdio)
+ (name test_paxos))
