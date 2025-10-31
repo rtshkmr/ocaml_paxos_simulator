@@ -37,12 +37,12 @@ let n2_config = use_base_node_config ~storage:(S.create ())
 
 let n1 =
   Node.create ~id:1 ~bus
-    ~topics:[Types.Types.Coordination; Types.Types.Suggestion]
+    ~topics:[Types.Types.Coordination; Types.Types.Simulation_control]
     ~config:n1_config ~state:Node.State.Echo ()
 
 let n2 =
   Node.create ~id:2 ~bus
-    ~topics:[Types.Types.Coordination; Types.Types.Suggestion]
+    ~topics:[Types.Types.Coordination; Types.Types.Simulation_control]
     ~config:n2_config ~state:Node.State.Echo ()
 
 (* Proposal and simulation entrypoint *)

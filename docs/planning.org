@@ -1105,10 +1105,12 @@ Things that could be within that config:
 It would be great to just pass in a json object for config for this actually. It will clean up how we're doing the creation of nodes, but this json config part is not important right now. We just need to have some type / module encapsulation of such config info within the node.
 
 
-
 **** TODO [vanity] simulation system controls
 :PROPERTIES:
 :EFFORT:   45min
+:END:
+:LOGBOOK:
+CLOCK: [2025-10-31 Fri 22:43]
 :END:
 
 This can standardise setup and let the simulator control things. I need to do this soon.
@@ -1119,7 +1121,25 @@ this can happen over a separate Syscall topic or something. This is all a nice t
 
 It will make the setup / state seeding process quite streamlined (s)
 
-***** [ ] node config state to be updated via =simulation= topic msg passing
+***** current context
+1. we do message passing on the coordination topic and that's how we
+***** [X] chores
+CLOSED: [2025-10-31 Fri 22:44]
+- CLOSING NOTE [2025-10-31 Fri 22:44] \\
+  done
+- [X] node creation cb registration to use a lookup so that we can have callbacks specific to topics
+- [X] update the topic types to things that make sense
+
+***** [ ] node state change via simulator interface
+it will be cool to do things like:
+#+begin_src ocaml
+Simulator spawn_nodes node_config;
+Simulator kill_nodes nodes;
+Simulator make_node_idle node;
+#+end_src
+
+
+***** [ ] [#B] node config state to be updated via =simulation= topic msg passing
 
 jsut have a simulation topic and adjust things like quorum based on the SOT (leader or the simulator).
 
@@ -1129,14 +1149,6 @@ this is low priority for now
 - [ ] add node creation helper within the simulator:
 - [ ] add new topic for =simulation= and attach a handler for that topic.
   - maybe we can have a lookup table somewhere for topic to handler(s) or pipeline or something
-
-***** [ ] node state change via simulator interface
-it will be cool to do things like:
-#+begin_src ocaml
-Simulator spawn_nodes node_config;
-Simulator kill_nodes nodes;
-Simulator make_node_idle node;
-#+end_src
 
 **** [X] Ensure =event_bus= works
 CLOSED: [2025-10-31 Fri 19:40]

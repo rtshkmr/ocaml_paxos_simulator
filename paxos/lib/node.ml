@@ -176,7 +176,16 @@ struct
     simulation={quorum=ref None;}
   }
 
-  (* TODO: wrap up in a config object soon, for simulation ergonomics:*)
+  (** a callback that we can use for communicating via the bus
+      this works because the node would have been bound to the callback, event bus can remain passive about it.
+  *)
+  type bus_registrable_callback = V.t Message.t -> unit
+  (** this allows us to choose handlers based on the topic *)
+  let get_handler_for_topic (node: t) (topic: Types.topic) : bus_registrable_callback =
+    match topic with
+    | Types.Coordination -> handle_message node
+    | _ -> handle_message node
+
   let create  ?(topics=[]) ?(state=State.Idle) ~id ~config ~bus () =
     let node = {
       id;
@@ -186,7 +195,6 @@ struct
       inbox= Hashtbl.Poly.create ();
       transitions = ref [];
     } in
-    let handler (msg: V.t Message.t) = handle_message node msg in
     List.iter topics ~f:(fun topic ->
         let topic_table =
           match Hashtbl.find node.subs topic with
@@ -196,8 +204,9 @@ struct
             Hashtbl.add_exn node.subs ~key:topic ~data:table;
             table
         in
-        let handle = Bus.subscribe bus ~topic (fun msg -> handler msg) in
-        Hashtbl.add_exn topic_table ~key:handle ~data:bus
+        let callback msg = get_handler_for_topic node topic msg in
+        let subscription_handle = Bus.subscribe bus ~topic callback in
+        Hashtbl.add_exn topic_table ~key:subscription_handle ~data:bus
       );
 
     Stdio.eprintf "Node %d subscribed to topics %s\n%!" node.id (topics |> List.map ~f:(fun topic -> Sexp.to_string (Types.sexp_of_topic topic))
