@@ -36,22 +36,30 @@ module Message = struct
         { meta: Meta.t
         ; from: Types.node_id
         ; proposal: Types.proposal_id
+        ; quorum: int option
         ; value: 'v }
     | PermissionGranted of
         { meta: Meta.t
         ; from: Types.node_id
+        ; quorum: int option
         ; last_accepted: (Types.proposal_id * 'v) option }
     | Suggestion of
         { meta: Meta.t
         ; from: Types.node_id
         ; proposal: Types.proposal_id
+        ; quorum: int option
         ; value: 'v }
     | Accepted of
         { meta: Meta.t
         ; from: Types.node_id
         ; proposal: Types.proposal_id
+        ; quorum: int option
         ; value: 'v }
-    | Nack of {meta: Meta.t; from: Types.node_id; hint: Types.proposal_id option}
+    | Nack of
+        { meta: Meta.t
+        ; from: Types.node_id
+        ; quorum: int option
+        ; hint: Types.proposal_id option }
   [@@deriving sexp, compare, equal]
 
   let make_meta topic =
@@ -73,17 +81,38 @@ module Message = struct
     | Nack {from; _} ->
         from
 
-  let make_permission_request ~topic ~from ~proposal ~value =
-    PermissionRequest {meta= make_meta topic; from; proposal; value}
+  let proposal_id_of = function
+    | PermissionRequest {proposal; _}
+    | Suggestion {proposal; _}
+    | Accepted {proposal; _} ->
+        Some proposal
+    | PermissionGranted {last_accepted= Some (proposal, _); _} ->
+        Some proposal
+    | PermissionGranted {last_accepted= None; _} ->
+        None
+    | Nack {hint; _} ->
+        hint
 
-  let make_permission_granted ~topic ~from ~last_accepted =
-    PermissionGranted {meta= make_meta topic; from; last_accepted}
+  let quorum_of = function
+    | PermissionRequest {quorum; _}
+    | PermissionGranted {quorum; _}
+    | Suggestion {quorum; _}
+    | Accepted {quorum; _}
+    | Nack {quorum; _} ->
+        quorum
 
-  let make_suggestion ~topic ~from ~proposal ~value =
-    Suggestion {meta= make_meta topic; from; proposal; value}
+  let make_permission_request ~topic ~from ~proposal ~value ~quorum =
+    PermissionRequest {meta= make_meta topic; from; proposal; value; quorum}
 
-  let make_accepted ~topic ~from ~proposal ~value =
-    Accepted {meta= make_meta topic; from; proposal; value}
+  let make_permission_granted ~topic ~from ~last_accepted ~quorum =
+    PermissionGranted {meta= make_meta topic; from; last_accepted; quorum}
 
-  let make_nack ~topic ~from ~hint = Nack {meta= make_meta topic; from; hint}
+  let make_suggestion ~topic ~from ~proposal ~value ~quorum =
+    Suggestion {meta= make_meta topic; from; proposal; value; quorum}
+
+  let make_accepted ~topic ~from ~proposal ~value ~quorum =
+    Accepted {meta= make_meta topic; from; proposal; value; quorum}
+
+  let make_nack ~topic ~from ~hint ~quorum =
+    Nack {meta= make_meta topic; from; hint; quorum}
 end
