@@ -44,6 +44,7 @@ struct
   type t = {
     id : Types.node_id;
     roles : roles;
+    mutable quorum : int option ref;
     inbox : inbox;
     mutable state : State.t;
     storage : Storage.t;
@@ -97,9 +98,9 @@ struct
 
 
   (* Node propose: create PermissionRequest and rely on simulator/bus to broadcast *)
-  let propose ~bus t ~proposal ~value =
+  let propose ~bus t ~proposal ~value ~quorum =
     (* Build PermissionRequest for this node *)
-    let msg = Message.make_permission_request ~topic:Types.Coordination ~from:t.id ~proposal ~value in
+    let msg = Message.make_permission_request ~quorum ~topic:Types.Coordination ~from:t.id ~proposal ~value in
     (* For v0 we'll have simulator broadcast on behalf of node; but provide direct publish too *)
     Bus.enqueue bus ~topic:Types.Coordination (msg : V.t Message.t)
 
@@ -114,11 +115,29 @@ struct
       );
     Hashtbl.clear t.subs
 
+  (** Returns true if the quorum (threshold) exists and a majority of non-acks is reached.
+   TODO: this probably needs a check on the type of message. Check what the response is gonna be like for a permission granted.
+         maybe we can just pass in a predicate function into this as a param.
+  *)
+  let is_quorum_reached (node: t) (inbox_entry: inbox_entry) =
+    let predicate =  function
+      | Message.Nack _ -> false
+      | _ -> true in
+    match !(node.quorum) with
+    | None ->
+
+      false
+    | Some total ->
+      let quorum_threshold = ((total + 1) / 2) + 1 in
+      let msgs_rcvd = inbox_entry.messages in
+      let num_ack = List.count msgs_rcvd ~f:predicate in
+      num_ack >= quorum_threshold
+
   let process_inboxes (node: t) : unit =
     dump_inbox node;
     Hashtbl.iteri node.inbox ~f:(fun ~key:proposal_id ~data:inbox_entry ->
         (* TODO: check if quorum/majority is reached on collected responses *)
-        let quorum_reached = false  (* TODO add logic to placeholder *) in
+        let quorum_reached = is_quorum_reached node inbox_entry  (* TODO add logic to placeholder *) in
         if quorum_reached then begin
           (* TODO: trigger next step, e.g., send Accept or decide value *)
           Stdio.printf "Node %d quorum reached for proposal %s\n%!" node.id (Sexp.to_string (Types.sexp_of_proposal_id proposal_id));
@@ -136,15 +155,19 @@ struct
     | Some key -> let inbox_entry = get_or_create_inbox_entry node key
       in
       inbox_entry.messages <- msg::inbox_entry.messages;
+      (* FIXME: this is temporary, there's a better way of doing quorum updates, which is via message passing on teh simulator topic which will update the internal config state of every node via message passing. For now this works alright.  *)
+      node.quorum := Message.quorum_of msg;
       process_inboxes node
 
 
+  (* TODO: wrap up in a config object soon, for simulation ergonomics:*)
   let create ?(topics=[]) ?(state=State.Idle) ~id ~roles ~storage ~bus () =
     let node = {
       id;
       roles;
       state;
       storage;
+      quorum= ref ( None );
       subs= Hashtbl.Poly.create ();
       inbox= Hashtbl.Poly.create ();
       transitions = ref [];

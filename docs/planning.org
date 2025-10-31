@@ -765,7 +765,6 @@ As we have established already,
      (* handle timeouts, retries *)
       #+end_src
 
-
 ***** Rollout order
 
 ****** 1. Statefulness
@@ -1038,6 +1037,13 @@ this can happen over a separate Syscall topic or something. This is all a nice t
 
 It will make the setup / state seeding process quite streamlined (s)
 
+***** [ ] node config state to be updated via =simulation= topic msg passing
+
+jsut have a simulation topic and adjust things like quorum based on the SOT (leader or the simulator).
+
+this is low priority for now
+
+
 **** [ ] Ensure =event_bus= works
 :LOGBOOK:
 CLOCK: [2025-10-30 Thu 22:53]--[2025-10-31 Fri 01:32] =>  2:39
@@ -1221,7 +1227,7 @@ Echo received message at node 2: (PermissionRequest(meta((id 00000000-0000-4000-
 :END:
 :LOGBOOK:
 handling quorum
-CLOCK: [2025-10-31 Fri 15:39]
+CLOCK: [2025-10-31 Fri 15:39]--[2025-10-31 Fri 16:44] =>  1:05
 CLOCK: [2025-10-31 Fri 15:38]--[2025-10-31 Fri 15:39] =>  0:01
 CLOCK: [2025-10-31 Fri 14:01]--[2025-10-31 Fri 15:17] =>  1:16
 :END:
@@ -1277,11 +1283,30 @@ here's the old =handle_message=
     | _, Accepted _ -> ()
     | _, Nack _ -> ()
 #+end_src
-***** Handling quorum
 
+***** Handling quorum
+It depends on our intent, what we want the quorum to be like.
+
+I think it should be local to the node's state, because it's like other computers that kind of know who else is their peer in their network.
+
+This will likely drift (and in fact, there's a need to have a consensus on what the number of peers are). The SOT for this can be the Simulator, we can communicate that over a particular message of its own (for quorum edits or config edits).
+
+This can happen over a simulation topic for all the simulation events. For now, let's just manually do it, we can do this @ every request message, and put it part of the message payload.
+
+The actual quorum can just be mutable field within the node's state (ref). In the future, we can use the simulation topic to adjust, so the master / simulator will be the SOT on what the quorum is.
+
+- [ ] implmementing the =is_quorum_reached=
+
+  this is kind of paxos dependent. I know that the responding stuff works, so I'll come back to this later when implementing the simple paxos algo.
+***** Step back: how the quorum check can be used to do a ping response?
+I just want to see the majority say that they accept the request.
+So all the received should be trying to respond with
+
+this logic probably should be somewhere within =process_inboxes=
+
+Meeting the quorum stuff only matters for the nodes that are proposing, not the ones that are voting
 
 **** [ ] Time Simulation
-
 ***** Integrating time ticking
 
 We should keep the =Event_bus= stateless and reactive. We should use message-passing for heartbeats. Otherwise, we would add some coupling between the Simulator and the Nodes. In the future, when Nodes have their own local clocks, then maybe they can do their own ticking internally.

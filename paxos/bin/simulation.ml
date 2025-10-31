@@ -39,7 +39,7 @@ let n2 =
 (* Proposal and simulation entrypoint *)
 let () =
   let proposal = Types.Types.make_proposal_id ~seq:1 ~node:1 in
-  Node.propose ~bus n1 ~proposal ~value:my_value
+  Node.propose ~bus n1 ~proposal ~value:my_value ~quorum:(Some 2)
 
 let () = B.print_stats bus
 

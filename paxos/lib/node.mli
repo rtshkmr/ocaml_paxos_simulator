@@ -67,6 +67,7 @@ module Make_node :
          t ->
          proposal:Types.proposal_id ->
          value:V.t ->
+         quorum:int option ->
          unit
        val dump_state : t -> Sexp.t
      end
