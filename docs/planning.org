@@ -1005,6 +1005,101 @@ I think the rough idea for this is that we can have something like a pipeline th
 Since one of the goals of this project is to provide some simulations for learning purposes (and for future TigerBeetle-like demonstrations), we should try to think about what the Simulator should be able to do.
 
 For now, it's just a small scale thing, nothing too fancy. Just something that runs in the terminal and all.
+
+KIV this boiler plate first.
+#+begin_src ocaml
+module type Runtime = sig
+  type t
+  (** The abstract runtime state *)
+
+  type node
+  (** Abstract node handle *)
+
+  val create : config:Config.t -> t
+  (** Create a new runtime simulation instance with given config *)
+
+  val add_node : t -> node_config:Node.config -> node
+  (** Add a node to the runtime *)
+
+  val start : t -> unit
+  (** Start or resume simulation *)
+
+  val stop : t -> unit
+  (** Stop or pause simulation *)
+
+  val step : t -> unit
+  (** Advance simulation by one tick *)
+
+  val get_nodes : t -> node list
+  (** Get list of nodes *)
+
+  val send_message : t -> from:node -> to_:node option -> msg:Message.t -> unit
+  (** Send message from one node to another or broadcast *)
+
+  val on_event : t -> (Event.t -> unit) -> unit
+  (** Register a callback on simulation events: ticks, messages, state changes *)
+
+  val current_time : t -> Time.t
+  (** Get current logical simulation time *)
+
+  (** Optional: commands for simulation control, e.g. pause, rewind, etc *)
+  val pause : t -> unit
+  val rewind : t -> unit
+  val rewind_to : t -> Time.t -> unit
+  (* Etc *)
+end
+
+#+end_src
+#+begin_src md
+To add a clean, flexible interface called `Runtime` (of which your `Simulator` will be an example), the idiomatic OCaml approach is to define a **module type** (signature) specifying the expected functionalities of any runtime environment. This signature should be minimal but expressive enough to allow implementations to provide simulation control, event handling, and time progression.
+
+Based on your notes and current design, here is a conceptual direction and a possible clean signature for `Runtime`:
+
+This interface explicitly separates concerns:
+
+- `create` to initialize the runtime with configuration.
+- Node lifecycle functions (`add_node`, `get_nodes`) separate from runtime control.
+- Simulation controls (`start`, `stop`, `step`) allow manual or programmatic progression.
+- Event callbacks for UI or logging hooks.
+- Message passing with optional direct or broadcast semantics.
+- Logical clock access.
+- Optional commands for advanced simulation manipulation.
+
+Your current `Simulator` module can then be implemented to conform to this signature, encapsulating time management, event queues, ticking logic, fault injections, node states, and event logging internally.
+
+### Why module type?
+
+- It enables loose coupling and extensibility.
+- Allows alternative runtimes (e.g., a GUI-driven runtime or advanced scheduler) to implement the same interface.
+- OCaml’s module system naturally supports this pattern with modules and functors.
+
+### On shell-like keyboard input and terminal UI
+
+- OCaml ecosystem has libraries like `Lwt` + `Notty`, `Lambda_term`, or `ocaml-curses` for terminal UI and async input.
+- For simple single-threaded command reading during simulation step, you might manage a REPL loop reading lines and invoking runtime commands.
+- For more complex interactive apps, consider `Lwt` with `Notty` for rendering and input handling.
+
+### Next steps actionable:
+
+- Define and place the `Runtime` module type in your codebase, e.g., as `runtime.mli`.
+- Implement the signature in your `simulator.ml`.
+- Gradually move existing simulator functions into that module.
+- Add a minimal event type or use your existing event bus messages for the `on_event` callback interface.
+- Think about how configuration, clocks, and nodes are managed and exposed.
+
+If you'd like, I can help generate an initial OCaml signature (`.mli`) and sketches of implementation stubs to get this started appropriately. Just say the word.
+
+[1](https://www.reddit.com/r/ocaml/comments/13vf522/how_do_i_express_interface_in_ocaml/)
+[2](https://www.youtube.com/watch?v=4Uew8GEegyg)
+[3](https://ocaml.org/docs/modules)
+[4](https://ocaml.org/manual/5.4/moduleexamples.html)
+[5](https://dev.to/yawaramin/ocaml-interface-files-hero-or-menace-2cib)
+[6](https://stackoverflow.com/questions/37300584/how-to-get-a-module-type-from-an-interface)
+[7](https://discuss.ocaml.org/t/why-do-i-need-to-repeat-type-declarations-between-interfaces-and-implementations-or-how-do-i-get-around-this/3350)
+[8](https://k-monk.org/blog/introduction-to-the-ocaml-module-system/)
+[9](https://www.cs.princeton.edu/courses/archive/fall21/cos326/lec/12-01-simple-modules.pdf)
+[10](https://news.ycombinator.com/item?id=35778900)
+#+end_src
 **** wishlist
 1. simulator should be a game-loop like thing, it should accept keyboard events via the terminal run
    - it should allow some help command that shows what can be done
@@ -1110,7 +1205,7 @@ It would be great to just pass in a json object for config for this actually. It
 :EFFORT:   45min
 :END:
 :LOGBOOK:
-CLOCK: [2025-10-31 Fri 22:43]
+CLOCK: [2025-10-31 Fri 22:43]--[2025-10-31 Fri 23:12] =>  0:29
 :END:
 
 This can standardise setup and let the simulator control things. I need to do this soon.
@@ -1138,6 +1233,8 @@ Simulator kill_nodes nodes;
 Simulator make_node_idle node;
 #+end_src
 
+- [ ] add cb specific to topic of =Simulation_control=
+- [ ] adjust quorum as an example
 
 ***** [ ] [#B] node config state to be updated via =simulation= topic msg passing
 
