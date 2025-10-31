@@ -996,11 +996,37 @@ Here's a plausible order of rolling this out:
 
 7) (optional) Add local clocks to nodes for drift simulation.
 
-
 *** TODO Design Logging System
 This will be absolutely essential for the
 *** TODO Design Event Log System @ Global Simulator Level
 I think the rough idea for this is that we can have something like a pipeline that sits at the simulator so that many of the simulator's orchestration actions can have some event log reporter. this is low priority but comes after the logging system implementation.
+*** TODO Design Simulator Interface
+
+Since one of the goals of this project is to provide some simulations for learning purposes (and for future TigerBeetle-like demonstrations), we should try to think about what the Simulator should be able to do.
+
+For now, it's just a small scale thing, nothing too fancy. Just something that runs in the terminal and all.
+**** wishlist
+1. simulator should be a game-loop like thing, it should accept keyboard events via the terminal run
+   - it should allow some help command that shows what can be done
+   - it should allow us to start/stop/pause/rewind/step through the simulation tick by tick
+   - it should allow us to config state (maybe when sim is paused) e.g. make a node idle from listening or shutdown a node or temporarily shift a node to a different "network"
+     - or corruption things like network delay or something
+
+2. simulator should be able to have some helper functions that can help load the simulation environment from some config file e.g. some json config or something
+
+3. simulator will eventually have fancy event-scheduling. for now we shall jsut do some basic tick-based progression and all that ONLY.
+**** some questions
+
+1. it feels like time loop and simulation loop should be different because:
+   - time loop seems to be about the event dispatching scheduler
+   - simulation loop seems to be about the shell like commands that we can give to do make changes to the simulation (e.g. play/pause, spawn node, change node state via simulator...)
+
+   though I'm not sure which would be beter design. I can see value in both cases. The simulation events could just be events within the same scheduler events and so on.
+
+2. how big of a lift is it to implement some shhell like keyboard event capture and event handlers and all that in ocaml? are there any terminal app building packages in the ocaml world that are worth using for this?
+**** Decisions
+***** Separation of Concerns: Should the time loop and simulation loop be two separate loops?
+
 
 ** Implementation
 *** TODO Basic Instrumentation & Orchestration Code
@@ -1028,8 +1054,38 @@ CLOSED: [2025-10-31 Fri 11:55]
   - [X] should be able to set the node as idle (without a shutdown)
   - [X] should be able to change state (state setter)
 
+**** TODO Minor bugfixes
+:PROPERTIES:
+:EFFORT:   30min
+:END:
+ - [ ] Fix quorum computation and remove mutation-from-messages
+   Incorrect quorum logic will produce false positives in demo; mutating node config from incoming messages is fragile.
+
+    Files: lib/node.ml
+
+    Changes:
+
+     * Implement quorum_size total = (total / 2) + 1
+
+     * Remove node.quorum := Message.quorum_of msg in handle_message. -- we shall add in the simulator topic soon
+
+    Store quorum either in the cluster config or inside inbox_entry when a PermissionRequest for that proposal is first observed.
+
+Acceptance: Quorum computed correctly for n=1..7 manually.
+
+**** TODO Chore: add in a config object within node, quorum should be injected via config
+:PROPERTIES:
+:EFFORT:   30min
+:END:
+
+don't spend too long on this
+
 **** TODO [vanity] simulation system controls
-This can standardise setup to, tbh
+:PROPERTIES:
+:EFFORT:   45min
+:END:
+
+This can standardise setup and let the simulator control things. I need to do this soon.
 
 A node should be able to listen to simulation topic and set itself on or off based on what the simulator says (low priority)
 
@@ -1043,8 +1099,25 @@ jsut have a simulation topic and adjust things like quorum based on the SOT (lea
 
 this is low priority for now
 
+- [ ] remove quorum from message fields
+- [ ] add node creation helper within the simulator:
+- [ ] add new topic for =simulation= and attach a handler for that topic.
+  - maybe we can have a lookup table somewhere for topic to handler(s) or pipeline or something
 
-**** [ ] Ensure =event_bus= works
+***** [ ] node state change via simulator interface
+it will be cool to do things like:
+#+begin_src ocaml
+Simulator spawn_nodes node_config;
+Simulator kill_nodes nodes;
+Simulator make_node_idle node;
+#+end_src
+
+**** [X] Ensure =event_bus= works
+CLOSED: [2025-10-31 Fri 19:40]
+- CLOSING NOTE [2025-10-31 Fri 19:40] \\
+  yeah this works, there's no much more to do here
+
+  some minor helper functions have been left out, see the checklists here
 :LOGBOOK:
 CLOCK: [2025-10-30 Thu 22:53]--[2025-10-31 Fri 01:32] =>  2:39
 CLOCK: [2025-10-30 Thu 22:26]--[2025-10-30 Thu 22:35] =>  0:09
@@ -1191,11 +1264,12 @@ Bro I'm idle - Node1
 
   - not yet, this needs a little bit of a change in how the callbacks are stored at =event_bus=, instead of a list of subs, it should be a map so that we can access specific ones in non-linear time.
 
-- [ ] how will a node batch together multiple nacks and then send the highest value ? how to batch receive?
+- [X] how will a node batch together multiple nacks and then send the highest value ? how to batch receive?
   - ~we need to implement time-loop and then likely a "step" within the paxos protocol~
   - ~KIV this until time loop is done.~
 
   This part is why we need statefulness @ nodes via inboxes.
+  It's implemented!
 ***** Notes
 - I notice that the print statements within the subscribe functions and all are coming out in an order that doesn't make sense to me. I suspect it's because the print functions are batched / buffered.
 
@@ -1221,10 +1295,13 @@ Draining the queue of 1 items
 Echo received message at node 2: (PermissionRequest(meta((id 00000000-0000-4000-8000-000000000000)(timestamp 1761816886.230041)(topic Coordination)))(from 1)(proposal((seq 1)(node 1))))Echo received message at node 1: (PermissionRequest(meta((id 00000000-0000-4000-8000-000000000000)(timestamp 1761816886.230041)(topic Coordination)))(from 1)(proposal((seq 1)(node 1))))Draining the queue of 1 items
 Echo received message at node 2: (PermissionRequest(meta((id 00000000-0000-4000-8000-000000000000)(timestamp 1761816886.230056)(topic Coordination)))(from 2)(proposal((seq 2)(node 2))))Bro I'm idle - Node 1
   #+end_src
-**** [ ] Statefulness @ Nodes
+**** [X] Statefulness @ Nodes
+CLOSED-FORM: [2025-10-31 Fri 18:02]
 :PROPERTIES:
 :EFFORT:   1.5h
 :END:
+- CLOSING NOTE [2025-10-31 Fri 18:02] \\
+  Yeah boi
 :LOGBOOK:
 handling quorum
 CLOCK: [2025-10-31 Fri 15:39]--[2025-10-31 Fri 16:44] =>  1:05
@@ -1306,8 +1383,61 @@ this logic probably should be somewhere within =process_inboxes=
 
 Meeting the quorum stuff only matters for the nodes that are proposing, not the ones that are voting
 
-**** [ ] Time Simulation
-***** Integrating time ticking
+Skipping this for now.
+**** A critique by GPT5
+Dumped the code and asked for critique and here's how it went ([[https://chatgpt.com/share/690495df-9914-8013-8111-b6a11b8f8b9b][gpt5 link]]).
+
+I think the scrutiny by the bot is great, I agre with many of the things that it has raised.
+I'll inject them as tasks into this list.
+
+**** TODO Time Simulation
+:PROPERTIES:
+:EFFORT:   2h
+:END:
+
+***** [ ] Make time into logical ints instead of floats, Make time & message meta deterministic
+- [ ] Replace Message.make_meta so it accepts (id:int64, timestamp:Time.t, topic) rather than creating UUID/time itself.
+- [ ] Remove =Uuidm.v4= and =Unix.gettimeofday()= from message creation.
+- [ ] Let the Simulator be the sole creator of message ids and timestamps.
+
+Files: lib/types.ml|mli (Time), lib/message.ml|mli
+Acceptance: Running the harness produces deterministic, reorderable logs when provided with a fixed seed (or no RNG used).
+***** [ ] Create time related interfaces
+- [ ] Clock module
+- [ ] Simulator owns a clock
+- [ ] Messages use the simulator clock, contain time meta within meta
+**** TODO Paxos Protocol Groundworks
+:PROPERTIES:
+:EFFORT:   30min
+:END:
+Not the whole algo yet, but somewhere close
+***** TODO Add explicit proposal field to response messages
+
+Why: Correlating responses to proposals must be unambiguous.
+
+Files: lib/message.mli|ml
+
+Changes:
+
+Add proposal: Types.proposal_id to PermissionGranted and Nack message variants (and ensure constructors accept it).
+
+Acceptance: Message.proposal_id_of returns proposal for request and response variants consistently.
+**** Todo SimulationEvents and EventQueue
+:PROPERTIES:
+:EFFORT:   1h
+:END:
+something like a precursor to a scheduler of sorts?
+
+I don't want to over-engineer this part tbh, just need it to be placed in a log of some sort.
+
+this one needs some designing:
+ - link between simulator events and simulator topic (for message passing and coordination?)
+ - tick event @ simulator and message passing?
+
+**** TODO Integrating time ticking
+:PROPERTIES:
+:EFFORT:   45min
+:END:
 
 We should keep the =Event_bus= stateless and reactive. We should use message-passing for heartbeats. Otherwise, we would add some coupling between the Simulator and the Nodes. In the future, when Nodes have their own local clocks, then maybe they can do their own ticking internally.
 
@@ -1327,34 +1457,148 @@ So, we can actually just use a separate heartbeat topic for time events like tic
         - Allows modeling network delays, jitter, and dropped ticks (if desired) naturally as message loss or delay in the simulation.
 
         - Makes the system fully event-driven with no hidden side effects, enabling controlled, deterministic simulation ticking.
-
-
-**** [ ] Add better logging to simulation
+**** TODO Add better logging to simulation
+:PROPERTIES:
+:EFFORT:   1h
+:END:
 
 this is almost a subsystem of its own
 
 We can add logging at every callback level so all the message passing is logged out.
 
 This one can use jane street's =Log= library. I'm not sure how big of a lift that is. It's definitely essential for the polishing of this mini project though.
+***** [ ] Replace UUID/time logging with simulator-managed logging
 
-**** [ ] Add storage pattern, in-mem -> persistent storage
-This is not as high priority but will be cool to demonstrate how crashing can still bring things back
-**** [ ] Basic Simulation Event Logging
+Why: You need a single authoritative event log to show traces to interviewers and debug runs.
+
+Files: bin/simulator.ml, lib/event_bus.ml
+
+Changes:
+
+Make Simulator own an event log (in-memory list or JSONL file). When enqueueing/delivering, simulator appends (tick, seq, from, to, topic, msg_summary).
+
+Let Event_bus.create accept logger that returns string; publish should capture it and pass to the simulator logger or stdout.
+
+Acceptance: A run produces a readable, timestamped event log that can be replayed.
+
+**** TODO Basic Simulation Event Logging
+:PROPERTIES:
+:EFFORT:   30min
+:END:
 This is necessary for the completion of this project because without it, the simulation visuals won't be sexy.
 
-*** TODO Implement v0 (basic paxos algorithm)
+this part involves adding in the loops we were talking about.
+**** TODO Stop synchronous immediate processing side-effects — rely on tick boundaries
+:PROPERTIES:
+:EFFORT:   45min
+:END:
+
+This is more about tidying up how we do the event simulation, the task might be redundant by the time we get near this area
+
+Why: Current handle_message calls process_inboxes immediately during publish; that makes ordering depend on callback timing.
+
+Files: lib/event_bus.ml, lib/node.ml
+
+Changes:
+
+Event_bus.publish may still call subscribers synchronously, but nodes should only enqueue messages to their inbox then return. Actual evaluation (quorum checks, state transitions) should happen on Node.tick.
+
+drain behavior is fine, but ensure Node.tick is called after a drain completes for the current tick.
+
+Acceptance: After a drain, nodes must only change state when Node.tick is called, not during publish.
+
+**** TODO Add storage pattern, in-mem -> persistent storage
+This is not as high priority but will be cool to demonstrate how crashing can still bring things back
+*** TODO Implement v0 (basic paxos algorithm -- main goal)
+DEADLINESs: <2025-11-01 Sat 11:00>
 :PROPERTIES:
 :EFFORT:   3h
 :END:
+- New deadline from "[2025-11-01 Sat]" on [2025-10-31 Fri 19:39]
 — deterministic single-threaded simulation
 - then, an integration between this and the orchestration code
-**** [ ] Add in proper logic for Node's @ =handle_event=
+**** TODO Simulator run loop (single threaded)
+:PROPERTIES:
+:EFFORT:   30min
+:END:
+
+Why: Orchestrates ticks and node processing deterministically. Interviewers expect a clear run loop.
+
+Files: bin/simulator.ml (new orchestrator code)
+
+Loop plan:
+
+now = clock.now
+
+events = Event_queue.pop_due now (deterministic order)
+
+For each event -> Event_bus.publish (which enqueues messages into nodes' inboxes)
+
+After all deliverings of this tick, call List.iter sim.nodes ~f:(fun n -> Node.tick n now)
+
+Optionally inject faults & schedule new events
+
+clock.tick
+
+Acceptance: A manually scripted scenario (3 nodes, proposer at tick 0) produces expected PermissionRequest → PermissionGranted → Suggestion → Accepted sequence logged in order.
+
+**** TODO Add in proper logic for Node's @ =handle_event=
+:PROPERTIES:
+:EFFORT:   1.5h
+:END:
 ***** [ ] for acceptor logic
 ***** [ ] for state transitions
 ***** [ ] learner behaviour
+**** TODO Implement full minimal Paxos state-machine inside Node
+:PROPERTIES:
+:EFFORT:   30min
+:END:
 
-**** [ ] Make Simulation into a loop
-*** TODO Implementation v1 (with async frameworks) [optional]
+Why: Now that the simulator loops are deterministic, you must implement the protocol transitions properly.
+
+Files: lib/node.ml
+
+Minimal behavior:
+
+On PermissionRequest (proposer sends): acceptors respond with PermissionGranted(proposal, last_accepted_opt) or Nack(proposal, hint) depending on persisted promised.
+
+Node.handle_message: enqueue messages into inbox_entry keyed by proposal.
+
+Node.tick:
+
+If WaitingForPromises and >= quorum promises: determine value (highest accepted if any) → send Suggestion (AcceptRequest).
+
+If Accepting and acks >= quorum: persist accepted locally and move to Decided.
+
+Implement per-inbox created_at and timeout handling.
+
+Maintain per-inbox seen_nodes to avoid double-counting.
+
+Acceptance: tests below succeed.
+*** TODO Implementation v1 (with async frameworks) [optional -- out of scope for this sprint]
+The tasks here are just documented but won't be in my v0 target. I NEED to arrive at SOME point of completion. Need to move onto other things.
+
+That being said, I'll likely come back to this real soon after I do some explainers and write ups for this project.
+
+
+**** Fault injection APIs
+
+- Partition, drop, delay, node crash and restart. These can be simulated by enqueuing SimAction events that alter a node's subscription or event_queue behavior.
+**** Replay mode & JSONL logs
+
+- Produce logs in JSONL and a replay mode that reads them and reproduces the exact event order. Useful for interviews.
+**** Property testing
+
+- Once comfortable, add qcheck properties: e.g., “with eventual delivery and no permanent partition, single decree Paxos chooses a value.”
+**** Cleaner typing of Node.State transitions
+
+- Add more type-level guarantees (e.g., phantom types to ensure you can’t call Accepting logic while not in Accepting state) if you want to impress Jane Street. Not necessary for v0.
+**** Command-line interactive harness
+
+- Use Notty/Lwt/Voodoo if you want a terminal UI — not required for demo; skip unless you have spare time.
+
+
+
 ** Testing
 *** TODO Iterate and test scenarios
 :PROPERTIES:
@@ -1371,6 +1615,7 @@ This is necessary for the completion of this project because without it, the sim
 :EFFORT:   2h
 :END:
 *** TODO Write-up
+DEADLINE: <2025-11-01 Sat 22:00>
 — produce blog-style README + literate trace
 **** Retro
 ***** Ergonomics of the OCaml Language
