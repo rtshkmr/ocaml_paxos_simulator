@@ -41,18 +41,12 @@ let () =
   let proposal = Types.Types.make_proposal_id ~seq:1 ~node:1 in
   Node.propose ~bus n1 ~proposal ~value:my_value
 
-let () = B.drain bus
-
-let () = Node.set_node_state n1 Node.State.Idle
-
-let () = Node.set_node_state n2 Node.State.Idle
+let () = B.print_stats bus
 
 let () = B.drain bus
 
-(* let () = Node.set_node_state n1 Node.State.Idle *)
+let () = B.print_stats bus
 
-(* let () = *)
-(*   let proposal = Types.Types.make_proposal_id ~seq:2 ~node:2 in *)
-(*   Node.propose ~bus n2 ~proposal ~value:my_2_val *)
+let () = B.drain bus
 
-(* let () = B.drain bus *)
+let () = B.print_stats bus

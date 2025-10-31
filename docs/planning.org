@@ -852,7 +852,7 @@ It will make the setup / state seeding process quite streamlined (s)
 
 **** [ ] Ensure =event_bus= works
 :LOGBOOK:
-CLOCK: [2025-10-30 Thu 22:53]
+CLOCK: [2025-10-30 Thu 22:53]--[2025-10-31 Fri 01:32] =>  2:39
 CLOCK: [2025-10-30 Thu 22:26]--[2025-10-30 Thu 22:35] =>  0:09
 CLOCK: [2025-10-30 Thu 16:31]--[2025-10-30 Thu 18:59] =>  2:28
 CLOCK: [2025-10-30 Thu 16:00]--[2025-10-30 Thu 16:31] =>  0:31
@@ -862,14 +862,147 @@ CLOCK: [2025-10-30 Thu 15:41]--[2025-10-30 Thu 15:42] =>  0:01
 We know that we can send messages over from node A to node B, we need to be able to send messages back.
 
 - [X] Confirm event bus publish/subscribe works with dummy print callbacks
-- [ ] Confirm that responding works. Handle event can respond to things.
+- [X] Confirm that responding works. Handle event can respond to things.
   - this one can just echo back what I just got, so it's like an identity function almost
   - this can be ticked off as soon as we can effect the bus from within a node.
-- [ ] Time simulation needs to be figured out
-- [ ] can a message be sent without enqueing it?
-- [ ] can a particular node send a message to another node without broadcasting it?
-- [X] how will a node batch together multiple nacks and then send the highest value ? how to batch receieve?
 
+    PROBLEM: Not sure why it's an infinite loop though, the constant echo back should be infinite looping but when I shutdown the node, then it should stop responding though.
+
+    ANS: it was an infinite loop because of the =drain= operation. We had a while loop there that would keep publishing as long as the queue was non-empty. The problem was that the responses would fill in immediately and that's why the queue would never be empty. The fix to this was to do a simple snapshot prior to draining.
+
+    #+begin_src ocaml
+  let drain t =
+    let q_size = Queue.length t.queue in
+    Stdio.print_endline
+      ( "--- Draining the queue of " ^ Int.to_string q_size
+      ^ " items from batch start" ) ;
+    (* Snapshot the current queue to isolate this batch *)
+    let current_batch = Queue.to_list t.queue in
+    Queue.clear t.queue ;
+    List.iter current_batch ~f:(fun (topic, payload) ->
+        ( match Hashtbl.find t.topics topic with
+        | None ->
+            ()
+        | Some ts ->
+            ts.queued <- Int.max 0 (ts.queued - 1) ) ;
+        publish t ~topic payload )
+  (* Any enqueued messages during publish will accumulate in t.queue
+     for the next tick — not this one. *)
+    #+end_src
+
+    Simulation:
+    #+begin_src ocaml
+[@@@ocaml.warning "-26-32"]
+
+open Paxos
+open Base
+module V = Value_string.Value_string
+
+let my_value = V.t_of_sexp (Sexplib.Sexp.Atom "foo")
+
+let my_2_val = V.t_of_sexp (Sexplib.Sexp.Atom "hell yesss")
+
+module S = Storage_mem.Storage_mem (V)
+
+let storage = S.create ()
+
+module B = Event_bus.Event_bus
+
+(* Improved logger: convert topics and messages to readable strings *)
+let bus =
+  B.create
+    ~logger:(fun topic msg ->
+      Printf.sprintf "[LOG][%s] %s"
+        (Sexp.to_string (Types.Types.sexp_of_topic topic))
+        (* Use a manual to_string *)
+        (Sexplib.Sexp.to_string (Message.Message.sexp_of_t V.sexp_of_t msg)) )
+    ()
+
+module Node = Node.Make_node (V) (S) (B)
+
+let n1 =
+  Node.create ~id:1 ~roles:[Proposer] ~storage ~bus
+    ~topics:[Types.Types.Coordination; Types.Types.Suggestion]
+    ~state:Node.State.Echo ()
+
+let n2 =
+  Node.create ~id:2 ~roles:[Proposer] ~storage ~bus
+    ~topics:[Types.Types.Coordination; Types.Types.Suggestion]
+    ~state:Node.State.Echo ()
+
+(* Proposal and simulation entrypoint *)
+let () =
+  let proposal = Types.Types.make_proposal_id ~seq:1 ~node:1 in
+  Node.propose ~bus n1 ~proposal ~value:my_value
+
+let () = B.print_stats bus
+
+let () = B.drain bus
+
+let () = B.print_stats bus
+
+let () = B.drain bus
+
+let () = B.print_stats bus
+    #+end_src
+
+    and this was the result:
+
+    #+begin_src ocaml
+ॐ ❯ dune exec bin/simulation.exe
+Node 1 subscribed to topics Coordination, Suggestion
+Node 2 subscribed to topics Coordination, Suggestion
+
+-----------------------------------------------------------------------
+ Topic                  | Subscribers | Published | Delivered | Queued
+-----------------------------------------------------------------------
+ Suggestion             |           2 |         0 |         0 |      0
+ Coordination           |           2 |         0 |         0 |      1
+-----------------------------------------------------------------------
+--- Draining the queue of 1 items from batch start
+>>> Rcv @ echo node 2:
+        (PermissionRequest(meta((id 00000000-0000-4000-8000-000000000000)(timestamp 1761874896.6684239)(topic Coordination)))(from 1)(proposal((seq 1)(node 1)))(value foo))
+ Node 2 just enqueued a response
+Node 2 changed state from Echo to Idle
+>>> Rcv @ echo node 1:
+        (PermissionRequest(meta((id 00000000-0000-4000-8000-000000000000)(timestamp 1761874896.6684239)(topic Coordination)))(from 1)(proposal((seq 1)(node 1)))(value foo))
+ Node 1 just enqueued a response
+Node 1 changed state from Echo to Idle
+
+-----------------------------------------------------------------------
+ Topic                  | Subscribers | Published | Delivered | Queued
+-----------------------------------------------------------------------
+ Suggestion             |           2 |         0 |         0 |      0
+ Coordination           |           2 |         1 |         2 |      2
+-----------------------------------------------------------------------
+--- Draining the queue of 2 items from batch start
+Bro I'm idle - Node2
+Bro I'm idle - Node1
+Bro I'm idle - Node2
+Bro I'm idle - Node1
+
+-----------------------------------------------------------------------
+ Topic                  | Subscribers | Published | Delivered | Queued
+-----------------------------------------------------------------------
+ Suggestion             |           2 |         0 |         0 |      0
+ Coordination           |           2 |         3 |         6 |      0
+-----------------------------------------------------------------------
+    #+end_src
+
+    Maybe it's a good time to bring in the convenience lifecycle management functions for Node from Simulator?
+
+- [X] Time simulation needs to be figured out
+
+- [X] can a message be sent without enqueing it?
+  - yes that's what =publish= is for
+
+- [ ] can a particular node send a message to another node without broadcasting it?
+
+  - not yet, this needs a little bit of a change in how the callbacks are stored at =event_bus=, instead of a list of subs, it should be a map so that we can access specific ones in non-linear time.
+
+- [ ] how will a node batch together multiple nacks and then send the highest value ? how to batch receieve?
+  - we need to implement time-loop and then likely a "step" within the paxos protocol
+  - KIV this until time loop is done.
 ***** Notes
 - I notice that the print statements within the subscribe functions and all are coming out in an order that doesn't make sense to me. I suspect it's because the print functions are batched / buffered.
 
@@ -885,6 +1018,7 @@ Draining the queue of 1 items
 Echo received message at node 2: (PermissionRequest(meta((id 00000000-0000-4000-8000-000000000000)(timestamp 1761816715.732795)(topic Coordination)))(from 2)(proposal((seq 2)(node 2))))Bro I'm idle - Node 1
 Node 1 subscribed to topics Coordination, Suggestion
   #+end_example
+
   After:
   #+begin_src example
 ॐ ❯ dune exec bin/simulation.exe

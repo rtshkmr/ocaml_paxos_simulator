@@ -22,6 +22,8 @@ module type S = sig
   val drain : 'a t -> unit
 
   val stats : 'a t -> (Types.topic * (int * int * int * int)) list
+
+  val print_stats : 'a t -> unit
 end
 
 module Event_bus : S = struct
@@ -85,6 +87,7 @@ module Event_bus : S = struct
     (* TODO: improve logger soon. Optionally log serialized payload *)
     ( match t.logger with
     | Some f ->
+        (* temp solution: just print statement based logger.*)
         ignore (f topic payload)
         (* logger side-effect only; caller's logger can persist it *)
     | None ->
@@ -105,21 +108,49 @@ module Event_bus : S = struct
   let drain t =
     let q_size = Queue.length t.queue in
     Stdio.print_endline
-      ("Draining the queue of " ^ Int.to_string q_size ^ " items") ;
-    while not (Queue.is_empty t.queue) do
-      let topic, payload = Queue.dequeue_exn t.queue in
-      (* adjust queued counter *)
-      ( match Hashtbl.find t.topics topic with
-      | None ->
-          ()
-      | Some ts ->
-          ts.queued <- Int.max 0 (ts.queued - 1) ) ;
-      (* publish synchronously *)
-      publish t ~topic payload
-    done
+      ( "--- Draining the queue of " ^ Int.to_string q_size
+      ^ " items from batch start" ) ;
+    (* Snapshot the current queue to isolate this batch *)
+    let current_batch = Queue.to_list t.queue in
+    Queue.clear t.queue ;
+    List.iter current_batch ~f:(fun (topic, payload) ->
+        ( match Hashtbl.find t.topics topic with
+        | None ->
+            ()
+        | Some ts ->
+            ts.queued <- Int.max 0 (ts.queued - 1) ) ;
+        publish t ~topic payload )
+  (* Any enqueued messages during publish will accumulate in t.queue
+     for the next tick — not this one. *)
 
   let stats t =
     Hashtbl.to_alist t.topics
     |> List.map ~f:(fun (topic, ts) ->
            (topic, (List.length ts.subs, ts.published, ts.delivered, ts.queued)) )
+
+  let print_stats t =
+    let stats = stats t in
+    let header =
+      " Topic                  | Subscribers | Published | Delivered | Queued "
+    in
+    let line = String.make (String.length header) '-' in
+    Stdio.printf "\n%s\n%s\n%s\n" line header line ;
+    List.iter stats ~f:(fun (topic, (subs, published, delivered, queued)) ->
+        let topic_str = Sexp.to_string (Types.sexp_of_topic topic) in
+        (* truncate or pad topic_str for aligned display *)
+        let topic_str =
+          if String.length topic_str > 22 then
+            String.sub ~pos:0 ~len:19 topic_str ^ "..."
+          else topic_str ^ String.make (22 - String.length topic_str) ' '
+        in
+        Stdio.printf " %s | %11d | %9d | %9d | %6d\n" topic_str subs published
+          delivered queued ) ;
+    Stdio.printf "%s\n" line
+
+  (* let print_stats t = *)
+  (*   List.iter (stats t) ~f:(fun (topic, (subs, published, delivered, queued)) -> *)
+  (*       let topic_str = Sexp.to_string (Types.sexp_of_topic topic) in *)
+  (*       Stdio.printf *)
+  (*         "[Topic: %s] Subscribers: %d, Published: %d, Delivered: %d, Queued: %d\n" *)
+  (*         topic_str subs published delivered queued ) *)
 end

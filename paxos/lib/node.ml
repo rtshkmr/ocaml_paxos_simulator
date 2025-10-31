@@ -62,8 +62,31 @@ struct
     } [@@deriving sexp]
   end
 
-  let set_node_state (t : t) (new_state : State.t) : unit =
-    t.state <- new_state
+  let set_node_state (node : t) (new_state : State.t) : unit =
+    Stdio.printf "Node %d changed state from %s to %s\n%!"
+      node.id
+      (Sexplib.Sexp.to_string (State.sexp_of_t node.state))
+      (Sexplib.Sexp.to_string (State.sexp_of_t new_state));
+    node.state <- new_state
+
+
+  (* Node propose: create PermissionRequest and rely on simulator/bus to broadcast *)
+  let propose ~bus t ~proposal ~value =
+    (* Build PermissionRequest for this node *)
+    let msg = Message.make_permission_request ~topic:Types.Coordination ~from:t.id ~proposal ~value in
+    (* For v0 we'll have simulator broadcast on behalf of node; but provide direct publish too *)
+    Bus.enqueue bus ~topic:Types.Coordination (msg : V.t Message.t)
+
+  (* unsubscribe helpers *)
+  let shutdown t =
+    Stdio.print_endline ("Shutting down node: " ^ Int.to_string t.id);
+    Hashtbl.iteri t.subs ~f:(fun ~key:_ ~data:inner_table ->
+        Hashtbl.iteri inner_table ~f:(fun ~key:handle ~data:bus ->
+            Bus.unsubscribe bus handle
+          );
+        Hashtbl.clear inner_table
+      );
+    Hashtbl.clear t.subs
 
   (* TODO Node's message handler: skeleton (detailed logic to be filled) *)
   let handle_message (node : t) (msg : V.t Message.t) =
@@ -79,11 +102,8 @@ struct
       let response_topic = Message.topic_of msg in
       let buses = buses_for_topic node response_topic in
          (* TODO: TEST: this is just to echo back the same thing -- it will keep echoing each other back infinitely lol.*)
-        List.iter buses ~f:(fun bus -> (Bus.publish bus ~topic:response_topic msg));
-        (* SEE ME: how can i call something like
-                  Node.set_node_state n1 Node.State.Idle
- here?
- *)
+        List.iter buses ~f:(fun bus -> (Bus.enqueue bus ~topic:response_topic msg));
+        Stdio.printf "Node %d just enqueued a response\n%!" node.id;
         set_node_state node State.Idle;
       ()
     | _, PermissionRequest { from; proposal; _ } ->
@@ -108,22 +128,6 @@ struct
     | _, Accepted _ -> ()
     | _, Nack _ -> ()
 
-  (* Node propose: create PermissionRequest and rely on simulator/bus to broadcast *)
-  let propose ~bus t ~proposal ~value =
-    (* Build PermissionRequest for this node *)
-    let msg = Message.make_permission_request ~topic:Types.Coordination ~from:t.id ~proposal ~value in
-    (* For v0 we'll have simulator broadcast on behalf of node; but provide direct publish too *)
-    Bus.enqueue bus ~topic:Types.Coordination (msg : V.t Message.t)
-
-  (* unsubscribe helpers *)
-  let shutdown t =
-    Hashtbl.iteri t.subs ~f:(fun ~key:_ ~data:inner_table ->
-        Hashtbl.iteri inner_table ~f:(fun ~key:handle ~data:bus ->
-            Bus.unsubscribe bus handle
-          );
-        Hashtbl.clear inner_table
-      );
-    Hashtbl.clear t.subs
 
   let create ?(topics=[]) ?(state=State.Idle) ~id ~roles ~storage ~bus () =
     let node = {
