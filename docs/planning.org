@@ -631,8 +631,195 @@ CLOSED: [2025-10-30 Thu 15:31]
   - key functions
   - dependencies
   - exposed invariants
+*** TODO Designing Time Simulation
+:LOGBOOK:
+CLOCK: [2025-10-30 Thu 20:29]--[2025-10-30 Thu 20:43] =>  0:14
+CLOCK: [2025-10-30 Thu 19:30]--[2025-10-30 Thu 20:29] =>  0:59
+:END:
+
+Time should be logical and not absolute. This allows us to have a layer of indirection for time and map it to absolute offsets almost. That layer of indirection would be powerful because then we can add in time-sync (make time go slower, faster w.r.t actual clocks) and perhaps even explore the nuances that time-synchro problems have as this demo-project evolves over time.
+
+I think Simulator should be the owner of time most likely. Ticking should happen there, and there should be a way to manage the time there. I suspect that there's a need to have a separate Time that is distinct in the near future. That timer's responsibility can likely be a logical to absolute converter. In so doing, the rest of the system (simulator, bus, ...) can just be separated from time-keeping duties (?)
+
+Event bus ultimate is the main consumer of time, this is because event bus needs to considering message passing in the context of time. I don't have a mental model on how this interplays with async mechanisms yet, maybe it's just a matter of adding time-meta info into messages and so on.
+
+
+Importance: We need this asap because a node may initiate a paxos process via a single message broadcast BUT it needs to accumulate all the responses to that broadcast. Therefore, it can't happen one by one via a single handle_message ( which is how it is now and that makes it stateless )
+
+***** What is time? How to Model it?
+
+1. Time can be at various scales of consolidation
+   - global time
+   - local time
+
+2. Time can be logical, giving a layer of indirection between absolute and logical time for time-sim purposes
+   - simulated time
+   - continuous time
+   - discrete logical time
+
+3. components of time:
+   - time is kept by a clock
+     - a clock ticks at a particular frequency
+     - a clock manages all time-related logic
+     - a clock does the logical to absolute conversion
+
+***** The right place for time Ownership -- Who owns time?
+Global time is definitely @ the meta level $\implies$ owned by the Simulator.
+
+Simulator contains a close and that's the separation of time-based responsibilities.
+
+I think this will create a natural time-loop like a game-loop mechanism.
+
+****** Need to add in a EventLog for simulation event / meta events soon
+
+this is not high priority though
+
+***** Driving Progression of time: a time-aware flow of data
+
+****** Relationships between different components
+Components and their relationship with time:
+    a) Simulator drives time and scheduling (tick or step-based advancement).
+       - That's why sim is also the main application / simulation-level source of truth of time $\implies$ global time
+       - It's possible for others to own their own clocks as well. For example in the future we might wish to simulate time-drifts and time-sync problems.
+
+    b) Event Bus is purely reactive (synchronous publish).
+       - it's passive as it has always been.
+       - time flows through it implicitly based on function calls
+       - messages (the communication artefact) have to be bound to time
+
+    c) Nodes are consumers/producers of messages but unaware of “global time”.
+       - they may have local time in the future, where they may own a time
+
+    d) Messages carry metadata (potentially including timestamps).
+
+    e) Storage is stateful but time-independent (persistence layer).
+
+    f) Time Meta is not yet implemented, but will become a reusable abstraction layer.
+***** How do we represent a time-loop -- how does time flow?
+
+There are 2 modes of simulating time: real-time loop and discrete logical loop.
+
+We'll be doing the discrete logical loop because time advances in steps that may represent arbitrary units. You control when to tick, and you can pause, rewind, fast-forward. e.g. Paxos simulations, event-driven testing, deterministic systems
+
+to give a big-picture context:
+   a. The simulator is a world host, not a library.
+
+   b. The loop is the *central scheduler* of all activity.
+
+   c. Every event (message, timeout, node creation) is data — no hidden side effects.
+
+   d. Logical time gives you determinism, replay, and testability.
+
+   e. You can think of your simulator as a single-threaded event-driven kernel,
+where “ticks” are the scheduling granularity.
+
+****** What does a time loop do:
+
+It's the heartbeat of the system, a control structure for repetition.
+
+1) Advances a notion of time,
+
+2) Processes all events that should occur at or before that time,
+   - this part is like a task consideration step that a scheduler would do
+
+3) Updates the state of the world accordingly,
+
+
+4) Possibly renders or logs something,
+
+5) Then repeats.
+
+
+****** Skeleton
+We need the implementation to allow us to:
+
+1. control the simulation time:
+   - forward
+   - start
+   - stop
+   - reverse
+
+2. serve some scheduling needs:
+   - seed events to gather and dispatch at correct time
+
+3. allow us to simulate some this means we can now model the following simulation events as well:
+   + Network latency
+
+   + Node timeouts
+
+   + Random crashes
+
+   + Scheduled creation of new nodes
+
+Here's how the time loop can be implemented
+#+begin_src ocaml
+let rec run sim =
+  if not sim.halted then begin
+    (* 1. process all events scheduled for this tick *)
+    Event_bus.drain sim.bus ~time:(Time.now sim.clock);
+
+    (* 2. let nodes update (e.g. handle timeouts, triggers) *)
+    List.iter sim.nodes ~f:(fun n -> Node.tick n sim.clock);
+
+    (* 3. increment time *)
+    Time.tick sim.clock;
+
+    (* 4. optionally: inject new events / random faults / node creation *)
+    maybe_inject sim;
+
+    (* 5. repeat *)
+    run sim
+  end
+#+end_src
+
+Here's how the time-aware event scheduling can be done -- the shape of it:
+
+#+begin_src ocaml
+type event = {
+  time : Time.t;
+  action : sim -> unit;
+}
+
+type t = {
+  mutable queue : event list;
+  clock : Time.clock;
+}
+
+
+#+end_src
+
+So, at each tick:
+
+1) You dequeue all events whose event.time <= now.
+
+2) Execute their action sim.
+
+3) Any new events added (from nodes, bus, or simulator logic) are inserted back into the queue at their target times.
+
+***** Implementation rollout order
+Here's a plausible order of rolling this out:
+
+1) Introduce Time module (int-based logical ticks).
+
+2) Add timestamps to messages and events.
+
+3) Let Simulator own Time.clock.
+
+4) Make EventBus aware of message timestamps (but not dependent on Time).
+
+5) add in time loop implementation
+
+6) Use event log to record (message, time) tuples.
+
+7) (optional) Add local clocks to nodes for drift simulation.
+
+*** TODO Design Logging System
+This will be absolutely essential for the
+*** TODO Design Event Log System @ Global Simulator Level
+I think the rough idea for this is that we can have something like a pipeline that sits at the simulator so that many of the simulator's orchestration actions can have some event log reporter. this is low priority but comes after the logging system implementation.
+
 ** Implementation
-*** TODO Instrumentation & Orchestration Code
+*** TODO Basic Instrumentation & Orchestration Code
 :PROPERTIES:
 :EFFORT:   2h
 :END:
@@ -647,22 +834,213 @@ CLOSED: [2025-10-30 Thu 15:37]
   I'm not going to rely on AI code generation henceforth, the boilerplate code has whacked out types which mess things up.
 
   We need to be intentional about how we design the interfaces and using AI code is like a big-bang.
+**** [ ] Node lifecycle control
+- we start nodes off as idle. we can actually set states there after.
+- these are technically supposed to be acceptor states and follow the acceptor FSMs, have to get back to this soon to actually make it follow
+- Key tasks:
+  - [X] should be able to set the node as idle (without a shutdown)
+  - [X] should be able to change state (state setter)
+
+***** TODO [vanity] simulation system controls
+This can standardise setup to, tbh
+
+A node should be able to listen to simulation topic and set itself on or off based on what the simulator says (low priority)
+
+this can happen over a separate Syscall topic or something. This is all a nice to have.
+
+It will make the setup / state seeding process quite streamlined (s)
+
 **** [ ] Ensure =event_bus= works
 :LOGBOOK:
+CLOCK: [2025-10-30 Thu 22:53]--[2025-10-31 Fri 01:32] =>  2:39
+CLOCK: [2025-10-30 Thu 22:26]--[2025-10-30 Thu 22:35] =>  0:09
+CLOCK: [2025-10-30 Thu 16:31]--[2025-10-30 Thu 18:59] =>  2:28
+CLOCK: [2025-10-30 Thu 16:00]--[2025-10-30 Thu 16:31] =>  0:31
 CLOCK: [2025-10-30 Thu 15:41]--[2025-10-30 Thu 15:42] =>  0:01
 :END:
 
 We know that we can send messages over from node A to node B, we need to be able to send messages back.
 
-Confirm event bus publish/subscribe works with dummy print callbacks
+- [X] Confirm event bus publish/subscribe works with dummy print callbacks
+- [X] Confirm that responding works. Handle event can respond to things.
+  - this one can just echo back what I just got, so it's like an identity function almost
+  - this can be ticked off as soon as we can effect the bus from within a node.
 
+    PROBLEM: Not sure why it's an infinite loop though, the constant echo back should be infinite looping but when I shutdown the node, then it should stop responding though.
+
+    ANS: it was an infinite loop because of the =drain= operation. We had a while loop there that would keep publishing as long as the queue was non-empty. The problem was that the responses would fill in immediately and that's why the queue would never be empty. The fix to this was to do a simple snapshot prior to draining.
+
+    #+begin_src ocaml
+  let drain t =
+    let q_size = Queue.length t.queue in
+    Stdio.print_endline
+      ( "--- Draining the queue of " ^ Int.to_string q_size
+      ^ " items from batch start" ) ;
+    (* Snapshot the current queue to isolate this batch *)
+    let current_batch = Queue.to_list t.queue in
+    Queue.clear t.queue ;
+    List.iter current_batch ~f:(fun (topic, payload) ->
+        ( match Hashtbl.find t.topics topic with
+        | None ->
+            ()
+        | Some ts ->
+            ts.queued <- Int.max 0 (ts.queued - 1) ) ;
+        publish t ~topic payload )
+  (* Any enqueued messages during publish will accumulate in t.queue
+     for the next tick — not this one. *)
+    #+end_src
+
+    Simulation:
+    #+begin_src ocaml
+[@@@ocaml.warning "-26-32"]
+
+open Paxos
+open Base
+module V = Value_string.Value_string
+
+let my_value = V.t_of_sexp (Sexplib.Sexp.Atom "foo")
+
+let my_2_val = V.t_of_sexp (Sexplib.Sexp.Atom "hell yesss")
+
+module S = Storage_mem.Storage_mem (V)
+
+let storage = S.create ()
+
+module B = Event_bus.Event_bus
+
+(* Improved logger: convert topics and messages to readable strings *)
+let bus =
+  B.create
+    ~logger:(fun topic msg ->
+      Printf.sprintf "[LOG][%s] %s"
+        (Sexp.to_string (Types.Types.sexp_of_topic topic))
+        (* Use a manual to_string *)
+        (Sexplib.Sexp.to_string (Message.Message.sexp_of_t V.sexp_of_t msg)) )
+    ()
+
+module Node = Node.Make_node (V) (S) (B)
+
+let n1 =
+  Node.create ~id:1 ~roles:[Proposer] ~storage ~bus
+    ~topics:[Types.Types.Coordination; Types.Types.Suggestion]
+    ~state:Node.State.Echo ()
+
+let n2 =
+  Node.create ~id:2 ~roles:[Proposer] ~storage ~bus
+    ~topics:[Types.Types.Coordination; Types.Types.Suggestion]
+    ~state:Node.State.Echo ()
+
+(* Proposal and simulation entrypoint *)
+let () =
+  let proposal = Types.Types.make_proposal_id ~seq:1 ~node:1 in
+  Node.propose ~bus n1 ~proposal ~value:my_value
+
+let () = B.print_stats bus
+
+let () = B.drain bus
+
+let () = B.print_stats bus
+
+let () = B.drain bus
+
+let () = B.print_stats bus
+    #+end_src
+
+    and this was the result:
+
+    #+begin_src ocaml
+ॐ ❯ dune exec bin/simulation.exe
+Node 1 subscribed to topics Coordination, Suggestion
+Node 2 subscribed to topics Coordination, Suggestion
+
+-----------------------------------------------------------------------
+ Topic                  | Subscribers | Published | Delivered | Queued
+-----------------------------------------------------------------------
+ Suggestion             |           2 |         0 |         0 |      0
+ Coordination           |           2 |         0 |         0 |      1
+-----------------------------------------------------------------------
+--- Draining the queue of 1 items from batch start
+>>> Rcv @ echo node 2:
+        (PermissionRequest(meta((id 00000000-0000-4000-8000-000000000000)(timestamp 1761874896.6684239)(topic Coordination)))(from 1)(proposal((seq 1)(node 1)))(value foo))
+ Node 2 just enqueued a response
+Node 2 changed state from Echo to Idle
+>>> Rcv @ echo node 1:
+        (PermissionRequest(meta((id 00000000-0000-4000-8000-000000000000)(timestamp 1761874896.6684239)(topic Coordination)))(from 1)(proposal((seq 1)(node 1)))(value foo))
+ Node 1 just enqueued a response
+Node 1 changed state from Echo to Idle
+
+-----------------------------------------------------------------------
+ Topic                  | Subscribers | Published | Delivered | Queued
+-----------------------------------------------------------------------
+ Suggestion             |           2 |         0 |         0 |      0
+ Coordination           |           2 |         1 |         2 |      2
+-----------------------------------------------------------------------
+--- Draining the queue of 2 items from batch start
+Bro I'm idle - Node2
+Bro I'm idle - Node1
+Bro I'm idle - Node2
+Bro I'm idle - Node1
+
+-----------------------------------------------------------------------
+ Topic                  | Subscribers | Published | Delivered | Queued
+-----------------------------------------------------------------------
+ Suggestion             |           2 |         0 |         0 |      0
+ Coordination           |           2 |         3 |         6 |      0
+-----------------------------------------------------------------------
+    #+end_src
+
+    Maybe it's a good time to bring in the convenience lifecycle management functions for Node from Simulator?
+
+- [X] Time simulation needs to be figured out
+
+- [X] can a message be sent without enqueing it?
+  - yes that's what =publish= is for
+
+- [ ] can a particular node send a message to another node without broadcasting it?
+
+  - not yet, this needs a little bit of a change in how the callbacks are stored at =event_bus=, instead of a list of subs, it should be a map so that we can access specific ones in non-linear time.
+
+- [ ] how will a node batch together multiple nacks and then send the highest value ? how to batch receieve?
+  - we need to implement time-loop and then likely a "step" within the paxos protocol
+  - KIV this until time loop is done.
+***** Notes
+- I notice that the print statements within the subscribe functions and all are coming out in an order that doesn't make sense to me. I suspect it's because the print functions are batched / buffered.
+
+  I had to explicitly flush buffers when i use print statements (by finishing the string with =%!=) and then the ordering makes sense
+
+  Before:
+  #+begin_example
+ॐ ❯ dune exec bin/simulation.exe
+Draining the queue of 1 items
+Echo received message at node 2: (PermissionRequest(meta((id 00000000-0000-4000-8000-000000000000)(timestamp 1761816715.7327721)(topic Coordination)))(from 1)(proposal((seq 1)(node 1))))
+Echo received message at node 1: (PermissionRequest(meta((id 00000000-0000-4000-8000-000000000000)(timestamp 1761816715.7327721)(topic Coordination)))(from 1)(proposal((seq 1)(node 1))))
+Draining the queue of 1 items
+Echo received message at node 2: (PermissionRequest(meta((id 00000000-0000-4000-8000-000000000000)(timestamp 1761816715.732795)(topic Coordination)))(from 2)(proposal((seq 2)(node 2))))Bro I'm idle - Node 1
+Node 1 subscribed to topics Coordination, Suggestion
+  #+end_example
+
+  After:
+  #+begin_src example
+ॐ ❯ dune exec bin/simulation.exe
+Node 1 subscribed to topics Coordination, Suggestion
+Node 2 subscribed to topics Coordination, Suggestion
+Draining the queue of 1 items
+Echo received message at node 2: (PermissionRequest(meta((id 00000000-0000-4000-8000-000000000000)(timestamp 1761816886.230041)(topic Coordination)))(from 1)(proposal((seq 1)(node 1))))Echo received message at node 1: (PermissionRequest(meta((id 00000000-0000-4000-8000-000000000000)(timestamp 1761816886.230041)(topic Coordination)))(from 1)(proposal((seq 1)(node 1))))Draining the queue of 1 items
+Echo received message at node 2: (PermissionRequest(meta((id 00000000-0000-4000-8000-000000000000)(timestamp 1761816886.230056)(topic Coordination)))(from 2)(proposal((seq 2)(node 2))))Bro I'm idle - Node 1
+  #+end_src
 **** [ ] Add better logging to simulation
+
+this is almost a subsystem of its own
 
 We can add logging at every callback level so all the message passing is logged out.
 
-**** [ ] Add storage pattern, in memory
+This one can use jane street's =Log= library.
 
-**** [ ] Basic
+**** [ ] Add storage pattern, in memory
+This is not as high priority but will be cool to demonstrate how crashing can still bring things back
+**** [ ] Basic Simulation Event Logging
+This is necessary for the completion of this project because without it, the simulation visuals won't be sexy.
+
 *** TODO Implement v0 (core algorithm)
 :PROPERTIES:
 :EFFORT:   3h

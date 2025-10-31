@@ -12,25 +12,20 @@ open Base
 module Types : sig
   type node_id = int [@@deriving sexp, compare, equal, hash]
 
-  type slot = int [@@deriving sexp, compare, equal](** Slots are for future multi-paxos implementations*)
+  (** Slots are for future multi-paxos implementations*)
+  type slot = int [@@deriving sexp, compare, equal]
 
   (** A proposal id is a pair (counter, node) that gives a total ordering. *)
-  type proposal_id = {
-    seq : int;(** sequence counter*)
-    node : node_id;
-  } [@@deriving sexp, compare, equal, hash]
+  type proposal_id = {seq: int  (** sequence counter*); node: node_id}
+  [@@deriving sexp, compare, equal, hash]
 
   (** Explicit topics for which nodes communicate*)
-  type topic =
-    | Coordination
-    | Suggestion
-    | Control
-    | Gossip
-    | Metrics
-  [@@deriving sexp, compare, equal]
+  type topic = Coordination | Suggestion | Control | Gossip | Metrics
+  [@@deriving sexp, compare, hash, equal]
 
-  (** Convenience builder helpers *)
   val make_proposal_id : seq:int -> node:node_id -> proposal_id
+  (** Convenience builder helpers *)
+
   val next_proposal_id : proposal_id -> node:node_id -> proposal_id
 end
 
