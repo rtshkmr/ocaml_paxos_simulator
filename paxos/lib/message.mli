@@ -24,13 +24,11 @@ module Message : sig
   end
 
   (** Messages are parameterized by payload type ['v].
-      The Paxos algo defines these 5 variants in its spec.
-
+      The Paxos algo defines these 5 variants in its spec for Coordination
       Notes:
-
       1. [Nack] variant has an optional [hint] which helps to inform about the highest promise seen.
   *)
-  type 'v t =
+  type 'v coordination_message =
     | PermissionRequest of
         { meta: Meta.t
         ; from: Types.node_id
@@ -53,6 +51,18 @@ module Message : sig
     | Nack of {meta: Meta.t; from: Types.node_id; hint: Types.proposal_id option}
   [@@deriving sexp, compare, equal]
 
+  and 'v simulation_control_message =
+    | Pause of {meta: Meta.t}
+    | Resume of {meta: Meta.t}
+    | AdvanceTick of {meta: Meta.t}
+    | Inject of {meta: Meta.t}
+  [@@deriving sexp, compare, equal]
+
+  and 'v t =
+    | Coordination of 'v coordination_message
+    | Control of 'v simulation_control_message
+  [@@deriving sexp, compare, equal]
+
   val topic_of : _ t -> Types.topic
   (** [topic_of] extracts the topic from any message. *)
 
@@ -68,31 +78,31 @@ module Message : sig
     -> from:Types.node_id
     -> proposal:Types.proposal_id
     -> value:'v
-    -> 'v t
+    -> 'v coordination_message
 
   val make_permission_granted :
        topic:Types.topic
     -> from:Types.node_id
     -> last_accepted:(Types.proposal_id * 'v) option
-    -> 'v t
+    -> 'v coordination_message
 
   val make_suggestion :
        topic:Types.topic
     -> from:Types.node_id
     -> proposal:Types.proposal_id
     -> value:'v
-    -> 'v t
+    -> 'v coordination_message
 
   val make_accepted :
        topic:Types.topic
     -> from:Types.node_id
     -> proposal:Types.proposal_id
     -> value:'v
-    -> 'v t
+    -> 'v coordination_message
 
   val make_nack :
        topic:Types.topic
     -> from:Types.node_id
     -> hint:Types.proposal_id option
-    -> 'v t
+    -> 'v coordination_message
 end

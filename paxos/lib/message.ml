@@ -31,7 +31,7 @@ module Message = struct
     [@@deriving sexp, compare, equal]
   end
 
-  type 'v t =
+  type 'v coordination_message =
     | PermissionRequest of
         { meta: Meta.t
         ; from: Types.node_id
@@ -54,36 +54,63 @@ module Message = struct
     | Nack of {meta: Meta.t; from: Types.node_id; hint: Types.proposal_id option}
   [@@deriving sexp, compare, equal]
 
+  and 'v simulation_control_message =
+    | Pause of {meta: Meta.t}
+    | Resume of {meta: Meta.t}
+    | AdvanceTick of {meta: Meta.t}
+    | Inject of {meta: Meta.t}
+  [@@deriving sexp, compare, equal]
+
+  and 'v t =
+    | Coordination of 'v coordination_message
+    | Control of 'v simulation_control_message
+  [@@deriving sexp, compare, equal]
+
   let make_meta topic =
     {Meta.id= Uuidm.v4 (Bytes.create 16); timestamp= Unix.gettimeofday (); topic}
 
   let topic_of = function
-    | PermissionRequest {meta; _}
-    | PermissionGranted {meta; _}
-    | Suggestion {meta; _}
-    | Accepted {meta; _}
-    | Nack {meta; _} ->
-        meta.topic
+    | Coordination msg -> (
+      match msg with
+      | PermissionRequest {meta; _}
+      | PermissionGranted {meta; _}
+      | Suggestion {meta; _}
+      | Accepted {meta; _}
+      | Nack {meta; _} ->
+          meta.topic )
+    | Control msg -> (
+      match msg with
+      | Pause {meta} | Resume {meta} | AdvanceTick {meta} | Inject {meta} ->
+          meta.topic )
 
   let sender_of = function
-    | PermissionRequest {from; _}
-    | PermissionGranted {from; _}
-    | Suggestion {from; _}
-    | Accepted {from; _}
-    | Nack {from; _} ->
-        from
+    | Coordination msg -> (
+      match msg with
+      | PermissionRequest {from; _}
+      | PermissionGranted {from; _}
+      | Suggestion {from; _}
+      | Accepted {from; _}
+      | Nack {from; _} ->
+          from )
+    | Control _ ->
+        (* Control messages don't have a 'from' field; handle as needed *)
+        failwith "sender_of: Control messages do not have a sender"
 
   let proposal_id_of = function
-    | PermissionRequest {proposal; _}
-    | Suggestion {proposal; _}
-    | Accepted {proposal; _} ->
-        Some proposal
-    | PermissionGranted {last_accepted= Some (proposal, _); _} ->
-        Some proposal
-    | PermissionGranted {last_accepted= None; _} ->
+    | Coordination msg -> (
+      match msg with
+      | PermissionRequest {proposal; _}
+      | Suggestion {proposal; _}
+      | Accepted {proposal; _} ->
+          Some proposal
+      | PermissionGranted {last_accepted= Some (proposal, _); _} ->
+          Some proposal
+      | PermissionGranted {last_accepted= None; _} ->
+          None
+      | Nack {hint; _} ->
+          hint )
+    | Control _ ->
         None
-    | Nack {hint; _} ->
-        hint
 
   let make_permission_request ~topic ~from ~proposal ~value =
     PermissionRequest {meta= make_meta topic; from; proposal; value}

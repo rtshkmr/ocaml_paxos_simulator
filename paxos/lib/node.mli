@@ -68,8 +68,8 @@ module Make_node :
        val id : t -> Types.node_id
        val roles : t -> roles
        val state : t -> State.t
-       val handle_message : t -> V.t Message.t -> unit
-       (* val propose : t -> proposal:Types.proposal_id -> value:V.t -> unit *)
+       val handle_coordination : t -> V.t Message.t -> unit
+       val handle_simulation_control : t -> V.t Message.t -> unit
        val propose :
          bus:(V.t Message.t) Bus.t ->
          t ->

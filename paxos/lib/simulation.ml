@@ -8,6 +8,9 @@ module Simulation = struct
 
   let make_val string = V.t_of_sexp (Sexplib.Sexp.Atom string)
 
+  (** can be coordinated, can be controlled by simulator*)
+  let base_topics = [Types.Types.Coordination; Types.Types.Simulation_control]
+
   let create_nodes ~bus =
     let num_sim_nodes = 2 in
     let base_config =
@@ -16,14 +19,12 @@ module Simulation = struct
     let n1_config = base_config ~storage:(S.create ()) in
     let n2_config = base_config ~storage:(S.create ()) in
     let n1 =
-      Node.create ~id:1 ~bus
-        ~topics:[Types.Types.Coordination; Types.Types.Simulation_control]
-        ~config:n1_config ~state:Node.State.Echo ()
+      Node.create ~id:1 ~bus ~topics:base_topics ~config:n1_config
+        ~state:Node.State.Echo ()
     in
     let n2 =
-      Node.create ~id:2 ~bus
-        ~topics:[Types.Types.Coordination; Types.Types.Simulation_control]
-        ~config:n2_config ~state:Node.State.Echo ()
+      Node.create ~id:2 ~bus ~topics:base_topics ~config:n2_config
+        ~state:Node.State.Echo ()
     in
     (n1, n2)
 

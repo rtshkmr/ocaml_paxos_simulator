@@ -105,13 +105,13 @@ struct
       (Sexplib.Sexp.to_string (State.sexp_of_t new_state));
     node.state <- new_state
 
-
   (* Node propose: create PermissionRequest and rely on simulator/bus to broadcast *)
   let propose ~bus t ~proposal ~value =
     (* Build PermissionRequest for this node *)
-    let msg = Message.make_permission_request ~topic:Types.Coordination ~from:t.id ~proposal ~value in
+    let coord_msg = Message.make_permission_request ~topic:Types.Coordination ~from:t.id ~proposal ~value in
+    let msg = Message.Coordination coord_msg in
     (* For v0 we'll have simulator broadcast on behalf of node; but provide direct publish too *)
-    Bus.enqueue bus ~topic:Types.Coordination (msg : V.t Message.t)
+    Bus.enqueue bus ~topic:Types.Coordination msg
 
   (* unsubscribe helpers *)
   let shutdown t =
@@ -128,47 +128,50 @@ struct
    TODO: this probably needs a check on the type of message. Check what the response is gonna be like for a permission granted.
          maybe we can just pass in a predicate function into this as a param.
   *)
-  let is_quorum_reached (node: t) (inbox_entry: inbox_entry) =
-    let predicate =  function
-      | Message.Nack _ -> false
-      | _ -> true in
-    match !(node.config.simulation.quorum) with
-    | None ->
+let is_quorum_reached (node: t) (inbox_entry: inbox_entry) ~(predicate: 'v Message.t -> bool) =
+  match !(node.config.simulation.quorum) with
+  | None -> false
+  | Some total ->
+    let quorum_threshold = (total / 2) + 1 in
+    let msgs_rcvd = inbox_entry.messages in
+    let num_ack = List.count msgs_rcvd ~f:predicate in
+    num_ack >= quorum_threshold
 
-      false
-    | Some total ->
-      let quorum_threshold = (total / 2) + 1 in
-      let msgs_rcvd = inbox_entry.messages in
-      let num_ack = List.count msgs_rcvd ~f:predicate in
-      num_ack >= quorum_threshold
+let process_inboxes (node: t) : unit =
+  dump_inbox node;
+  Hashtbl.iteri node.inbox ~f:(fun ~key:proposal_id ~data:inbox_entry ->
+      let needs_quorum msg =
+        match msg with
+        | Message.Coordination coordination_msg -> (
+            match coordination_msg with
+            | Message.PermissionGranted _
+            | Message.Accepted _ -> true
+            | Message.PermissionRequest _
+            | Message.Suggestion _
+            | Message.Nack _ -> false )
+        | Message.Control _ -> false
+      in
+      let quorum_reached = is_quorum_reached node inbox_entry ~predicate:needs_quorum in
+      if quorum_reached then begin
+        Stdio.printf "Node %d quorum reached for proposal %s\n%!" node.id (Sexp.to_string (Types.sexp_of_proposal_id proposal_id));
+        (* Clear inbox or mark done for this proposal *)
+      end else begin
+        Stdio.printf "Node %d quorum NOT YET reached for proposal %s\n%!" node.id (Sexp.to_string (Types.sexp_of_proposal_id proposal_id));
+        ()
+      end
+    )
 
-  let process_inboxes (node: t) : unit =
-    match !(node.config.simulation.quorum) with
-    | None -> Stdio.printf "Quorum: none\n"
-    | Some q -> Stdio.printf "Quorum: %d\n" q;
-
-      dump_inbox node;
-      Hashtbl.iteri node.inbox ~f:(fun ~key:proposal_id ~data:inbox_entry ->
-          (* TODO: check if quorum/majority is reached on collected responses *)
-        let quorum_reached = is_quorum_reached node inbox_entry  (* TODO add logic to placeholder *) in
-        if quorum_reached then begin
-          (* TODO: trigger next step, e.g., send Accept or decide value *)
-          Stdio.printf "Node %d quorum reached for proposal %s\n%!" node.id (Sexp.to_string (Types.sexp_of_proposal_id proposal_id));
-          (* Clear inbox or mark done for this proposal *)
-        end else begin
-          (* Quorum not reached yet, keep collecting *)
-          Stdio.printf "Node %d quorum NOT YET reached for proposal %s\n%!" node.id (Sexp.to_string (Types.sexp_of_proposal_id proposal_id));
-          ()
-        end
-      )
-
-  let handle_message (node: t) (msg: V.t Message.t) =
+  let handle_coordination (node: t) (msg: V.t Message.t) =
     match Message.proposal_id_of msg with
     | None -> ()
     | Some key -> let inbox_entry = get_or_create_inbox_entry node key
       in
       inbox_entry.messages <- msg::inbox_entry.messages;
       process_inboxes node
+
+
+  let handle_simulation_control (node: t) (msg: V.t Message.t) =
+    Stdio.printf "---> Node %d being controlled to do something" node.id
 
   let default_config ~roles ~storage = {
     roles;
@@ -183,8 +186,9 @@ struct
   (** this allows us to choose handlers based on the topic *)
   let get_handler_for_topic (node: t) (topic: Types.topic) : bus_registrable_callback =
     match topic with
-    | Types.Coordination -> handle_message node
-    | _ -> handle_message node
+    | Types.Coordination -> handle_coordination node
+    | Types.Simulation_control -> handle_simulation_control node
+    | _ -> handle_coordination node
 
   let create  ?(topics=[]) ?(state=State.Idle) ~id ~config ~bus () =
     let node = {
