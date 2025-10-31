@@ -735,7 +735,6 @@ As we have established already,
     scheduled, for now just controlled by the simulator
 
 **** Rollout proposal
-
 1. we should do time simulation after adding in statefulness
 2. just some skeleton dumps:
 
@@ -998,6 +997,7 @@ Here's a plausible order of rolling this out:
 
 7) (optional) Add local clocks to nodes for drift simulation.
 
+
 *** TODO Design Logging System
 This will be absolutely essential for the
 *** TODO Design Event Log System @ Global Simulator Level
@@ -1019,14 +1019,17 @@ CLOSED: [2025-10-30 Thu 15:37]
   I'm not going to rely on AI code generation henceforth, the boilerplate code has whacked out types which mess things up.
 
   We need to be intentional about how we design the interfaces and using AI code is like a big-bang.
-**** [ ] Node lifecycle control
+**** [X] Node lifecycle control
+CLOSED: [2025-10-31 Fri 11:55]
+- CLOSING NOTE [2025-10-31 Fri 11:55] \\
+  this is good enough
 - we start nodes off as idle. we can actually set states there after.
 - these are technically supposed to be acceptor states and follow the acceptor FSMs, have to get back to this soon to actually make it follow
 - Key tasks:
   - [X] should be able to set the node as idle (without a shutdown)
   - [X] should be able to change state (state setter)
 
-***** TODO [vanity] simulation system controls
+**** TODO [vanity] simulation system controls
 This can standardise setup to, tbh
 
 A node should be able to listen to simulation topic and set itself on or off based on what the simulator says (low priority)
@@ -1133,7 +1136,7 @@ let () = B.print_stats bus
 
     and this was the result:
 
-    #+begin_src ocaml
+    #+begin_src txt
 ॐ ❯ dune exec bin/simulation.exe
 Node 1 subscribed to topics Coordination, Suggestion
 Node 2 subscribed to topics Coordination, Suggestion
@@ -1182,7 +1185,7 @@ Bro I'm idle - Node1
 
   - not yet, this needs a little bit of a change in how the callbacks are stored at =event_bus=, instead of a list of subs, it should be a map so that we can access specific ones in non-linear time.
 
-- [ ] how will a node batch together multiple nacks and then send the highest value ? how to batch receieve?
+- [ ] how will a node batch together multiple nacks and then send the highest value ? how to batch receive?
   - ~we need to implement time-loop and then likely a "step" within the paxos protocol~
   - ~KIV this until time loop is done.~
 
@@ -1213,9 +1216,93 @@ Echo received message at node 2: (PermissionRequest(meta((id 00000000-0000-4000-
 Echo received message at node 2: (PermissionRequest(meta((id 00000000-0000-4000-8000-000000000000)(timestamp 1761816886.230056)(topic Coordination)))(from 2)(proposal((seq 2)(node 2))))Bro I'm idle - Node 1
   #+end_src
 **** [ ] Statefulness @ Nodes
+:PROPERTIES:
+:EFFORT:   1.5h
+:END:
+:LOGBOOK:
+handling quorum
+CLOCK: [2025-10-31 Fri 15:39]
+CLOCK: [2025-10-31 Fri 15:38]--[2025-10-31 Fri 15:39] =>  0:01
+CLOCK: [2025-10-31 Fri 14:01]--[2025-10-31 Fri 15:17] =>  1:16
+:END:
 Refer to design notes on statefulness via inboxes @ nodes above.
+***** Inbox implemented as a Hashtbl
+- Keying the Inbox: Proposal ID (Ballot Number)
+  - Use proposal ID ("ballot number") as the main key for your inbox hashtable.
+    - Each phase (Prepare/Promise, Accept/Ack/Nack) is tied to a specific proposal.
+    - Proposal IDs should be globally unique and monotonically increasing, typically formed as a tuple (node_id, sequence_number) or as a single unique integer, sometimes a UUID.
+    - For multi-paxos, you may want the key to be a pair: (instance_id, proposal_id). For basic Paxos, just using proposal_id suffices.
+- Need to add in meta info like the quorum and such.
+***** refactoring =handle_message=, using =process_inboxes=
+
+here's the old =handle_message=
+#+begin_src ocaml
+  (* TODO Node's message handler: skeleton (detailed logic to be filled) *)
+  let handle_message_ (node : t) (msg : V.t Message.t) =
+    (* pattern match and implement acceptor / proposer behavior *)
+    match node.state, msg with
+    | State.Idle, _ ->
+      Stdio.print_endline ("Bro I'm idle - Node" ^ ( Int.to_string node.id ));
+      ()
+    | State.Echo, PermissionRequest { from; proposal; _ } ->
+      Stdio.printf ">>> Rcv @ echo node %d: \n\t%s\n %!" node.id
+        (Sexplib.Sexp.to_string (Message.sexp_of_t V.sexp_of_t msg));
+
+      let response_topic = Message.topic_of msg in
+      let buses = buses_for_topic node response_topic in
+      (* TODO: TEST: this is just to echo back the same thing -- it will keep echoing each other back infinitely lol.*)
+      List.iter buses ~f:(fun bus -> (Bus.enqueue bus ~topic:response_topic msg));
+      Stdio.printf "Node %d just enqueued a response\n%!" node.id;
+      set_node_state node State.Idle;
+      ()
+    | _, PermissionRequest { from; proposal; _ } ->
+      (* as an acceptor, consult storage, decide whether to promise *)
+      (* Pseudocode:
+         let open Storage in
+         match Storage.load t.storage ~key:t.id with
+         | Ok (Some record) -> check record.promised
+         | Ok None -> grant and persist promised=proposal
+      *)
+      Stdio.printf "Echo received message at node %d: %s\n %!" node.id
+        (Sexplib.Sexp.to_string (Message.sexp_of_t V.sexp_of_t msg));
+
+      (* let response_topic = Message.topic_of msg in *)
+      (* let buses = buses_for_topic t response_topic in *)
+      (*    (\* TODO: TEST: this is just to echo back the same thing -- it will keep echoing each other back infinitely lol.*\) *)
+      (*   List.iter buses ~f:(fun bus -> (Bus.publish bus ~topic:response_topic msg)); *)
+      ()
+    | _, PermissionGranted _ -> ()
+    | _,Suggestion { from; proposal; value; _ } ->
+      ()
+    | _, Accepted _ -> ()
+    | _, Nack _ -> ()
+#+end_src
+***** Handling quorum
+
 
 **** [ ] Time Simulation
+
+***** Integrating time ticking
+
+We should keep the =Event_bus= stateless and reactive. We should use message-passing for heartbeats. Otherwise, we would add some coupling between the Simulator and the Nodes. In the future, when Nodes have their own local clocks, then maybe they can do their own ticking internally.
+
+
+So, we can actually just use a separate heartbeat topic for time events like ticking.
+
+    - Use message passing via a dedicated "Heartbeat" or "Tick" topic in the event bus.
+
+        - The Simulator emits a Tick event every logical clock increment on this topic.
+
+        - Nodes subscribe to this heartbeat topic.
+
+        - Upon receiving tick messages, nodes execute time-dependent logic such as processing inboxes, handling timeouts or retries.
+
+        - This fits cleanly with your purely reactive event bus architecture and keeps time progression explicit as message events.
+
+        - Allows modeling network delays, jitter, and dropped ticks (if desired) naturally as message loss or delay in the simulation.
+
+        - Makes the system fully event-driven with no hidden side effects, enabling controlled, deterministic simulation ticking.
+
 
 **** [ ] Add better logging to simulation
 
@@ -1223,13 +1310,14 @@ this is almost a subsystem of its own
 
 We can add logging at every callback level so all the message passing is logged out.
 
-This one can use jane street's =Log= library.
-**** [ ] Add storage pattern, in memory
+This one can use jane street's =Log= library. I'm not sure how big of a lift that is. It's definitely essential for the polishing of this mini project though.
+
+**** [ ] Add storage pattern, in-mem -> persistent storage
 This is not as high priority but will be cool to demonstrate how crashing can still bring things back
 **** [ ] Basic Simulation Event Logging
 This is necessary for the completion of this project because without it, the simulation visuals won't be sexy.
 
-*** TODO Implement v0 (core algorithm)
+*** TODO Implement v0 (basic paxos algorithm)
 :PROPERTIES:
 :EFFORT:   3h
 :END:

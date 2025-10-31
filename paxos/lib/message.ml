@@ -73,6 +73,18 @@ module Message = struct
     | Nack {from; _} ->
         from
 
+  let proposal_id_of = function
+    | PermissionRequest {proposal; _}
+    | Suggestion {proposal; _}
+    | Accepted {proposal; _} ->
+        Some proposal
+    | PermissionGranted {last_accepted= Some (proposal, _); _} ->
+        Some proposal
+    | PermissionGranted {last_accepted= None; _} ->
+        None
+    | Nack {hint; _} ->
+        hint
+
   let make_permission_request ~topic ~from ~proposal ~value =
     PermissionRequest {meta= make_meta topic; from; proposal; value}
 

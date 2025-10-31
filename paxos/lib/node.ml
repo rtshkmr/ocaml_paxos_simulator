@@ -9,14 +9,22 @@ open Message
     This allows us to effectively bind together an Value, Storage and Bus over which communication happens.
 *)
 module Make_node (V : Value.S)
-  (Storage : Storage.S)
-  (Bus : sig
-     include module type of Event_bus
-     (* For type compatibility we assume the Event_bus was compiled with 'a t etc *)
-   end) =
+    (Storage : Storage.S)
+    (Bus : sig
+       include module type of Event_bus
+         (* For type compatibility we assume the Event_bus was compiled with 'a t etc *)
+     end) =
 struct
   type role = Proposer | Acceptor | Learner
   type roles = role list
+
+  (** v0: for simple paxos, we shall just keep it to proposal id, can expand to (proposal_id, node_id) for multi-paxos *)
+  type proposal_key = Types.proposal_id
+  type inbox_entry = {
+    mutable messages: V.t Message.t list;
+  } [@@deriving sexp_of]
+
+  type inbox = (proposal_key, inbox_entry) Hashtbl.t
 
   module State = struct
     type t =
@@ -33,10 +41,10 @@ struct
     [@@deriving sexp]
   end
 
-
   type t = {
     id : Types.node_id;
     roles : roles;
+    inbox : inbox;
     mutable state : State.t;
     storage : Storage.t;
     mutable subs : (Types.topic, (Bus.sub_handle, V.t Message.t Bus.t) Hashtbl.t) Hashtbl.t;
@@ -47,12 +55,30 @@ struct
   let roles t = t.roles
   let state t = t.state
   let buses_for_topic t topic =
-  match Hashtbl.find t.subs topic with
-  | Some table -> Hashtbl.fold table ~init:[] ~f:(fun ~key:_ ~data:bus acc -> bus :: acc)
-  | None -> []
+    match Hashtbl.find t.subs topic with
+    | Some table -> Hashtbl.fold table ~init:[] ~f:(fun ~key:_ ~data:bus acc -> bus :: acc)
+    | None -> []
 
   let dump_state t = State.sexp_of_t t.state
 
+  let get_or_create_inbox_entry (node: t) (key: proposal_key) =
+    match Hashtbl.find node.inbox key with
+    | Some inbox_entry -> inbox_entry
+    | None ->
+      let new_inbox_entry = { messages = [] } in
+      Hashtbl.set node.inbox ~key ~data:new_inbox_entry;
+      new_inbox_entry
+
+  let dump_inbox (node : t) =
+    let alist = Hashtbl.to_alist node.inbox in
+    let sexp =
+      List.sexp_of_t
+        (Sexplib.Conv.sexp_of_pair
+           Types.sexp_of_proposal_id
+           sexp_of_inbox_entry)
+        alist
+    in
+    Stdio.printf "Inbox for node %d:\n%s\n%!" node.id (Sexplib.Sexp.to_string_hum sexp)
 
   (* helper to persist acceptor record *)
   module Acceptor_record = struct
@@ -88,72 +114,57 @@ struct
       );
     Hashtbl.clear t.subs
 
-  (* TODO Node's message handler: skeleton (detailed logic to be filled) *)
-  let handle_message (node : t) (msg : V.t Message.t) =
-    (* pattern match and implement acceptor / proposer behavior *)
-    match node.state, msg with
-    | State.Idle, _ ->
-      Stdio.print_endline ("Bro I'm idle - Node" ^ ( Int.to_string node.id ));
-      ()
-    | State.Echo, PermissionRequest { from; proposal; _ } ->
-      Stdio.printf ">>> Rcv @ echo node %d: \n\t%s\n %!" node.id
-        (Sexplib.Sexp.to_string (Message.sexp_of_t V.sexp_of_t msg));
+  let process_inboxes (node: t) : unit =
+    dump_inbox node;
+    Hashtbl.iteri node.inbox ~f:(fun ~key:proposal_id ~data:inbox_entry ->
+        (* TODO: check if quorum/majority is reached on collected responses *)
+        let quorum_reached = false  (* TODO add logic to placeholder *) in
+        if quorum_reached then begin
+          (* TODO: trigger next step, e.g., send Accept or decide value *)
+          Stdio.printf "Node %d quorum reached for proposal %s\n%!" node.id (Sexp.to_string (Types.sexp_of_proposal_id proposal_id));
+          (* Clear inbox or mark done for this proposal *)
+        end else begin
+          (* Quorum not reached yet, keep collecting *)
+          Stdio.printf "Node %d quorum NOT YET reached for proposal %s\n%!" node.id (Sexp.to_string (Types.sexp_of_proposal_id proposal_id));
+          ()
+        end
+      )
 
-      let response_topic = Message.topic_of msg in
-      let buses = buses_for_topic node response_topic in
-         (* TODO: TEST: this is just to echo back the same thing -- it will keep echoing each other back infinitely lol.*)
-        List.iter buses ~f:(fun bus -> (Bus.enqueue bus ~topic:response_topic msg));
-        Stdio.printf "Node %d just enqueued a response\n%!" node.id;
-        set_node_state node State.Idle;
-      ()
-    | _, PermissionRequest { from; proposal; _ } ->
-      (* as an acceptor, consult storage, decide whether to promise *)
-      (* Pseudocode:
-         let open Storage in
-         match Storage.load t.storage ~key:t.id with
-         | Ok (Some record) -> check record.promised
-         | Ok None -> grant and persist promised=proposal
-      *)
-      Stdio.printf "Echo received message at node %d: %s\n %!" node.id
-        (Sexplib.Sexp.to_string (Message.sexp_of_t V.sexp_of_t msg));
-
-      (* let response_topic = Message.topic_of msg in *)
-      (* let buses = buses_for_topic t response_topic in *)
-      (*    (\* TODO: TEST: this is just to echo back the same thing -- it will keep echoing each other back infinitely lol.*\) *)
-      (*   List.iter buses ~f:(fun bus -> (Bus.publish bus ~topic:response_topic msg)); *)
-      ()
-    | _, PermissionGranted _ -> ()
-    | _,Suggestion { from; proposal; value; _ } ->
-      ()
-    | _, Accepted _ -> ()
-    | _, Nack _ -> ()
+  let handle_message (node: t) (msg: V.t Message.t) =
+    match Message.proposal_id_of msg with
+    | None -> ()
+    | Some key -> let inbox_entry = get_or_create_inbox_entry node key
+      in
+      inbox_entry.messages <- msg::inbox_entry.messages;
+      process_inboxes node
 
 
   let create ?(topics=[]) ?(state=State.Idle) ~id ~roles ~storage ~bus () =
     let node = {
-    id;
-    roles;
-    state;
-    storage;
-    subs= Hashtbl.Poly.create ();
-    transitions = ref [];
-  } in
-  let handler (msg: V.t Message.t) = handle_message node msg in
-  List.iter topics ~f:(fun topic ->
-    let topic_table =
-      match Hashtbl.find node.subs topic with
-      | Some table -> table
-      | None ->
-        let table = Hashtbl.Poly.create () in
-        Hashtbl.add_exn node.subs ~key:topic ~data:table;
-        table
-    in
-    let handle = Bus.subscribe bus ~topic (fun msg -> handler msg) in
-    Hashtbl.add_exn topic_table ~key:handle ~data:bus
-    );
+      id;
+      roles;
+      state;
+      storage;
+      subs= Hashtbl.Poly.create ();
+      inbox= Hashtbl.Poly.create ();
+      transitions = ref [];
+    } in
+    let handler (msg: V.t Message.t) = handle_message node msg in
+    List.iter topics ~f:(fun topic ->
+        let topic_table =
+          match Hashtbl.find node.subs topic with
+          | Some table -> table
+          | None ->
+            let table = Hashtbl.Poly.create () in
+            Hashtbl.add_exn node.subs ~key:topic ~data:table;
+            table
+        in
+        let handle = Bus.subscribe bus ~topic (fun msg -> handler msg) in
+        Hashtbl.add_exn topic_table ~key:handle ~data:bus
+      );
 
     Stdio.eprintf "Node %d subscribed to topics %s\n%!" node.id (topics |> List.map ~f:(fun topic -> Sexp.to_string (Types.sexp_of_topic topic))
-     |> String.concat ~sep:", ");
-  node
+                                                                 |> String.concat ~sep:", ");
+    node
 
 end

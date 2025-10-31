@@ -59,6 +59,9 @@ module Message : sig
   val sender_of : _ t -> Types.node_id
   (** [sender_of] extracts the sender node ID. *)
 
+  val proposal_id_of : _ t -> Types.proposal_id option
+  (** [proposal_id_of] extracts the proposal ID from the message, if it exists. *)
+
   (* helpers to construct messages; ensure meta.topic matches provided topic *)
   val make_permission_request :
        topic:Types.topic
