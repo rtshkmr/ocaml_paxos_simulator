@@ -55,6 +55,8 @@ module Message = struct
   [@@deriving sexp, compare, equal]
 
   and 'v simulation_control_message =
+    | MakeNodeIdle of {meta: Meta.t; node_id: Types.node_id}
+    | MakeNodeEcho of {meta: Meta.t; node_id: Types.node_id}
     | Pause of {meta: Meta.t}
     | Resume of {meta: Meta.t}
     | AdvanceTick of {meta: Meta.t}
@@ -80,7 +82,12 @@ module Message = struct
           meta.topic )
     | Control msg -> (
       match msg with
-      | Pause {meta} | Resume {meta} | AdvanceTick {meta} | Inject {meta} ->
+      | MakeNodeEcho {meta; _}
+      | MakeNodeIdle {meta; _}
+      | Pause {meta}
+      | Resume {meta}
+      | AdvanceTick {meta}
+      | Inject {meta} ->
           meta.topic )
 
   let sender_of = function
@@ -111,6 +118,12 @@ module Message = struct
           hint )
     | Control _ ->
         None
+
+  let make_sim_control_idle_node node_id =
+    MakeNodeIdle {meta= make_meta Types.Simulation_control; node_id}
+
+  let make_sim_control_echo_node node_id =
+    MakeNodeEcho {meta= make_meta Types.Simulation_control; node_id}
 
   let make_permission_request ~topic ~from ~proposal ~value =
     PermissionRequest {meta= make_meta topic; from; proposal; value}

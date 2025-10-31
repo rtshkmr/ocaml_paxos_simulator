@@ -5,6 +5,7 @@ open Event_bus
 open Types
 open Message
 
+
 (** Make_node is functor that allows us to create a Node.
     This allows us to effectively bind together an Value, Storage and Bus over which communication happens.
 *)
@@ -25,8 +26,6 @@ struct
   } [@@deriving sexp_of]
 
   type inbox = (proposal_key, inbox_entry) Hashtbl.t
-
-
 
   module State = struct
     type t =
@@ -113,6 +112,15 @@ struct
     (* For v0 we'll have simulator broadcast on behalf of node; but provide direct publish too *)
     Bus.enqueue bus ~topic:Types.Coordination msg
 
+  let make_node_idle ~bus t ~node_id =
+    (* Build PermissionRequest for this node *)
+    let sim_ctrl_msg = Message.make_sim_control_idle_node node_id in
+    let msg = Message.Control sim_ctrl_msg in
+    (* For v0 we'll have simulator broadcast on behalf of node; but provide direct publish too *)
+    Bus.publish bus ~topic:Types.Simulation_control msg
+
+
+
   (* unsubscribe helpers *)
   let shutdown t =
     Stdio.print_endline ("Shutting down node: " ^ Int.to_string t.id);
@@ -162,16 +170,22 @@ let process_inboxes (node: t) : unit =
     )
 
   let handle_coordination (node: t) (msg: V.t Message.t) =
-    match Message.proposal_id_of msg with
-    | None -> ()
-    | Some key -> let inbox_entry = get_or_create_inbox_entry node key
+    match node.state, Message.proposal_id_of msg with
+    | _ , None -> ()
+    | State.Idle, _ -> Stdio.printf "XXXX attempted to coordinate with Node %d but that node is idle\n%!" node.id
+    | _ , Some key -> let inbox_entry = get_or_create_inbox_entry node key
       in
       inbox_entry.messages <- msg::inbox_entry.messages;
       process_inboxes node
 
 
   let handle_simulation_control (node: t) (msg: V.t Message.t) =
-    Stdio.printf "---> Node %d being controlled to do something" node.id
+    match msg with
+    | Message.Control (MakeNodeIdle {node_id; _}) when node_id = node.id ->
+      node.state <- State.Idle;
+      Stdio.printf "---> Node %d was made idle\n%!" node.id
+
+    | _ -> Stdio.printf "---> Node %d received simulation control but did nothing \n%!" node.id
 
   let default_config ~roles ~storage = {
     roles;

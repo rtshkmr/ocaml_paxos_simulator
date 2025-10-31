@@ -17,68 +17,78 @@ open Base
 open Types
 open Message
 open Event_bus
+
 (** The functor for constructing node implementations parameterized by:
     - [V]: the value type (module of type [Value.S])
     - [Storage]: persistence backend for acceptor records
     - [Bus]: event bus used for communication
 *)
-module Make_node :
-  functor (V : Value.S)
-  -> functor (Storage : Storage.S)
-  -> functor (Bus : sig include module type of Event_bus end)
+module Make_node : functor
+  (V : Value.S)
+  (Storage : Storage.S)
+  (Bus : sig
+     include module type of Event_bus
+   end)
   -> sig
-       type role = Proposer | Acceptor | Learner
-       type roles = role list
+  type role = Proposer | Acceptor | Learner
 
-       module State : sig
-         type t =
-           | Idle
-           | Echo
-           | Preparing of { current_proposal : Types.proposal_id; awaiting : Types.node_id list }
-           | WaitingForPromises of {
-               proposal : Types.proposal_id;
-               promises_received : (Types.node_id * (Types.proposal_id * V.t) option) list;
-             }
-           | Accepting of { proposal : Types.proposal_id; value : V.t; acks : Types.node_id list }
-           | AcceptedLocally of { proposal : Types.proposal_id; value : V.t }
-           | Decided of V.t
-         [@@deriving sexp]
-       end
+  type roles = role list
 
-       type simulation_config = {
-         mutable quorum: int option ref;
-       }
-       type config = {
-         simulation: simulation_config;
-         roles: roles;
-         storage: Storage.t;
-       }
+  module State : sig
+    type t =
+      | Idle
+      | Echo
+      | Preparing of
+          {current_proposal: Types.proposal_id; awaiting: Types.node_id list}
+      | WaitingForPromises of
+          { proposal: Types.proposal_id
+          ; promises_received:
+              (Types.node_id * (Types.proposal_id * V.t) option) list }
+      | Accepting of
+          {proposal: Types.proposal_id; value: V.t; acks: Types.node_id list}
+      | AcceptedLocally of {proposal: Types.proposal_id; value: V.t}
+      | Decided of V.t
+    [@@deriving sexp]
+  end
 
-       type t
+  type simulation_config = {mutable quorum: int option ref}
 
-       val create :
-         ?topics:Types.topic list ->
-         ?state:State.t ->
-         id:Types.node_id ->
-         config:config ->
-         bus:(V.t Message.t) Bus.t ->
-         unit -> t
+  type config = {simulation: simulation_config; roles: roles; storage: Storage.t}
 
-       val set_node_state : t -> State.t -> unit
-       val id : t -> Types.node_id
-       val roles : t -> roles
-       val state : t -> State.t
-       val handle_coordination : t -> V.t Message.t -> unit
-       val handle_simulation_control : t -> V.t Message.t -> unit
-       val propose :
-         bus:(V.t Message.t) Bus.t ->
-         t ->
-         proposal:Types.proposal_id ->
-         value:V.t ->
-         unit
-       val dump_state : t -> Sexp.t
+  type t
 
-       val make_config: roles:roles -> storage:Storage.t -> quorum:(int option) -> config
+  val create :
+       ?topics:Types.topic list
+    -> ?state:State.t
+    -> id:Types.node_id
+    -> config:config
+    -> bus:V.t Message.t Bus.t
+    -> unit
+    -> t
 
-     end
+  val set_node_state : t -> State.t -> unit
 
+  val id : t -> Types.node_id
+
+  val roles : t -> roles
+
+  val state : t -> State.t
+
+  val handle_coordination : t -> V.t Message.t -> unit
+
+  val handle_simulation_control : t -> V.t Message.t -> unit
+
+  val propose :
+       bus:V.t Message.t Bus.t
+    -> t
+    -> proposal:Types.proposal_id
+    -> value:V.t
+    -> unit
+
+  val dump_state : t -> Sexp.t
+
+  val make_config :
+    roles:roles -> storage:Storage.t -> quorum:int option -> config
+
+  val make_node_idle : bus:'a Message.t Bus.t -> 'b -> node_id:int -> unit
+end

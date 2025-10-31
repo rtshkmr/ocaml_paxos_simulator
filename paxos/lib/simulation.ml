@@ -28,16 +28,17 @@ module Simulation = struct
     in
     (n1, n2)
 
+  let bus =
+    B.create
+      ~logger:(fun topic msg ->
+        Printf.sprintf "[LOG][%s] %s"
+          (Sexp.to_string (Types.Types.sexp_of_topic topic))
+          (Sexplib.Sexp.to_string (Message.Message.sexp_of_t V.sexp_of_t msg)) )
+      ()
+
+  let n1, n2 = create_nodes ~bus
+
   let run () =
-    let bus =
-      B.create
-        ~logger:(fun topic msg ->
-          Printf.sprintf "[LOG][%s] %s"
-            (Sexp.to_string (Types.Types.sexp_of_topic topic))
-            (Sexplib.Sexp.to_string (Message.Message.sexp_of_t V.sexp_of_t msg)) )
-        ()
-    in
-    let n1, _n2 = create_nodes ~bus in
     (* Example proposal *)
     let proposal = Types.Types.make_proposal_id ~seq:1 ~node:1 in
     Node.propose ~bus n1 ~proposal
@@ -45,6 +46,12 @@ module Simulation = struct
     B.print_stats bus ;
     B.drain bus ;
     B.print_stats bus ;
+    B.drain bus ;
+    Stdio.print_endline "\n\nNow, we will just make node 2 idle" ;
+    Node.make_node_idle ~bus n1 ~node_id:2 ;
+    B.print_stats bus ;
+    let proposal = Types.Types.make_proposal_id ~seq:2 ~node:1 in
+    Node.propose ~bus n1 ~proposal ~value:(make_val "Anyon out there?") ;
     B.drain bus ;
     B.print_stats bus
 end

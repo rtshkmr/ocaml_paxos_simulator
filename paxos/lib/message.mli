@@ -52,6 +52,8 @@ module Message : sig
   [@@deriving sexp, compare, equal]
 
   and 'v simulation_control_message =
+    | MakeNodeIdle of {meta: Meta.t; node_id: Types.node_id}
+    | MakeNodeEcho of {meta: Meta.t; node_id: Types.node_id}
     | Pause of {meta: Meta.t}
     | Resume of {meta: Meta.t}
     | AdvanceTick of {meta: Meta.t}
@@ -105,4 +107,10 @@ module Message : sig
     -> from:Types.node_id
     -> hint:Types.proposal_id option
     -> 'v coordination_message
+
+  val make_sim_control_idle_node :
+    Types.node_id -> 'v simulation_control_message
+
+  val make_sim_control_echo_node :
+    Types.node_id -> 'v simulation_control_message
 end

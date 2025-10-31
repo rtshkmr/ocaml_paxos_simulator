@@ -1205,7 +1205,7 @@ It would be great to just pass in a json object for config for this actually. It
 :EFFORT:   45min
 :END:
 :LOGBOOK:
-CLOCK: [2025-10-31 Fri 23:15]
+CLOCK: [2025-10-31 Fri 23:15]--[2025-11-01 Sat 00:43] =>  1:28
 CLOCK: [2025-10-31 Fri 22:43]--[2025-10-31 Fri 23:12] =>  0:29
 :END:
 
@@ -1220,14 +1220,16 @@ It will make the setup / state seeding process quite streamlined (s)
 ***** current context
 1. we do message passing on the coordination topic and that's how we
 ***** [X] chores
-CLOSED: [2025-10-31 Fri 22:44]
+CLOSED-FORM: [2025-10-31 Fri 22:44]
 - CLOSING NOTE [2025-10-31 Fri 22:44] \\
   done
 - [X] node creation cb registration to use a lookup so that we can have callbacks specific to topics
 - [X] update the topic types to things that make sense
 
-
-***** [ ] node state change via simulator interface
+***** [X] node state change via simulator interface
+CLOSED: [2025-11-01 Sat 02:40]
+- CLOSING NOTE [2025-11-01 Sat 02:40] \\
+  This works
 it will be cool to do things like:
 #+begin_src ocaml
 Simulator spawn_nodes node_config;
@@ -1236,66 +1238,70 @@ Simulator make_node_idle node;
 #+end_src
 
 - [X] add cb specific to topic of =Simulation_control=
-
 - TIL: for sum types we can do wraps
 
- * consider this new version of message types, we use sum type wrappers
-   #+begin_src ocaml
-  (** Messages are parameterized by payload type ['v].
-      The Paxos algo defines these 5 variants in its spec for Coordination
-      Notes:
-      1. [Nack] variant has an optional [hint] which helps to inform about the highest promise seen.
-  *)
-  type 'v coordination_message =
-    | PermissionRequest of
-        { meta: Meta.t
-        ; from: Types.node_id
-        ; proposal: Types.proposal_id
-        ; value: 'v }
-    | PermissionGranted of
-        { meta: Meta.t
-        ; from: Types.node_id
-        ; last_accepted: (Types.proposal_id * 'v) option }
-    | Suggestion of
-        { meta: Meta.t
-        ; from: Types.node_id
-        ; proposal: Types.proposal_id
-        ; value: 'v }
-    | Accepted of
-        { meta: Meta.t
-        ; from: Types.node_id
-        ; proposal: Types.proposal_id
-        ; value: 'v }
-    | Nack of {meta: Meta.t; from: Types.node_id; hint: Types.proposal_id option}
-  [@@deriving sexp, compare, equal]
+  * consider this new version of message types, we use sum type wrappers
+    #+begin_src ocaml
+   (** Messages are parameterized by payload type ['v].
+       The Paxos algo defines these 5 variants in its spec for Coordination
+       Notes:
+       1. [Nack] variant has an optional [hint] which helps to inform about the highest promise seen.
+   *)
+   type 'v coordination_message =
+     | PermissionRequest of
+         { meta: Meta.t
+         ; from: Types.node_id
+         ; proposal: Types.proposal_id
+         ; value: 'v }
+     | PermissionGranted of
+         { meta: Meta.t
+         ; from: Types.node_id
+         ; last_accepted: (Types.proposal_id * 'v) option }
+     | Suggestion of
+         { meta: Meta.t
+         ; from: Types.node_id
+         ; proposal: Types.proposal_id
+         ; value: 'v }
+     | Accepted of
+         { meta: Meta.t
+         ; from: Types.node_id
+         ; proposal: Types.proposal_id
+         ; value: 'v }
+     | Nack of {meta: Meta.t; from: Types.node_id; hint: Types.proposal_id option}
+   [@@deriving sexp, compare, equal]
 
-  and 'v simulation_control_message =
-    | Pause of {meta: Meta.t}
-    | Resume of {meta: Meta.t}
-    | AdvanceTick of {meta: Meta.t}
-    | Inject of {meta: Meta.t}
-  [@@deriving sexp, compare, equal]
+   and 'v simulation_control_message =
+     | Pause of {meta: Meta.t}
+     | Resume of {meta: Meta.t}
+     | AdvanceTick of {meta: Meta.t}
+     | Inject of {meta: Meta.t}
+   [@@deriving sexp, compare, equal]
 
-  and 'v t =
-    | Coordination of 'v coordination_message
-    | Control of 'v simulation_control_message
-  [@@deriving sexp, compare, equal]
-   #+end_src
+   and 'v t =
+     | Coordination of 'v coordination_message
+     | Control of 'v simulation_control_message
+   [@@deriving sexp, compare, equal]
+    #+end_src
 
-   now, typically we'd end up having more granular types like =Message.coordination= but actually we  can use the Constructor =Message.Coordination= and the type becomes =Message.t= again.
+    now, typically we'd end up having more granular types like =Message.coordination= but actually we  can use the Constructor =Message.Coordination= and the type becomes =Message.t= again.
 
-   #+begin_src ocaml
-  (* Node propose: create PermissionRequest and rely on simulator/bus to broadcast *)
-  let propose ~bus t ~proposal ~value =
-    (* Build PermissionRequest for this node *)
-    (* let msg = Message.make_permission_request ~topic:Types.Coordination ~from:t.id ~proposal ~value in *)
-    let coord_msg = Message.make_permission_request ~topic:Types.Coordination ~from:t.id ~proposal ~value in
-    let msg = Message.Coordination coord_msg in
-    (* For v0 we'll have simulator broadcast on behalf of node; but provide direct publish too *)
-    Bus.enqueue bus ~topic:Types.Coordination msg
-   #+end_src
-- [ ] message capabilities
-- [ ] adjust quorum as an example
+    #+begin_src ocaml
+   (* Node propose: create PermissionRequest and rely on simulator/bus to broadcast *)
+   let propose ~bus t ~proposal ~value =
+     (* Build PermissionRequest for this node *)
+     (* let msg = Message.make_permission_request ~topic:Types.Coordination ~from:t.id ~proposal ~value in *)
+     let coord_msg = Message.make_permission_request ~topic:Types.Coordination ~from:t.id ~proposal ~value in
+     let msg = Message.Coordination coord_msg in
+     (* For v0 we'll have simulator broadcast on behalf of node; but provide direct publish too *)
+     Bus.enqueue bus ~topic:Types.Coordination msg
+    #+end_src
+- [X] message capabilities
+  Event bus will always be reactive, never directly doing things
+
+  so to make node 2 go idle, pick any node (1 or 2) and send a broadcast asking to MakeNodeIdle for node id = 2 and then it works magic.
+
+
+- [X] adjust node state as an example
 
 ***** [ ] [#B] node config state to be updated via =simulation= topic msg passing
 
