@@ -631,18 +631,202 @@ CLOSED: [2025-10-30 Thu 15:31]
   - key functions
   - dependencies
   - exposed invariants
+*** TODO Designing statefulness in paxos protocols
+**** Initial context dump
+To be able to support the paxos protocol, we need to have some statefulness within a single "paxos process" (for now assume process = consensus arrival step).
+
+To recap, there are 2 main steps:
+1. obtain permission
+   - suggestor needs to request for permission from majority
+
+     so beyond the first broadcast, suggestor needs to be able to receive all the responses (permission granted , nacks) from the others and determine whether majority is reached.
+
+2. make suggestion
+
+   - similar step as step 1
+
+This means that we have to have some concept of managing mutable state within a particular step. Currently the =event_bus= allows for a single response to a single message. In that way, it's stateless because it only considers a single state
+
+to eventually be able to define the paxos protocol, a node should be gathering ALL responses to a particular message before making a decision on what the next step is to be. This demands some sort of statefulness. my initial thought is that the event_bus will still work, but the callbacks aren't exactly direct responses, but will have to go through a little bit more complex of a logic that may rely on some kind of inbox at the node level. the inbox would allow the statefulness necessary to "collect" all the responses and then make a decision (e.g. do I have majority permission to suggest? is my suggestion accepted by the majority...)
+
+**** Design Principles
+
+The following principles of how our different modules are designed should help us wrap our heads better:
+
+***** Stateful Response Gathering in Event Bus and Nodes
+
+We will have a separation of concerns that allows maintaining a stateless =event_bus= and encapsulating protocol statefulness inside each =node= $\implies$  modular and clear separation of concerns.
+
+1. =Event_bus= will always be reactive pub-sub bus
+
+   this means that it will never be active, only respond to things
+
+   it is never an actor.
+
+2. =Node= will have an inbox that is stateful
+   - keyed by message / request IDs (proposal id maybe)
+   - Inbox buffers all incoming responses related to a specific proposal or message.
+   - When a message is received, instead of acting immediately, the node enqueues it in the Inbox.
+   - This Inbox maintains state such as counts of received acknowledgements, maximum ballot seen, etc.
+
+3. =Nodes= will process on each =handle_message= instead of directly react
+
+   - Nodes run a dedicated "processing step" periodically or after each event batch to evaluate Inbox states.
+
+   - Once sufficient responses (quorum/majority) are collected, the node triggers actions like sending accept messages or completing consensus steps.
+
+***** Logical Time Simulation & Ownership -- how it relates to statefulness
+
+This part overlaps with the next section on time simulation.
+
+Time simulation is crucial for ordering events, simulating network delay, timeouts, and deterministic replays.
+
+1. Simulator owns global logical clock
+
+   - time advances via discrete logical, controlled ticks
+
+2. Time module abstracts logical time as ticks
+
+   - independent of the system time
+
+3. Event Bus messages carry timestamps (logical times)
+
+   - event bus still remains stateless and reactive
+
+4. Sim loop (time loop) is a stepping through of time
+
+   - no direct node awareness of global time, can only rely on message timestamps for timing semantics
+
+   - Future: nodes can local clocks to simulate time-diff
+
+   - @ each tick:
+
+    1) Gather: Simulator queries Event Bus for events up to current time and triggers delivery.
+
+    2) Nodes process received messages from their inboxes.
+
+       - messages go to inbox, then we process inbox
+
+    3) Nodes perform timeout checks, trigger proposals or retries based on collected responses.
+
+       - processing of inbox part
+
+    4) Simulator may inject new events (random faults, node creation).
+
+       - this affect the time sim
+
+    5) Clock ticks forward.
+
+       - beautiful
+**** Messages vs Events
+
+As we have established already,
+
+  * messages: paxos-protocol construct
+
+    (e.g., PermissionRequest, Suggestion) exchanged between nodes.
+
+    flow through the event_bus
+
+  * events: metal sim-level construct
+
+    simulation occurrences (message sent, fault injected, tick occurred) for logging and visualization.
+
+    scheduled, for now just controlled by the simulator
+
+**** Rollout proposal
+
+1. we should do time simulation after adding in statefulness
+2. just some skeleton dumps:
+
+   - inbox structure, =handle_message= just adds to inbox
+
+   - =handle_tick= is probably needed. We can add in a time-sync message for all of them and the simulator can manage the heartbeat.
+
+      #+begin_src ocaml
+   (* Node structure with inbox *)
+   type inbox = {
+     mutable responses : Response.t list;
+     (* other state for quorum counting *)
+   }
+
+   (* Node event handler enqueues incoming messages *)
+   let handle_message node msg =
+     let id = extract_proposal_id msg in
+     let inbox = get_or_create_inbox node id in
+     inbox.responses <- msg :: inbox.responses
+
+   (* Node tick *)
+   let node_tick node =
+     (* For each inbox, evaluate if quorum reached on responses *)
+     List.iter node.inboxes ~f:(fun inbox ->
+       if quorum_reached inbox.responses then
+         (* take next action, send message, update state *)
+     );
+     (* handle timeouts, retries *)
+      #+end_src
+
+
+***** Rollout order
+
+****** 1. Statefulness
+- Start by enhancing nodes with the inbox/response-collector capability.
+- Reason:
+  - This addresses the fundamental limitation of our current event bus design, enabling nodes to accumulate and reason over multiple responses before progressing.
+
+  - Having basic stateful message gathering is essential for implementing any meaningful Paxos protocol logic (e.g., gathering majorities).
+
+  - You can initially keep this inbox gathering logic working with the existing event bus and no time simulation.
+
+- Outcome:
+  - Nodes become stateful.
+
+  - Protocol logic handling quorum, majority checks, and next-step decisions can be developed and tested in a straightforward synchronous environment.
+
+- This gives us immediate value for demonstrating core Paxos concepts.
+
+****** 2. Logical Time management and Simulator Clock
+- Once inbox gathering is working to collect responses correctly, introduce the discrete logical time concept.
+- Begin with a minimal module encapsulating logical tick representation and conversion, owned by the Simulator.
+- Outcome:
+  - We start decoupling protocol logic from real time.
+  - Prepare foundation for deterministic event ordering and time-based message metadata.
+****** 3. Event Bus wraps time info within meta
+- Extend the event bus messages to carry timestamp metadata.
+- The event bus remains reactive and synchronous but becomes "time-aware."
+- Outcome:
+  - Messages can be scheduled and consumed logically based on their associated timestamps.
+  - The event bus remains stateless but connected to time flow.
+****** 4. Simulator Run Loop
+- Develop the main simulation loop owned by the Simulator.
+- This loop will:
+  - Tick logical time forward.
+  - Deliver due messages via the event bus.
+  - Trigger node ticks to process inboxes and timeouts.
+  - Inject new simulation events if desired.
+- Outcome:
+  - System runs with controlled, deterministic, discrete time progression.
+  - Enables simulations with reproducible ordering and testability.
+****** 5: future, optional features
+
+we won't be doing this, but just to dump it here:
+
+- Add advanced time metadata abstraction layers for flexible time handling.
+- Optionally introduce local clocks to nodes for drift and sync simulations.
+- Outcome:
+  - Simulate complex time sync/faults beyond basic Paxos.
+  - Enhance simulation fidelity and experiments.
+
 *** TODO Designing Time Simulation
 :LOGBOOK:
 CLOCK: [2025-10-30 Thu 20:29]--[2025-10-30 Thu 20:43] =>  0:14
 CLOCK: [2025-10-30 Thu 19:30]--[2025-10-30 Thu 20:29] =>  0:59
 :END:
-
 Time should be logical and not absolute. This allows us to have a layer of indirection for time and map it to absolute offsets almost. That layer of indirection would be powerful because then we can add in time-sync (make time go slower, faster w.r.t actual clocks) and perhaps even explore the nuances that time-synchro problems have as this demo-project evolves over time.
 
 I think Simulator should be the owner of time most likely. Ticking should happen there, and there should be a way to manage the time there. I suspect that there's a need to have a separate Time that is distinct in the near future. That timer's responsibility can likely be a logical to absolute converter. In so doing, the rest of the system (simulator, bus, ...) can just be separated from time-keeping duties (?)
 
 Event bus ultimate is the main consumer of time, this is because event bus needs to considering message passing in the context of time. I don't have a mental model on how this interplays with async mechanisms yet, maybe it's just a matter of adding time-meta info into messages and so on.
-
 
 Importance: We need this asap because a node may initiate a paxos process via a single message broadcast BUT it needs to accumulate all the responses to that broadcast. Therefore, it can't happen one by one via a single handle_message ( which is how it is now and that makes it stateless )
 
@@ -666,7 +850,7 @@ Importance: We need this asap because a node may initiate a paxos process via a 
 ***** The right place for time Ownership -- Who owns time?
 Global time is definitely @ the meta level $\implies$ owned by the Simulator.
 
-Simulator contains a close and that's the separation of time-based responsibilities.
+Simulator contains a clock and that's the separation of time-based responsibilities.
 
 I think this will create a natural time-loop like a game-loop mechanism.
 
@@ -678,6 +862,7 @@ this is not high priority though
 
 ****** Relationships between different components
 Components and their relationship with time:
+
     a) Simulator drives time and scheduling (tick or step-based advancement).
        - That's why sim is also the main application / simulation-level source of truth of time $\implies$ global time
        - It's possible for others to own their own clocks as well. For example in the future we might wish to simulate time-drifts and time-sync problems.
@@ -688,7 +873,7 @@ Components and their relationship with time:
        - messages (the communication artefact) have to be bound to time
 
     c) Nodes are consumers/producers of messages but unaware of “global time”.
-       - they may have local time in the future, where they may own a time
+       - they may have local time in the future, where they may own a local clock of their own. This would allows us to eventually simulate time-synchro mechanisms and such
 
     d) Messages carry metadata (potentially including timestamps).
 
@@ -702,6 +887,7 @@ There are 2 modes of simulating time: real-time loop and discrete logical loop.
 We'll be doing the discrete logical loop because time advances in steps that may represent arbitrary units. You control when to tick, and you can pause, rewind, fast-forward. e.g. Paxos simulations, event-driven testing, deterministic systems
 
 to give a big-picture context:
+
    a. The simulator is a world host, not a library.
 
    b. The loop is the *central scheduler* of all activity.
@@ -710,7 +896,7 @@ to give a big-picture context:
 
    d. Logical time gives you determinism, replay, and testability.
 
-   e. You can think of your simulator as a single-threaded event-driven kernel,
+   e. We can think of our simulator as a single-threaded event-driven kernel,
 where “ticks” are the scheduling granularity.
 
 ****** What does a time loop do:
@@ -723,7 +909,6 @@ It's the heartbeat of the system, a control structure for repetition.
    - this part is like a task consideration step that a scheduler would do
 
 3) Updates the state of the world accordingly,
-
 
 4) Possibly renders or logs something,
 
@@ -990,19 +1175,18 @@ Bro I'm idle - Node1
     #+end_src
 
     Maybe it's a good time to bring in the convenience lifecycle management functions for Node from Simulator?
-
 - [X] Time simulation needs to be figured out
-
 - [X] can a message be sent without enqueing it?
   - yes that's what =publish= is for
-
 - [ ] can a particular node send a message to another node without broadcasting it?
 
   - not yet, this needs a little bit of a change in how the callbacks are stored at =event_bus=, instead of a list of subs, it should be a map so that we can access specific ones in non-linear time.
 
 - [ ] how will a node batch together multiple nacks and then send the highest value ? how to batch receieve?
-  - we need to implement time-loop and then likely a "step" within the paxos protocol
-  - KIV this until time loop is done.
+  - ~we need to implement time-loop and then likely a "step" within the paxos protocol~
+  - ~KIV this until time loop is done.~
+
+  This part is why we need statefulness @ nodes via inboxes.
 ***** Notes
 - I notice that the print statements within the subscribe functions and all are coming out in an order that doesn't make sense to me. I suspect it's because the print functions are batched / buffered.
 
@@ -1028,6 +1212,11 @@ Draining the queue of 1 items
 Echo received message at node 2: (PermissionRequest(meta((id 00000000-0000-4000-8000-000000000000)(timestamp 1761816886.230041)(topic Coordination)))(from 1)(proposal((seq 1)(node 1))))Echo received message at node 1: (PermissionRequest(meta((id 00000000-0000-4000-8000-000000000000)(timestamp 1761816886.230041)(topic Coordination)))(from 1)(proposal((seq 1)(node 1))))Draining the queue of 1 items
 Echo received message at node 2: (PermissionRequest(meta((id 00000000-0000-4000-8000-000000000000)(timestamp 1761816886.230056)(topic Coordination)))(from 2)(proposal((seq 2)(node 2))))Bro I'm idle - Node 1
   #+end_src
+**** [ ] Statefulness @ Nodes
+Refer to design notes on statefulness via inboxes @ nodes above.
+
+**** [ ] Time Simulation
+
 **** [ ] Add better logging to simulation
 
 this is almost a subsystem of its own
@@ -1035,7 +1224,6 @@ this is almost a subsystem of its own
 We can add logging at every callback level so all the message passing is logged out.
 
 This one can use jane street's =Log= library.
-
 **** [ ] Add storage pattern, in memory
 This is not as high priority but will be cool to demonstrate how crashing can still bring things back
 **** [ ] Basic Simulation Event Logging
@@ -1074,8 +1262,13 @@ This is necessary for the completion of this project because without it, the sim
 **** Retro
 ***** Ergonomics of the OCaml Language
 ***** Ecosystem of the OCaml Language
+**** Artefacts
+***** Working Style and Habits
+****** What theses to validate w.r.t working styles?
+****** Areas of Improvement
 ** Evolution (stretch goal)
 *** TODO Extend basic paxos to multi-paxos
+
 * Intentional Shortcuts
 Since I'm keeping this to a 2 day effort, there's a need to be aware of some time-sinks that I will most likely side-step first.
 
