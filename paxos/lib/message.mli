@@ -1,7 +1,6 @@
 open Base
 open Types
 
-
 (**
   Message ADTs for Paxos.
   - Messages are parameterized by the value type `'v`.
@@ -16,11 +15,11 @@ open Types
 module Message : sig
   (** Metadata about a message that is useful for displaying.  *)
   module Meta : sig
-    type t = {
-      id : Uuidm.t;
-      timestamp : Time.t;  (** Logical / real timestamp*)
-      topic : Types.topic; (** bus-level topic -- this is @ the simulation layer*)
-    }
+    type t =
+      { id: Uuidm.t
+      ; timestamp: Time.t  (** Logical / real timestamp*)
+      ; topic: Types.topic
+            (** bus-level topic -- this is @ the simulation layer*) }
     [@@deriving sexp, compare, equal]
   end
 
@@ -32,25 +31,65 @@ module Message : sig
       1. [Nack] variant has an optional [hint] which helps to inform about the highest promise seen.
   *)
   type 'v t =
-    | PermissionRequest of { meta : Meta.t; from : Types.node_id; proposal : Types.proposal_id }
-    | PermissionGranted of { meta : Meta.t; from : Types.node_id; last_accepted : (Types.proposal_id * 'v) option }
-    | Suggestion of { meta : Meta.t; from : Types.node_id; proposal : Types.proposal_id; value : 'v }
-    | Accepted of { meta : Meta.t; from : Types.node_id; proposal : Types.proposal_id; value : 'v }
-    | Nack of { meta : Meta.t; from : Types.node_id; hint : Types.proposal_id option }
+    | PermissionRequest of
+        { meta: Meta.t
+        ; from: Types.node_id
+        ; proposal: Types.proposal_id
+        ; value: 'v }
+    | PermissionGranted of
+        { meta: Meta.t
+        ; from: Types.node_id
+        ; last_accepted: (Types.proposal_id * 'v) option }
+    | Suggestion of
+        { meta: Meta.t
+        ; from: Types.node_id
+        ; proposal: Types.proposal_id
+        ; value: 'v }
+    | Accepted of
+        { meta: Meta.t
+        ; from: Types.node_id
+        ; proposal: Types.proposal_id
+        ; value: 'v }
+    | Nack of {meta: Meta.t; from: Types.node_id; hint: Types.proposal_id option}
   [@@deriving sexp, compare, equal]
 
-
-  (** [topic_of] extracts the topic from any message. *)
   val topic_of : _ t -> Types.topic
+  (** [topic_of] extracts the topic from any message. *)
 
-  (** [sender_of] extracts the sender node ID. *)
   val sender_of : _ t -> Types.node_id
+  (** [sender_of] extracts the sender node ID. *)
 
   (* helpers to construct messages; ensure meta.topic matches provided topic *)
-  val make_permission_request : topic:Types.topic -> from:Types.node_id -> proposal:Types.proposal_id -> 'v t
-  val make_permission_granted : topic:Types.topic -> from:Types.node_id -> last_accepted:(Types.proposal_id * 'v) option -> 'v t
-  val make_suggestion : topic:Types.topic -> from:Types.node_id -> proposal:Types.proposal_id -> value:'v -> 'v t
-  val make_accepted : topic:Types.topic -> from:Types.node_id -> proposal:Types.proposal_id -> value:'v -> 'v t
-  val make_nack : topic:Types.topic -> from:Types.node_id -> hint:Types.proposal_id option -> 'v t
+  val make_permission_request :
+       topic:Types.topic
+    -> from:Types.node_id
+    -> proposal:Types.proposal_id
+    -> value:'v
+    -> 'v t
 
+  val make_permission_granted :
+       topic:Types.topic
+    -> from:Types.node_id
+    -> last_accepted:(Types.proposal_id * 'v) option
+    -> 'v t
+
+  val make_suggestion :
+       topic:Types.topic
+    -> from:Types.node_id
+    -> proposal:Types.proposal_id
+    -> value:'v
+    -> 'v t
+
+  val make_accepted :
+       topic:Types.topic
+    -> from:Types.node_id
+    -> proposal:Types.proposal_id
+    -> value:'v
+    -> 'v t
+
+  val make_nack :
+       topic:Types.topic
+    -> from:Types.node_id
+    -> hint:Types.proposal_id option
+    -> 'v t
 end
