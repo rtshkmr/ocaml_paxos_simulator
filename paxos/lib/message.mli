@@ -35,30 +35,22 @@ module Message : sig
         { meta: Meta.t
         ; from: Types.node_id
         ; proposal: Types.proposal_id
-        ; quorum: int option
         ; value: 'v }
     | PermissionGranted of
         { meta: Meta.t
         ; from: Types.node_id
-        ; quorum: int option
         ; last_accepted: (Types.proposal_id * 'v) option }
     | Suggestion of
         { meta: Meta.t
         ; from: Types.node_id
         ; proposal: Types.proposal_id
-        ; quorum: int option
         ; value: 'v }
     | Accepted of
         { meta: Meta.t
         ; from: Types.node_id
         ; proposal: Types.proposal_id
-        ; quorum: int option
         ; value: 'v }
-    | Nack of
-        { meta: Meta.t
-        ; from: Types.node_id
-        ; quorum: int option
-        ; hint: Types.proposal_id option }
+    | Nack of {meta: Meta.t; from: Types.node_id; hint: Types.proposal_id option}
   [@@deriving sexp, compare, equal]
 
   val topic_of : _ t -> Types.topic
@@ -70,23 +62,18 @@ module Message : sig
   val proposal_id_of : _ t -> Types.proposal_id option
   (** [proposal_id_of] extracts the proposal ID from the message, if it exists. *)
 
-  val quorum_of : _ t -> int option
-  (** [quorum_of] will extract the optional quorum from within the message  *)
-
   (* helpers to construct messages; ensure meta.topic matches provided topic *)
   val make_permission_request :
        topic:Types.topic
     -> from:Types.node_id
     -> proposal:Types.proposal_id
     -> value:'v
-    -> quorum:int option
     -> 'v t
 
   val make_permission_granted :
        topic:Types.topic
     -> from:Types.node_id
     -> last_accepted:(Types.proposal_id * 'v) option
-    -> quorum:int option
     -> 'v t
 
   val make_suggestion :
@@ -94,7 +81,6 @@ module Message : sig
     -> from:Types.node_id
     -> proposal:Types.proposal_id
     -> value:'v
-    -> quorum:int option
     -> 'v t
 
   val make_accepted :
@@ -102,13 +88,11 @@ module Message : sig
     -> from:Types.node_id
     -> proposal:Types.proposal_id
     -> value:'v
-    -> quorum:int option
     -> 'v t
 
   val make_nack :
        topic:Types.topic
     -> from:Types.node_id
     -> hint:Types.proposal_id option
-    -> quorum:int option
     -> 'v t
 end

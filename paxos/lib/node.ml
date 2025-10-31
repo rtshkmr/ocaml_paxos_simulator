@@ -26,6 +26,8 @@ struct
 
   type inbox = (proposal_key, inbox_entry) Hashtbl.t
 
+
+
   module State = struct
     type t =
       | Idle
@@ -41,19 +43,26 @@ struct
     [@@deriving sexp]
   end
 
+  type simulation_config = {
+    mutable quorum: int option ref;
+  }
+  type config = {
+    simulation: simulation_config;
+    roles : roles;
+    storage : Storage.t;
+  }
+
   type t = {
     id : Types.node_id;
-    roles : roles;
-    mutable quorum : int option ref;
+    config: config;
     inbox : inbox;
     mutable state : State.t;
-    storage : Storage.t;
     mutable subs : (Types.topic, (Bus.sub_handle, V.t Message.t Bus.t) Hashtbl.t) Hashtbl.t;
     transitions : string list ref;  (* light-weight history for debugging *)
   }
 
   let id t = t.id
-  let roles t = t.roles
+  let roles t = t.config.roles
   let state t = t.state
   let buses_for_topic t topic =
     match Hashtbl.find t.subs topic with
@@ -98,9 +107,9 @@ struct
 
 
   (* Node propose: create PermissionRequest and rely on simulator/bus to broadcast *)
-  let propose ~bus t ~proposal ~value ~quorum =
+  let propose ~bus t ~proposal ~value =
     (* Build PermissionRequest for this node *)
-    let msg = Message.make_permission_request ~quorum ~topic:Types.Coordination ~from:t.id ~proposal ~value in
+    let msg = Message.make_permission_request ~topic:Types.Coordination ~from:t.id ~proposal ~value in
     (* For v0 we'll have simulator broadcast on behalf of node; but provide direct publish too *)
     Bus.enqueue bus ~topic:Types.Coordination (msg : V.t Message.t)
 
@@ -123,20 +132,24 @@ struct
     let predicate =  function
       | Message.Nack _ -> false
       | _ -> true in
-    match !(node.quorum) with
+    match !(node.config.simulation.quorum) with
     | None ->
 
       false
     | Some total ->
-      let quorum_threshold = ((total + 1) / 2) + 1 in
+      let quorum_threshold = (total / 2) + 1 in
       let msgs_rcvd = inbox_entry.messages in
       let num_ack = List.count msgs_rcvd ~f:predicate in
       num_ack >= quorum_threshold
 
   let process_inboxes (node: t) : unit =
-    dump_inbox node;
-    Hashtbl.iteri node.inbox ~f:(fun ~key:proposal_id ~data:inbox_entry ->
-        (* TODO: check if quorum/majority is reached on collected responses *)
+    match !(node.config.simulation.quorum) with
+    | None -> Stdio.printf "Quorum: none\n"
+    | Some q -> Stdio.printf "Quorum: %d\n" q;
+
+      dump_inbox node;
+      Hashtbl.iteri node.inbox ~f:(fun ~key:proposal_id ~data:inbox_entry ->
+          (* TODO: check if quorum/majority is reached on collected responses *)
         let quorum_reached = is_quorum_reached node inbox_entry  (* TODO add logic to placeholder *) in
         if quorum_reached then begin
           (* TODO: trigger next step, e.g., send Accept or decide value *)
@@ -155,19 +168,20 @@ struct
     | Some key -> let inbox_entry = get_or_create_inbox_entry node key
       in
       inbox_entry.messages <- msg::inbox_entry.messages;
-      (* FIXME: this is temporary, there's a better way of doing quorum updates, which is via message passing on teh simulator topic which will update the internal config state of every node via message passing. For now this works alright.  *)
-      node.quorum := Message.quorum_of msg;
       process_inboxes node
 
+  let default_config ~roles ~storage = {
+    roles;
+    storage;
+    simulation={quorum=ref None;}
+  }
 
   (* TODO: wrap up in a config object soon, for simulation ergonomics:*)
-  let create ?(topics=[]) ?(state=State.Idle) ~id ~roles ~storage ~bus () =
+  let create  ?(topics=[]) ?(state=State.Idle) ~id ~config ~bus () =
     let node = {
       id;
-      roles;
       state;
-      storage;
-      quorum= ref ( None );
+      config;
       subs= Hashtbl.Poly.create ();
       inbox= Hashtbl.Poly.create ();
       transitions = ref [];
@@ -189,5 +203,18 @@ struct
     Stdio.eprintf "Node %d subscribed to topics %s\n%!" node.id (topics |> List.map ~f:(fun topic -> Sexp.to_string (Types.sexp_of_topic topic))
                                                                  |> String.concat ~sep:", ");
     node
+
+  let make_config ~roles ~storage ~quorum  : config =
+    let quorum_opt =
+      match quorum with
+      | None -> None
+      | Some x when x > 0 -> Some x
+      | _ -> invalid_arg "Quorum must be > 0 or None"
+    in
+    {
+      simulation = { quorum = ref quorum_opt };
+      roles;
+      storage
+    }
 
 end

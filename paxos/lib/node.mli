@@ -45,14 +45,22 @@ module Make_node :
          [@@deriving sexp]
        end
 
+       type simulation_config = {
+         mutable quorum: int option ref;
+       }
+       type config = {
+         simulation: simulation_config;
+         roles: roles;
+         storage: Storage.t;
+       }
+
        type t
 
        val create :
          ?topics:Types.topic list ->
          ?state:State.t ->
          id:Types.node_id ->
-         roles:roles ->
-         storage:Storage.t ->
+         config:config ->
          bus:(V.t Message.t) Bus.t ->
          unit -> t
 
@@ -67,8 +75,10 @@ module Make_node :
          t ->
          proposal:Types.proposal_id ->
          value:V.t ->
-         quorum:int option ->
          unit
        val dump_state : t -> Sexp.t
+
+       val make_config: roles:roles -> storage:Storage.t -> quorum:(int option) -> config
+
      end
 

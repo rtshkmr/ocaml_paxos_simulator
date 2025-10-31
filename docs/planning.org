@@ -1054,11 +1054,17 @@ CLOSED: [2025-10-31 Fri 11:55]
   - [X] should be able to set the node as idle (without a shutdown)
   - [X] should be able to change state (state setter)
 
-**** TODO Minor bugfixes
+**** DONE Minor bugfixes
+CLOSED: [2025-10-31 Fri 20:50]
 :PROPERTIES:
 :EFFORT:   30min
 :END:
- - [ ] Fix quorum computation and remove mutation-from-messages
+- CLOSING NOTE [2025-10-31 Fri 20:50] \\
+  Done, quick win
+:LOGBOOK:
+CLOCK: [2025-10-31 Fri 20:28]--[2025-10-31 Fri 20:50] =>  0:22
+:END:
+ - [X] Fix quorum computation and remove mutation-from-messages
    Incorrect quorum logic will produce false positives in demo; mutating node config from incoming messages is fragile.
 
     Files: lib/node.ml
@@ -1069,16 +1075,36 @@ CLOSED: [2025-10-31 Fri 11:55]
 
      * Remove node.quorum := Message.quorum_of msg in handle_message. -- we shall add in the simulator topic soon
 
-    Store quorum either in the cluster config or inside inbox_entry when a PermissionRequest for that proposal is first observed.
+     Store quorum either in the cluster config or inside inbox_entry when a PermissionRequest for that proposal is first observed.
 
 Acceptance: Quorum computed correctly for n=1..7 manually.
 
-**** TODO Chore: add in a config object within node, quorum should be injected via config
+**** DONE Chore: add in a config object within node, quorum should be injected via config
+CLOSED: [2025-10-31 Fri 21:47]
 :PROPERTIES:
 :EFFORT:   30min
 :END:
+- CLOSING NOTE [2025-10-31 Fri 21:47] \\
+  Just added in a helper function, the refactoring stuff was a little intense.
+:LOGBOOK:
+CLOCK: [2025-10-31 Fri 20:50]--[2025-10-31 Fri 21:47] =>  0:57
+:END:
 
-don't spend too long on this
+This should be a half-assed version.
+
+The idea is that simulation meta information / config information should be it's own thing within node and we should eventually be able to pass in some config options.
+
+Things that could be within that config:
+  - [X] roles
+  - [X] storage
+  - [X] simulation_config : {
+      quorum
+      <future>
+    }
+
+It would be great to just pass in a json object for config for this actually. It will clean up how we're doing the creation of nodes, but this json config part is not important right now. We just need to have some type / module encapsulation of such config info within the node.
+
+
 
 **** TODO [vanity] simulation system controls
 :PROPERTIES:
@@ -1575,6 +1601,7 @@ Implement per-inbox created_at and timeout handling.
 Maintain per-inbox seen_nodes to avoid double-counting.
 
 Acceptance: tests below succeed.
+
 *** TODO Implementation v1 (with async frameworks) [optional -- out of scope for this sprint]
 The tasks here are just documented but won't be in my v0 target. I NEED to arrive at SOME point of completion. Need to move onto other things.
 
