@@ -63,11 +63,11 @@ module Event_bus : S = struct
         ts
 
   let subscribe t ~topic cb =
-    let id = t.next_id in
-    t.next_id <- id + 1 ;
+    let subscription_id = t.next_id in
+    t.next_id <- subscription_id + 1 ;
     let ts = ensure_topic_state t topic in
-    ts.subs <- (id, cb) :: ts.subs ;
-    {topic; id}
+    ts.subs <- (subscription_id, cb) :: ts.subs ;
+    {topic; id= subscription_id}
 
   let unsubscribe t handle =
     match Hashtbl.find t.topics handle.topic with

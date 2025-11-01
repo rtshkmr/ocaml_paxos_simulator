@@ -20,7 +20,12 @@ module Types : sig
   [@@deriving sexp, compare, equal, hash]
 
   (** Explicit topics for which nodes communicate*)
-  type topic = Coordination | Suggestion | Control | Gossip | Metrics
+  type topic =
+    | Coordination  (** Consensus coordination messages, e.g., Paxos *)
+    | Simulation_control  (** Simulator commands controlling nodes *)
+    | Gossip  (** Peer-to-peer state propagation *)
+    | Metrics  (** Telemetry and monitoring data *)
+    | Time  (** Logical time simulation & clock sync msgs *)
   [@@deriving sexp, compare, hash, equal]
 
   val make_proposal_id : seq:int -> node:node_id -> proposal_id
