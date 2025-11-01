@@ -12,8 +12,13 @@ module Types = struct
 
   let next_proposal_id prev ~node = {seq= prev.seq + 1; node}
 
-  type topic = Coordination | Suggestion | Control | Gossip | Metrics
-  [@@deriving sexp, compare, equal, hash]
+  type topic =
+    | Coordination  (** Consensus coordination messages, e.g., Paxos *)
+    | Simulation_control  (** Simulator commands controlling nodes *)
+    | Gossip  (** Peer-to-peer state propagation *)
+    | Metrics  (** Telemetry and monitoring data *)
+    | Time  (** Logical time simulation & clock sync msgs *)
+  [@@deriving sexp, compare, hash, equal]
 end
 
 module Time = struct
