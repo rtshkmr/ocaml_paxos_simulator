@@ -1200,10 +1200,13 @@ Things that could be within that config:
 It would be great to just pass in a json object for config for this actually. It will clean up how we're doing the creation of nodes, but this json config part is not important right now. We just need to have some type / module encapsulation of such config info within the node.
 
 
-**** TODO [vanity] simulation system controls
+**** DONE [vanity] simulation system controls
+CLOSED: [2025-11-01 Sat 07:56]
 :PROPERTIES:
 :EFFORT:   45min
 :END:
+- CLOSING NOTE [2025-11-01 Sat 07:56] \\
+  this is good enough
 :LOGBOOK:
 CLOCK: [2025-10-31 Fri 23:15]--[2025-11-01 Sat 00:43] =>  1:28
 CLOCK: [2025-10-31 Fri 22:43]--[2025-10-31 Fri 23:12] =>  0:29
@@ -1302,18 +1305,6 @@ Simulator make_node_idle node;
 
 
 - [X] adjust node state as an example
-
-***** [ ] [#B] node config state to be updated via =simulation= topic msg passing
-
-jsut have a simulation topic and adjust things like quorum based on the SOT (leader or the simulator).
-
-this is low priority for now
-
-- [ ] remove quorum from message fields
-- [ ] add node creation helper within the simulator:
-- [ ] add new topic for =simulation= and attach a handler for that topic.
-  - maybe we can have a lookup table somewhere for topic to handler(s) or pipeline or something
-
 **** [X] Ensure =event_bus= works
 CLOSED: [2025-10-31 Fri 19:40]
 - CLOSING NOTE [2025-10-31 Fri 19:40] \\
@@ -1712,6 +1703,29 @@ Acceptance: After a drain, nodes must only change state when Node.tick is called
 
 **** TODO Add storage pattern, in-mem -> persistent storage
 This is not as high priority but will be cool to demonstrate how crashing can still bring things back
+**** TODO Message Passing System Improvements
+
+I think this will require a better callback registry. We'd have to change from a list of =(subscription_id * cb)= to a better registry with better lookup (some sort of Hashtbl).
+
+The update cycle for the hashtabl can happen @ =Event_bus.subscribe= where we can make it =(node_id * subscription_id * cb)= which would just be a changing of the =sub_handle= type. Then we will be able to do well. or maybe some kind of =subscription_info= could be better.
+
+***** [ ] allow message passing from source A to target B
+
+currently it's all broadcasts. This works right now (because even for simulation events, the simulator can just use one of the nodes it has access to and just broadcast a message with a target node in mind and all recipients ignore it if that target is not them).
+
+It will be nicer to reduce the noise on the comms channel and just do message passing from source A to target B.
+
+***** [ ] [#B] node config state to be updated via =simulation= topic msg passing
+
+jsut have a simulation topic and adjust things like quorum based on the SOT (leader or the simulator).
+
+this is low priority for now
+
+- [ ] remove quorum from message fields
+- [ ] add node creation helper within the simulator:
+- [ ] add new topic for =simulation= and attach a handler for that topic.
+  - maybe we can have a lookup table somewhere for topic to handler(s) or pipeline or something
+
 *** TODO Implement v0 (basic paxos algorithm -- main goal)
 DEADLINESs: <2025-11-01 Sat 11:00>
 :PROPERTIES:
