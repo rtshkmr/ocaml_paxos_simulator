@@ -1,4 +1,5 @@
 open Base
+open Time
 
 module Simulation = struct
   module V = Value_string.Value_string
@@ -38,11 +39,15 @@ module Simulation = struct
 
   let n1, n2 = create_nodes ~bus
 
+  let clock = Time.create_clock ()
+
   let run () =
     (* Example proposal *)
+    let time = Time.now clock in
     let proposal = Types.Types.make_proposal_id ~seq:1 ~node:1 in
-    Node.propose ~msg_id:1 ~time:1 ~bus n1 ~proposal
+    Node.propose ~msg_id:1 ~time ~bus n1 ~proposal
       ~value:(make_val "Let's go Ritesh, let's go !!!") ;
+    Time.tick clock ;
     B.print_stats bus ;
     B.drain bus ;
     B.print_stats bus ;
@@ -50,8 +55,9 @@ module Simulation = struct
     Stdio.print_endline "\n\nNow, we will just make node 2 idle" ;
     Node.make_node_idle ~msg_id:2 ~time:2 ~bus n1 ~node_id:2 ;
     B.print_stats bus ;
+    let time = Time.now clock in
     let proposal = Types.Types.make_proposal_id ~seq:2 ~node:1 in
-    Node.propose ~msg_id:3 ~time:2 ~bus n1 ~proposal
+    Node.propose ~msg_id:3 ~time ~bus n1 ~proposal
       ~value:(make_val "Anyone out there?") ;
     B.drain bus ;
     B.print_stats bus

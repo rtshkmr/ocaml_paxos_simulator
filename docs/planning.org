@@ -1584,12 +1584,16 @@ Dumped the code and asked for critique and here's how it went ([[https://chatgpt
 I think the scrutiny by the bot is great, I agre with many of the things that it has raised.
 I'll inject them as tasks into this list.
 
-**** TODO Time Simulation
+**** DONE Time Simulation
+CLOSED: [2025-11-01 Sat 10:03]
 :PROPERTIES:
 :EFFORT:   1h
 :END:
+- CLOSING NOTE [2025-11-01 Sat 10:03] \\
+  Donezo
 :LOGBOOK:
-CLOCK: [2025-11-01 Sat 08:34]
+CLOCK: [2025-11-01 Sat 09:55]--[2025-11-01 Sat 10:03] =>  0:08
+CLOCK: [2025-11-01 Sat 08:34]--[2025-11-01 Sat 09:31] =>  0:57
 :END:
 This will not include the time looping, we need the SimulationEvents and EventsQueue prior to that.
 Perhaps a proper scheduler or something around it.
@@ -1606,10 +1610,14 @@ CLOSED: [2025-11-01 Sat 09:23]
 
 Files: lib/types.ml|mli (Time), lib/message.ml|mli
 Acceptance: Running the harness produces deterministic, reorderable logs when provided with a fixed seed (or no RNG used).
-***** [ ] Create time related interfaces
-- [ ] Clock module
-- [ ] Simulator owns a clock
-- [ ] Messages use the simulator clock, contain time meta within meta
+***** [X] Create time related interfaces
+CLOSED: [2025-11-01 Sat 10:02]
+- CLOSING NOTE [2025-11-01 Sat 10:02] \\
+  Wonderful we have invented time now.
+- [X] Clock module
+- [X] Simulator owns a clock
+  -- i just put up a dummy version of this, have to do the sim events and queue first for this to work properly
+- [X] Messages use the simulator clock, contain time meta within meta
 **** TODO Paxos Protocol Groundworks
 :PROPERTIES:
 :EFFORT:   30min
