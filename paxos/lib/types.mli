@@ -33,9 +33,3 @@ module Types : sig
 
   val next_proposal_id : proposal_id -> node:node_id -> proposal_id
 end
-
-(** Our Time module is a type alias *)
-module Time : sig
-  (* type t = Time.System.t [@@deriving sexp, compare, equal] *)
-  type t = float [@@deriving sexp, compare, equal]
-end

@@ -1,5 +1,6 @@
 open Base
 open Types
+open Time
 
 (**
   Message ADTs for Paxos.
@@ -16,7 +17,7 @@ module Message : sig
   (** Metadata about a message that is useful for displaying.  *)
   module Meta : sig
     type t =
-      { id: Uuidm.t
+      { id: int
       ; timestamp: Time.t  (** Logical / real timestamp*)
       ; topic: Types.topic
             (** bus-level topic -- this is @ the simulation layer*) }
@@ -76,41 +77,57 @@ module Message : sig
 
   (* helpers to construct messages; ensure meta.topic matches provided topic *)
   val make_permission_request :
-       topic:Types.topic
+       msg_id:int
+    -> topic:Types.topic
+    -> time:Time.t
     -> from:Types.node_id
     -> proposal:Types.proposal_id
     -> value:'v
     -> 'v coordination_message
 
   val make_permission_granted :
-       topic:Types.topic
+       msg_id:int
+    -> topic:Types.topic
+    -> time:Time.t
     -> from:Types.node_id
     -> last_accepted:(Types.proposal_id * 'v) option
     -> 'v coordination_message
 
   val make_suggestion :
-       topic:Types.topic
+       msg_id:int
+    -> topic:Types.topic
+    -> time:Time.t
     -> from:Types.node_id
     -> proposal:Types.proposal_id
     -> value:'v
     -> 'v coordination_message
 
   val make_accepted :
-       topic:Types.topic
+       msg_id:int
+    -> topic:Types.topic
+    -> time:Time.t
     -> from:Types.node_id
     -> proposal:Types.proposal_id
     -> value:'v
     -> 'v coordination_message
 
   val make_nack :
-       topic:Types.topic
+       msg_id:int
+    -> topic:Types.topic
+    -> time:Time.t
     -> from:Types.node_id
     -> hint:Types.proposal_id option
     -> 'v coordination_message
 
   val make_sim_control_idle_node :
-    Types.node_id -> 'v simulation_control_message
+       msg_id:int
+    -> time:Time.t
+    -> node_id:Types.node_id
+    -> 'v simulation_control_message
 
   val make_sim_control_echo_node :
-    Types.node_id -> 'v simulation_control_message
+       msg_id:int
+    -> time:Time.t
+    -> node_id:Types.node_id
+    -> 'v simulation_control_message
 end

@@ -105,16 +105,17 @@ struct
     node.state <- new_state
 
   (* Node propose: create PermissionRequest and rely on simulator/bus to broadcast *)
-  let propose ~bus t ~proposal ~value =
+  let propose ~msg_id ~time ~bus t ~proposal ~value =
     (* Build PermissionRequest for this node *)
-    let coord_msg = Message.make_permission_request ~topic:Types.Coordination ~from:t.id ~proposal ~value in
+    let coord_msg = Message.make_permission_request ~msg_id ~time ~topic:Types.Coordination ~from:t.id ~proposal ~value in
     let msg = Message.Coordination coord_msg in
     (* For v0 we'll have simulator broadcast on behalf of node; but provide direct publish too *)
     Bus.enqueue bus ~topic:Types.Coordination msg
 
-  let make_node_idle ~bus t ~node_id =
+  let make_node_idle ~msg_id ~time ~bus t ~node_id =
     (* Build PermissionRequest for this node *)
-    let sim_ctrl_msg = Message.make_sim_control_idle_node node_id in
+    let time = 1 in (*TODO TEMP -- until we wire up simulator time-flow *)
+    let sim_ctrl_msg = Message.make_sim_control_idle_node ~msg_id ~time ~node_id in
     let msg = Message.Control sim_ctrl_msg in
     (* For v0 we'll have simulator broadcast on behalf of node; but provide direct publish too *)
     Bus.publish bus ~topic:Types.Simulation_control msg

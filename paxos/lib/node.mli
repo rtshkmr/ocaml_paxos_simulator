@@ -79,7 +79,9 @@ module Make_node : functor
   val handle_simulation_control : t -> V.t Message.t -> unit
 
   val propose :
-       bus:V.t Message.t Bus.t
+       msg_id:int
+    -> time:int
+    -> bus:V.t Message.t Bus.t
     -> t
     -> proposal:Types.proposal_id
     -> value:V.t
@@ -90,5 +92,11 @@ module Make_node : functor
   val make_config :
     roles:roles -> storage:Storage.t -> quorum:int option -> config
 
-  val make_node_idle : bus:'a Message.t Bus.t -> 'b -> node_id:int -> unit
+  val make_node_idle :
+       msg_id:int
+    -> time:int
+    -> bus:'a Message.t Bus.t
+    -> 'b
+    -> node_id:int
+    -> unit
 end

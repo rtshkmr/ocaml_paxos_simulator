@@ -996,6 +996,7 @@ Here's a plausible order of rolling this out:
 
 7) (optional) Add local clocks to nodes for drift simulation.
 
+
 *** TODO Design Logging System
 This will be absolutely essential for the
 *** TODO Design Event Log System @ Global Simulator Level
@@ -1198,7 +1199,6 @@ Things that could be within that config:
     }
 
 It would be great to just pass in a json object for config for this actually. It will clean up how we're doing the creation of nodes, but this json config part is not important right now. We just need to have some type / module encapsulation of such config info within the node.
-
 
 **** DONE [vanity] simulation system controls
 CLOSED: [2025-11-01 Sat 07:56]
@@ -1586,13 +1586,23 @@ I'll inject them as tasks into this list.
 
 **** TODO Time Simulation
 :PROPERTIES:
-:EFFORT:   2h
+:EFFORT:   1h
 :END:
+:LOGBOOK:
+CLOCK: [2025-11-01 Sat 08:34]
+:END:
+This will not include the time looping, we need the SimulationEvents and EventsQueue prior to that.
+Perhaps a proper scheduler or something around it.
 
-***** [ ] Make time into logical ints instead of floats, Make time & message meta deterministic
+QQ: I think it would be right to just have a simple "SimulationEventScheduler" to which the simulator can commit events to, then for each tick, request next events and so on instead of keeping that within the simulator directly
+
+***** [X] Make time into logical ints instead of floats, Make time & message meta deterministic
+CLOSED: [2025-11-01 Sat 09:23]
+- CLOSING NOTE [2025-11-01 Sat 09:23] \\
+  Done
 - [ ] Replace Message.make_meta so it accepts (id:int64, timestamp:Time.t, topic) rather than creating UUID/time itself.
-- [ ] Remove =Uuidm.v4= and =Unix.gettimeofday()= from message creation.
-- [ ] Let the Simulator be the sole creator of message ids and timestamps.
+- [X] Remove =Uuidm.v4= and =Unix.gettimeofday()= from message creation.
+- [X] Let the Simulator be the sole creator of message ids and timestamps.
 
 Files: lib/types.ml|mli (Time), lib/message.ml|mli
 Acceptance: Running the harness produces deterministic, reorderable logs when provided with a fixed seed (or no RNG used).
@@ -1745,6 +1755,7 @@ Files: bin/simulator.ml (new orchestrator code)
 
 Loop plan:
 
+#+begin_src ocaml
 now = clock.now
 
 events = Event_queue.pop_due now (deterministic order)
@@ -1756,7 +1767,7 @@ After all deliverings of this tick, call List.iter sim.nodes ~f:(fun n -> Node.t
 Optionally inject faults & schedule new events
 
 clock.tick
-
+#+end_src
 Acceptance: A manually scripted scenario (3 nodes, proposer at tick 0) produces expected PermissionRequest → PermissionGranted → Suggestion → Accepted sequence logged in order.
 
 **** TODO Add in proper logic for Node's @ =handle_event=

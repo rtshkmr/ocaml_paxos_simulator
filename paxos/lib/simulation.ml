@@ -41,17 +41,18 @@ module Simulation = struct
   let run () =
     (* Example proposal *)
     let proposal = Types.Types.make_proposal_id ~seq:1 ~node:1 in
-    Node.propose ~bus n1 ~proposal
+    Node.propose ~msg_id:1 ~time:1 ~bus n1 ~proposal
       ~value:(make_val "Let's go Ritesh, let's go !!!") ;
     B.print_stats bus ;
     B.drain bus ;
     B.print_stats bus ;
     B.drain bus ;
     Stdio.print_endline "\n\nNow, we will just make node 2 idle" ;
-    Node.make_node_idle ~bus n1 ~node_id:2 ;
+    Node.make_node_idle ~msg_id:2 ~time:2 ~bus n1 ~node_id:2 ;
     B.print_stats bus ;
     let proposal = Types.Types.make_proposal_id ~seq:2 ~node:1 in
-    Node.propose ~bus n1 ~proposal ~value:(make_val "Anyon out there?") ;
+    Node.propose ~msg_id:3 ~time:2 ~bus n1 ~proposal
+      ~value:(make_val "Anyone out there?") ;
     B.drain bus ;
     B.print_stats bus
 end

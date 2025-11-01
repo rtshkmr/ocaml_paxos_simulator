@@ -1,33 +1,10 @@
 open Base
 open Types
+open Time
 
 module Message = struct
-  (** Wrapper over Uuidm type so that the ppx derivation will work (the OG lib doesn't provide these functions.)*)
-  module Uuid_sexp = struct
-    type t = Uuidm.t
-
-    let sexp_of_t (u : t) = Sexplib.Sexp.Atom (Uuidm.to_string u)
-
-    let t_of_sexp = function
-      | Sexplib.Sexp.Atom s -> (
-        match Uuidm.of_string s with
-        | Some u ->
-            u
-        | None ->
-            failwith "Invalid UUID string for Uuid_sexp.t" )
-      | _ ->
-          failwith "Expected atom for Uuid_sexp.t"
-
-    let compare (a : t) (b : t) =
-      String.compare (Uuidm.to_string a) (Uuidm.to_string b)
-
-    let equal (a : t) (b : t) =
-      String.equal (Uuidm.to_string a) (Uuidm.to_string b)
-  end
-
   module Meta = struct
-    (* Manual conversion functions for Uuidm.t *)
-    type t = {id: Uuid_sexp.t; timestamp: Time.t; topic: Types.topic}
+    type t = {id: int; timestamp: Time.t; topic: Types.topic}
     [@@deriving sexp, compare, equal]
   end
 
@@ -68,8 +45,7 @@ module Message = struct
     | Control of 'v simulation_control_message
   [@@deriving sexp, compare, equal]
 
-  let make_meta topic =
-    {Meta.id= Uuidm.v4 (Bytes.create 16); timestamp= Unix.gettimeofday (); topic}
+  let make_meta id timestamp topic : Meta.t = {id; timestamp; topic}
 
   let topic_of = function
     | Coordination msg -> (
@@ -119,23 +95,40 @@ module Message = struct
     | Control _ ->
         None
 
-  let make_sim_control_idle_node node_id =
-    MakeNodeIdle {meta= make_meta Types.Simulation_control; node_id}
+  let make_sim_control_idle_node ~msg_id ~time ~node_id =
+    let topic = Types.Simulation_control in
+    let id = msg_id in
+    let meta = make_meta id time topic in
+    MakeNodeIdle {meta; node_id}
 
-  let make_sim_control_echo_node node_id =
-    MakeNodeEcho {meta= make_meta Types.Simulation_control; node_id}
+  let make_sim_control_echo_node ~msg_id ~time ~node_id =
+    let topic = Types.Simulation_control in
+    let id = msg_id in
+    let meta = make_meta id time topic in
+    MakeNodeEcho {meta; node_id}
 
-  let make_permission_request ~topic ~from ~proposal ~value =
-    PermissionRequest {meta= make_meta topic; from; proposal; value}
+  let make_permission_request ~msg_id ~topic ~time ~from ~proposal ~value =
+    let id = msg_id in
+    let meta = make_meta id time topic in
+    PermissionRequest {meta; from; proposal; value}
 
-  let make_permission_granted ~topic ~from ~last_accepted =
-    PermissionGranted {meta= make_meta topic; from; last_accepted}
+  let make_permission_granted ~msg_id ~topic ~time ~from ~last_accepted =
+    let id = msg_id in
+    let meta = make_meta id time topic in
+    PermissionGranted {meta; from; last_accepted}
 
-  let make_suggestion ~topic ~from ~proposal ~value =
-    Suggestion {meta= make_meta topic; from; proposal; value}
+  let make_suggestion ~msg_id ~topic ~time ~from ~proposal ~value =
+    let id = msg_id in
+    let meta = make_meta id time topic in
+    Suggestion {meta; from; proposal; value}
 
-  let make_accepted ~topic ~from ~proposal ~value =
-    Accepted {meta= make_meta topic; from; proposal; value}
+  let make_accepted ~msg_id ~topic ~time ~from ~proposal ~value =
+    let id = msg_id in
+    let meta = make_meta id time topic in
+    Accepted {meta; from; proposal; value}
 
-  let make_nack ~topic ~from ~hint = Nack {meta= make_meta topic; from; hint}
+  let make_nack ~msg_id ~topic ~time ~from ~hint =
+    let id = msg_id in
+    let meta = make_meta id time topic in
+    Nack {meta; from; hint}
 end
