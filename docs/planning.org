@@ -1618,6 +1618,56 @@ CLOSED: [2025-11-01 Sat 10:02]
 - [X] Simulator owns a clock
   -- i just put up a dummy version of this, have to do the sim events and queue first for this to work properly
 - [X] Messages use the simulator clock, contain time meta within meta
+**** TODO Add a good interface for Simulator, SimulationEvents and EventQueue
+:PROPERTIES:
+:EFFORT:   1.5h
+:END:
+:LOGBOOK:
+CLOCK: [2025-11-02 Sun 10:07]
+CLOCK: [2025-11-02 Sun 09:10]--[2025-11-02 Sun 09:11] =>  0:01
+CLOCK: [2025-11-01 Sat 16:53]--[2025-11-01 Sat 17:12] =>  0:19
+CLOCK: [2025-11-01 Sat 16:15]--[2025-11-01 Sat 16:21] =>  0:06
+:END:
+something like a precursor to a scheduler of sorts?
+
+I don't want to over-engineer this part tbh, just need it to be placed in a log of some sort.
+
+this one needs some designing:
+ - link between simulator events and simulator topic (for message passing and coordination?)
+ - tick event @ simulator and message passing?
+
+- [ ] Define the Runtime module type signature in a .mli file.
+
+- [ ] Implement a minimal stub of the simulator conforming to Runtime for incremental development.
+
+- [ ] Implement and integrate the EventQueue module.
+
+- [ ] Refactor simulator run loop according to logical time ticks.
+
+- [ ] Add message meta timestamps drawn from simulator clock.
+
+- [ ] Begin applying inbox stateful processing in nodes upon tick calls.
+***** Extract out node signature
+:PROPERTIES:
+:EFFORT:   30min
+:END:
+:LOGBOOK:
+CLOCK: [2025-11-02 Sun 08:29]--[2025-11-02 Sun 08:55] =>  0:26
+CLOCK: [2025-11-02 Sun 08:20]--[2025-11-02 Sun 08:29] =>  0:09
+:END:
+
+I had a misconception here and it was about the way destructive substitution of types is done.
+
+Our objective here was that given our =Make_node= functor, extract out the inline signature for the return type (=Node=) so that we can reference its signature elsewhere.
+
+The types in our Node depend on the functor parameters so we need to find a way to either do a destructive substitution at the point when the functor is defined, or to do constraint sharing.
+
+That was the important change.
+
+***** Problem: the use of higher kindered types within node functor is giving me issues
+I can't seem to extract out a signature just for the node. This is messing me up because this means that I can't define the interface for the Simulator properly.
+
+I'll give it another 30mins to try it out.
 **** TODO Paxos Protocol Groundworks
 :PROPERTIES:
 :EFFORT:   30min
@@ -1634,18 +1684,6 @@ Changes:
 Add proposal: Types.proposal_id to PermissionGranted and Nack message variants (and ensure constructors accept it).
 
 Acceptance: Message.proposal_id_of returns proposal for request and response variants consistently.
-**** Todo SimulationEvents and EventQueue
-:PROPERTIES:
-:EFFORT:   1h
-:END:
-something like a precursor to a scheduler of sorts?
-
-I don't want to over-engineer this part tbh, just need it to be placed in a log of some sort.
-
-this one needs some designing:
- - link between simulator events and simulator topic (for message passing and coordination?)
- - tick event @ simulator and message passing?
-
 **** TODO Integrating time ticking
 :PROPERTIES:
 :EFFORT:   45min
@@ -1816,7 +1854,6 @@ Acceptance: tests below succeed.
 The tasks here are just documented but won't be in my v0 target. I NEED to arrive at SOME point of completion. Need to move onto other things.
 
 That being said, I'll likely come back to this real soon after I do some explainers and write ups for this project.
-
 
 **** Fault injection APIs
 

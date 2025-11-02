@@ -5,17 +5,91 @@ open Event_bus
 open Types
 open Message
 
+module type S = sig
+  module V : Value.S
 
-(** Make_node is functor that allows us to create a Node.
-    This allows us to effectively bind together an Value, Storage and Bus over which communication happens.
-*)
+  module Storage : Storage.S
+
+  module Bus : sig
+    include module type of Event_bus
+  end
+
+  type role = Proposer | Acceptor | Learner
+
+  type roles = role list
+
+  module State : sig
+    type t =
+      | Idle
+      | Echo
+      | Preparing of
+          {current_proposal: Types.proposal_id; awaiting: Types.node_id list}
+      | WaitingForPromises of
+          { proposal: Types.proposal_id
+          ; promises_received:
+              (Types.node_id * (Types.proposal_id * V.t) option) list }
+      | Accepting of
+          {proposal: Types.proposal_id; value: V.t; acks: Types.node_id list}
+      | AcceptedLocally of {proposal: Types.proposal_id; value: V.t}
+      | Decided of V.t
+    [@@deriving sexp]
+  end
+
+  type simulation_config = {mutable quorum: int option ref}
+
+  type config = {simulation: simulation_config; roles: roles; storage: Storage.t}
+
+  type t
+
+  val create :
+       ?topics:Types.topic list
+    -> ?state:State.t
+    -> id:Types.node_id
+    -> config:config
+    -> bus:V.t Message.t Bus.t
+    -> unit
+    -> t
+
+  val set_node_state : t -> State.t -> unit
+
+  val id : t -> Types.node_id
+
+  val roles : t -> roles
+
+  val state : t -> State.t
+
+  val handle_coordination : t -> V.t Message.t -> unit
+
+  val handle_simulation_control : t -> V.t Message.t -> unit
+
+  val propose :
+       msg_id:int
+    -> time:int
+    -> bus:V.t Message.t Bus.t
+    -> t
+    -> proposal:Types.proposal_id
+    -> value:V.t
+    -> unit
+
+  val dump_state : t -> Sexp.t
+
+  val make_config :
+    roles:roles -> storage:Storage.t -> quorum:int option -> config
+
+  val make_node_idle :
+       msg_id:int
+    -> time:int
+    -> bus:'a Message.t Bus.t
+    -> 'b
+    -> node_id:int
+    -> unit
+end
+
 module Make_node (V : Value.S)
     (Storage : Storage.S)
     (Bus : sig
        include module type of Event_bus
-         (* For type compatibility we assume the Event_bus was compiled with 'a t etc *)
-     end) =
-struct
+     end): S with module V := V with module Storage := Storage with module Bus := Bus = struct
   type role = Proposer | Acceptor | Learner
   type roles = role list
 
@@ -244,5 +318,4 @@ let process_inboxes (node: t) : unit =
       roles;
       storage
     }
-
 end
