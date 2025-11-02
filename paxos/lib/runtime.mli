@@ -51,10 +51,12 @@ module type Runtime = sig
 
   val send_message :
        t
+    -> ?send_after:int
     -> topic:Types.Types.topic
     -> from:node
     -> to_:node option
     -> msg:msg
+    -> unit
     -> unit
   (** Send a message between nodes over a particular topic. Optionally specify destination to have a direct message. *)
 

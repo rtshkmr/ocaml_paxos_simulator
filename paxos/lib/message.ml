@@ -31,6 +31,12 @@ module Message = struct
     | Nack of {meta: Meta.t; from: Types.node_id; hint: Types.proposal_id option}
   [@@deriving sexp, compare, equal]
 
+  and 'v time_message =
+    | Heartbeat of {meta: Meta.t; time: Time.t}
+    | SyncTo of {meta: Meta.t; time: Time.t}
+    | DiffOffset of {meta: Meta.t; diff: Time.t}
+  [@@deriving sexp, compare, equal]
+
   and 'v simulation_control_message =
     | MakeNodeIdle of {meta: Meta.t; node_id: Types.node_id}
     | MakeNodeEcho of {meta: Meta.t; node_id: Types.node_id}
@@ -43,6 +49,7 @@ module Message = struct
   and 'v t =
     | Coordination of 'v coordination_message
     | Control of 'v simulation_control_message
+    | Time of 'v time_message
   [@@deriving sexp, compare, equal]
 
   let make_meta id timestamp topic : Meta.t = {id; timestamp; topic}
@@ -65,6 +72,10 @@ module Message = struct
       | AdvanceTick {meta}
       | Inject {meta} ->
           meta.topic )
+    | Time msg -> (
+      match msg with
+      | Heartbeat {meta; _} | SyncTo {meta; _} | DiffOffset {meta; _} ->
+          meta.topic )
 
   let sender_of = function
     | Coordination msg -> (
@@ -77,6 +88,8 @@ module Message = struct
           from )
     | Control _ ->
         (* Control messages don't have a 'from' field; handle as needed *)
+        failwith "sender_of: Control messages do not have a sender"
+    | Time _ ->
         failwith "sender_of: Control messages do not have a sender"
 
   let proposal_id_of = function
@@ -94,6 +107,14 @@ module Message = struct
           hint )
     | Control _ ->
         None
+    | Time _ ->
+        None
+
+  let make_heartbeat_msg ~msg_id ~time =
+    let topic = Types.Time in
+    let id = msg_id in
+    let meta = make_meta id time topic in
+    Heartbeat {meta; time}
 
   let make_sim_control_idle_node ~msg_id ~time ~node_id =
     let topic = Types.Simulation_control in

@@ -47,13 +47,12 @@ module type S = sig
 
   type simulation_config = {mutable quorum: int option ref}
 
-  type config = {simulation: simulation_config; roles: roles; storage: Storage.t}
+  type config = {simulation: simulation_config; roles: roles; storage: Storage.t;  topics: Types.topic list}
 
   type t
 
   val create :
-       ?topics:Types.topic list
-    -> ?state:State.t
+    ?state:State.t
     -> id:Types.node_id
     -> config:config
     -> bus:V.t Message.t Bus.t
@@ -72,6 +71,8 @@ module type S = sig
 
   val handle_simulation_control : t -> V.t Message.t -> unit
 
+  val handle_time : t -> V.t Message.t -> unit
+
   val propose :
        msg_id:int
     -> time:int
@@ -84,7 +85,7 @@ module type S = sig
   val dump_state : t -> Sexp.t
 
   val make_config :
-    roles:roles -> storage:Storage.t -> quorum:int option -> config
+    topics: Types.topic list -> roles:roles -> storage:Storage.t -> quorum:int option -> config
 
   val make_node_idle :
        msg_id:int
@@ -145,6 +146,7 @@ let state_of_string_opt = function
     simulation: simulation_config;
     roles : roles;
     storage : Storage.t;
+    topics: Types.topic list;
   }
 
   type t = {
@@ -255,6 +257,7 @@ let process_inboxes (node: t) : unit =
             | Message.Suggestion _
             | Message.Nack _ -> false )
         | Message.Control _ -> false
+        | Message.Time _ -> false
       in
       let quorum_reached = is_quorum_reached node inbox_entry ~predicate:needs_quorum in
       if quorum_reached then begin
@@ -284,10 +287,17 @@ let process_inboxes (node: t) : unit =
 
     | _ -> Stdio.printf "---> Node %d received simulation control but did nothing \n%!" node.id
 
+  let handle_time (node: t) (msg: V.t Message.t) =
+    match msg with
+    | Message.Time (Heartbeat {time; _}) -> Stdio.printf "---> Node %d received time msg time = %d! \n%!" node.id time;
+    | _ -> Stdio.printf "---> Node %d received time msg! \n%!" node.id
+
+
   let default_config ~roles ~storage = {
     roles;
     storage;
-    simulation={quorum=ref None;}
+    simulation={quorum=ref None;};
+    topics=[Types.Coordination; Types.Time; Types.Simulation_control]
   }
 
   (** a callback that we can use for communicating via the bus
@@ -299,9 +309,11 @@ let process_inboxes (node: t) : unit =
     match topic with
     | Types.Coordination -> handle_coordination node
     | Types.Simulation_control -> handle_simulation_control node
+    | Types.Time -> handle_time node
     | _ -> handle_coordination node
 
-  let create  ?(topics=[]) ?(state=State.Idle) ~id ~config ~bus () =
+  let create ?(state=State.Idle) ~id ~config ~bus () =
+    let topics = config.topics in
     let node = {
       id;
       state;
@@ -328,7 +340,7 @@ let process_inboxes (node: t) : unit =
                                                                  |> String.concat ~sep:", ");
     node
 
-  let make_config ~roles ~storage ~quorum  : config =
+  let make_config ~topics ~roles ~storage ~quorum  : config =
     let quorum_opt =
       match quorum with
       | None -> None
@@ -336,6 +348,7 @@ let process_inboxes (node: t) : unit =
       | _ -> invalid_arg "Quorum must be > 0 or None"
     in
     {
+      topics;
       simulation = { quorum = ref quorum_opt };
       roles;
       storage

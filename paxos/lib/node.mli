@@ -80,14 +80,17 @@ module type S = sig
   (** Node runtime configuration consisting of simulation settings, assigned roles,
       and a persistence storage backend. The types here are tied to the [Storage]
       module injected. *)
-  type config = {simulation: simulation_config; roles: roles; storage: Storage.t}
+  type config =
+    { simulation: simulation_config
+    ; roles: roles
+    ; storage: Storage.t
+    ; topics: Types.topic list }
 
   (** Abstract type representing a node instance. Concrete shape is opaque. *)
   type t
 
   val create :
-       ?topics:Types.topic list
-    -> ?state:State.t
+       ?state:State.t
     -> id:Types.node_id
     -> config:config
     -> bus:V.t Message.t Bus.t
@@ -122,6 +125,8 @@ module type S = sig
   val handle_simulation_control : t -> V.t Message.t -> unit
   (** Handle a simulation control message received by the node. *)
 
+  val handle_time : t -> V.t Message.t -> unit
+
   val propose :
        msg_id:int
     -> time:int
@@ -138,7 +143,11 @@ module type S = sig
   (** Dump the current state of the node as an s-expression for debugging. *)
 
   val make_config :
-    roles:roles -> storage:Storage.t -> quorum:int option -> config
+       topics:Types.topic list
+    -> roles:roles
+    -> storage:Storage.t
+    -> quorum:int option
+    -> config
   (** Construct a configuration record for the node.
       - [roles]: list of roles to assign.
       - [storage]: storage backend instance.

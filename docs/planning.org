@@ -1620,7 +1620,7 @@ CLOSED: [2025-11-01 Sat 10:02]
 - [X] Messages use the simulator clock, contain time meta within meta
 **** TODO Add a good interface for Simulator, SimulationEvents and EventQueue
 :PROPERTIES:
-:EFFORT:   1.5h
+:EFFORT:   2h
 :END:
 :LOGBOOK:
 CLOCK: [2025-11-02 Sun 10:07]--[2025-11-02 Sun 17:37] =>  7:30
@@ -1646,9 +1646,9 @@ this one needs some designing:
 
    This is just a broadcast over the Time topic, nothing special here.
 
- - [ ] Add message meta timestamps drawn from simulator clock.
+ - [X] Add message meta timestamps drawn from simulator clock.
 
- - [ ] Refactor simulator run loop according to logical time ticks.
+ - [X] Refactor simulator run loop according to logical time ticks.
 
  - [ ] Begin applying inbox stateful processing in nodes upon tick calls.
 ***** DONE Extract out node signature
@@ -1672,9 +1672,27 @@ That was the important change.
 I can't seem to extract out a signature just for the node. This is messing me up because this means that I can't define the interface for the Simulator properly.
 
 I'll give it another 30mins to try it out.
-***** TODO Integrating time ticking
+***** DONE Integrating time ticking
+CLOSED-FORM: [2025-11-02 Sun 21:41]
 :PROPERTIES:
 :EFFORT:   45min
+:END:
+- CLOSING NOTE [2025-11-02 Sun 21:41] \\
+  Wonderful stuff, felt like a eureka moment
+
+  Key things done:
+   1. Time ticking works
+
+   2. Time is propagated throughout the simulation using message passing (Heartbeat message over the Time topic).
+
+   3. time and topics are taken from the config directly (minor dataflow cleanup)
+
+   4. =Runtime.send_message= now accepts a =send_after= which allows us to time when the =Event_scheduler= does the dispatching. That works beautifully
+
+   5. Added in time loop, time loop is stepped through via keypress, paused with spacebar, resumed with 'r' and quit with 'q'.
+
+:LOGBOOK:
+CLOCK: [2025-11-02 Sun 19:23]--[2025-11-02 Sun 20:14] =>  0:51
 :END:
 
 We should keep the =Event_bus= stateless and reactive. We should use message-passing for heartbeats. Otherwise, we would add some coupling between the Simulator and the Nodes. In the future, when Nodes have their own local clocks, then maybe they can do their own ticking internally.
@@ -1696,7 +1714,7 @@ So, we can actually just use a separate heartbeat topic for time events like tic
 
         - Makes the system fully event-driven with no hidden side effects, enabling controlled, deterministic simulation ticking.
 ****** Rollout
-- [ ] Define messages for the time topic
+- [X] Define messages for the time topic
   The messages should anticipate the kind of time related events that the simulation will handle.
 
   From runtime we can expect some of the following:
@@ -1709,14 +1727,21 @@ So, we can actually just use a separate heartbeat topic for time events like tic
 
   3. =diff_offset=: like a diff jump that would preserve the relative time drifts in local clocks (if any)
 
-- [ ] Register callbacks by default for the time topic
+- [X] Register callbacks by default for the time topic
 
   This is nothing special, it's just calling subscribe.
 
-- [ ] Setup a basic timeloop @ simulator to show that we can tick every 1 second
+- [X] At each step, we need to tick and propagate that via the time message as a heartbeat.
+
+- [X] Setup a basic timeloop @ simulator to show that we can tick every 1 second
 
   - just a simple print statement should be sufficient here.
 
+  - I want the time loop to look for space bar keyboard event and pause. There's a Simulator.pause that i want us to use.
+
+- [X] Ensure the scheduling works.
+
+  yeah this works. I added a =send_after= and the event scheduler works as intended.
 
 **** TODO Paxos Protocol Groundworks
 :PROPERTIES:

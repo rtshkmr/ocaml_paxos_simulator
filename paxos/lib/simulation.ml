@@ -10,7 +10,7 @@ module Simulation = struct
 
   let make_val string = V.t_of_sexp (Sexplib.Sexp.Atom string)
   (** can be coordinated, can be controlled by simulator*)
-  let base_topics = [Types.Types.Coordination; Types.Types.Simulation_control]
+  let base_topics = [Types.Types.Coordination; Types.Types.Simulation_control; Types.Types.Time]
 
   let node_spec_1 : Config.node_spec =
     { node_id= 1
@@ -46,20 +46,56 @@ module Simulation = struct
 
 
  let first_msg =
-  let open Simulator in
   let proposal_id = Types.Types.make_proposal_id ~seq:1 ~node:1 in
-  let time = current_time sim in
+  let time = 12 in
   let from_id_val = 1 in
   let coord_msg = Message.make_permission_request ~msg_id:1 ~time ~topic:Types.Types.Coordination ~from:from_id_val ~proposal:proposal_id ~value:(make_val "Let's go Ritesh Let's go!!!") in
   let raw_msg = Message.Coordination coord_msg in
   Simulator.msg_of_message raw_msg
 
-  let run() =
+ (** This just adds some basic keyboard events, press any key for tick progression and special keys for cancellation. Remember this is super rudimentary, so you'd have to press special key then enter for it to work.*)
+let run_with_pause sim =
+  let open Stdio in
+  let print_flush s =
+    print_endline s;
+    Out_channel.flush stdout
+  in
+  let fini () =
+    print_flush "Quitting sim";
+    Simulator.print_bus_stats sim
+  in
+  let rec time_loop () =
+    match In_channel.input_char In_channel.stdin with
+    | Some ' ' ->
+        print_flush "Simulation paused. Press 'r' to resume and 'q' to quit.";
+        let rec wait_resume () =
+          match In_channel.input_char In_channel.stdin with
+          | Some 'r' ->
+              print_flush "Resuming simulation.";
+              time_loop ()
+          | Some 'q' ->
+              fini ()
+          | _ -> wait_resume ()
+        in
+        wait_resume ()
+    | Some 'q' ->
+        fini ()
+    | Some _ ->
+        Simulator.step sim;
+        time_loop ()
+    | None ->
+        fini ()
+  in
+  time_loop ()
+
+
+ let run() =
     Simulator.print_bus_stats sim;
-    Simulator.send_message sim ~topic:Types.Types.Coordination ~from:n1 ~to_:(Some n2) ~msg:first_msg;
+    Simulator.send_message sim ~send_after:10 ~topic:Types.Types.Coordination ~from:n1 ~to_:(Some n2) ~msg:first_msg ();
+    (* TODO add a time loop here. *)
     Simulator.print_bus_stats sim;
-    Simulator.step sim;
-    Simulator.print_bus_stats sim;
+    (* Simulator.step sim; *)
+    run_with_pause sim;
 
 
 

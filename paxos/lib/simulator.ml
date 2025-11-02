@@ -48,15 +48,11 @@ module Simulator : Runtime = struct
     ; event_callbacks= ref [] }
 
   (** can be coordinated, can be controlled by simulator*)
-  let base_topics = [Types.Types.Coordination; Types.Types.Simulation_control]
-
   let base_state = NodeImpl.State.Echo
-
   let add_node_to_sim sim ~node_config =
     let new_node_id = 1 + List.length !(sim.nodes) in
     let new_node =
-      NodeImpl.create ~bus ~config:node_config ~id:new_node_id
-        ~topics:base_topics ~state:base_state ()
+      NodeImpl.create ~bus ~config:node_config ~id:new_node_id ~state:base_state ()
     in
     sim.nodes := new_node :: !(sim.nodes) ;
     new_node
@@ -67,22 +63,46 @@ module Simulator : Runtime = struct
     let initial_quorum = node_spec.initial_quorum in
     let storage = S.create () in
     let simulation = {NodeImpl.quorum= ref initial_quorum} in
-    {NodeImpl.simulation; roles; storage}
+    let topics = node_spec.topics in
+    {NodeImpl.simulation; roles; storage; topics}
 
   let add_node sim ~node_spec =
     let node_config = create_node_config_from_sim_spec node_spec in
     add_node_to_sim sim ~node_config
 
-  let send_message sim ~topic ~from:node ~to_:node ~msg =
+  let send_heartbeat sim ~msg_id =
+    let time = Time.now sim.clock in
+    let raw_msg = Message.make_heartbeat_msg ~msg_id ~time in
+    let msg = Message.Time raw_msg in
+    let topic = Types.Types.Time in
+    Event_bus.publish bus ~topic msg
+    (* let cb = fun () -> Event_bus.publish bus ~topic msg in *)
+    (* let event_id = 2 in *)
+    (* (\* FIXME: the id here needs a counter and everything -- this should be event_id*\) *)
+    (* let event = {id=event_id; EventScheduler.time= Time.now sim.clock; action= (fun () -> cb ())} in *)
+    (* Event_bus.publish   *)
+    (* (\* EventScheduler    EventScheduler.add_event !(sim.scheduler) event *\) *)
+
+  let send_message sim ?(send_after=Time.now sim.clock) ~topic ~from:node ~to_:node ~msg () =
     let cb = fun () -> Event_bus.publish bus ~topic msg in
     let event =
-      {id=1; EventScheduler.time= Time.now sim.clock; action= (fun () -> cb ())}
+      {id=1; EventScheduler.time=send_after; action= (fun () -> cb ())}
     in
     EventScheduler.add_event !(sim.scheduler) event
 
   let on_event sim f = sim.event_callbacks := f :: !(sim.event_callbacks)
 
   let current_time sim = Time.now sim.clock
+
+  (** Simulator specific tick logic grouped as one.
+      1. advance the logical clock
+      2. send the heartbeat message
+   *)
+
+  let tick t =
+    Stdio.print_endline "#### TICK SIMULATOR";
+    Time.tick t.clock;
+    send_heartbeat t ~msg_id:2
 
   (** This is one step that includes:
      1. simulator gathers all the events to be dispatched for this step
@@ -101,8 +121,7 @@ module Simulator : Runtime = struct
         ev.action () ;
         List.iter ~f:(fun cb -> cb ev) !(sim.event_callbacks) )
       due ;
-    (* Advance logical clock *)
-    Time.tick sim.clock
+    tick sim
 
   let start sim =
     sim.halted <- false ;
