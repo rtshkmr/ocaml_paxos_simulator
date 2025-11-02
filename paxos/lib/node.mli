@@ -44,6 +44,8 @@ module type S = sig
   (** A list of [role]s representing the roles assigned to a node. *)
   type roles = role list
 
+  val role_of_string : string -> role
+
   (** Internal GADT representing the various states of a node during the Paxos
       consensus process. Each constructor optionally carries data typed using
       [V.t], ensuring the node's state is parametrically tied to the concrete
@@ -64,6 +66,8 @@ module type S = sig
       | Decided of V.t
     [@@deriving sexp]
   end
+
+  val state_of_string_opt : string option -> State.t option
 
   (** Configuration for simulation semantics, including mutable quorum tracking. *)
   type simulation_config = {mutable quorum: int option ref}

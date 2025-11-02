@@ -1,0 +1,129 @@
+[@@@ocaml.warning "-27-33"] (** TODO: remove unused variable warnings*)
+open Base
+open Time
+open Event_bus
+open Node
+open Runtime
+open Event_bus
+open Event_scheduler
+open Message
+
+(*
+  Implements the Runtime interface using a discrete-time event scheduler.
+*)
+module Simulator : Runtime = struct
+  (* concretising things *)
+  module V = Value_string.Value_string
+  module B = Event_bus
+  module S = Storage_mem.Storage_mem (V)
+  module NodeImpl = Node.Make_node (V) (S) (B)
+
+  type msg = V.t Message.t
+  let msg_of_message (m: V.t Message.t): msg = m
+
+  type node = NodeImpl.t
+
+  type event = EventScheduler.event
+
+  let bus =
+    B.create
+      ~logger:(fun topic msg ->
+        Printf.sprintf "[LOG][%s] %s"
+          (Sexp.to_string (Types.Types.sexp_of_topic topic))
+          (Sexplib.Sexp.to_string (Message.sexp_of_t V.sexp_of_t msg)) )
+      ()
+
+  type t =
+    { mutable halted: bool
+    ; mutable clock: Time.clock
+    ; scheduler: EventScheduler.t ref
+    ; nodes: node list ref
+    ; event_callbacks: (event -> unit) list ref }
+
+  let create ~config:_ =
+    { halted= false
+    ; clock= Time.create_clock ()
+    ; scheduler= ref (EventScheduler.create ())
+    ; nodes= ref []
+    ; event_callbacks= ref [] }
+
+  (** can be coordinated, can be controlled by simulator*)
+  let base_topics = [Types.Types.Coordination; Types.Types.Simulation_control]
+
+  let base_state = NodeImpl.State.Echo
+
+  (* let create_node_config_from_sim_spec spec:Config.node_spec = *)
+  (*   let simulation_config = { *)
+  (*     mutable quorum: node_spec.initial_quorum; *)
+  (*   } in *)
+  (*   let roles = List.map spec.roles ~f:(NodeImpl.role_of_string) in *)
+  (*   let storage = S.create() in *)
+  (*   {simulation: simulation_config; roles:roles: storage.storage} *)
+
+  let add_node_to_sim sim ~node_config =
+    let new_node_id = 1 + List.length !(sim.nodes) in
+    let new_node =
+      NodeImpl.create ~bus ~config:node_config ~id:new_node_id
+        ~topics:base_topics ~state:base_state ()
+    in
+    sim.nodes := new_node :: !(sim.nodes) ;
+    new_node
+
+  let create_node_config_from_sim_spec (node_spec : Config.node_spec) :
+      NodeImpl.config =
+    let roles = List.map node_spec.roles ~f:NodeImpl.role_of_string in
+    let initial_quorum = node_spec.initial_quorum in
+    let storage = S.create () in
+    let simulation = {NodeImpl.quorum= ref initial_quorum} in
+    {NodeImpl.simulation; roles; storage}
+
+  let add_node sim ~node_spec =
+    let node_config = create_node_config_from_sim_spec node_spec in
+    add_node_to_sim sim ~node_config
+
+  let send_message sim ~topic ~from:node ~to_:node ~msg =
+    let cb = fun () -> Event_bus.publish bus ~topic msg in
+    let event =
+      {EventScheduler.time= Time.now sim.clock; action= (fun () -> cb ())}
+    in
+    EventScheduler.add_event !(sim.scheduler) event
+
+  let on_event sim f = sim.event_callbacks := f :: !(sim.event_callbacks)
+
+  let current_time sim = Time.now sim.clock
+
+  let step sim =
+    let now = current_time sim in
+    let due = EventScheduler.pop_due_events !(sim.scheduler) now in
+    (* Run all due events *)
+    List.iter
+      ~f:(fun ev ->
+        ev.action () ;
+        List.iter ~f:(fun cb -> cb ev) !(sim.event_callbacks) )
+      due ;
+    (* Advance node states *)
+    (* Advance logical clock *)
+    Time.tick sim.clock
+
+  let start sim =
+    sim.halted <- false ;
+    while not sim.halted do
+      step sim
+    done
+
+  let stop sim = sim.halted <- true
+
+  let pause = stop
+
+  let reset sim =
+    sim.halted <- false ;
+    sim.clock <- Time.create_clock () ;
+    sim.scheduler := EventScheduler.create () ;
+    sim.nodes := [] ;
+    sim.event_callbacks := []
+
+  let get_nodes sim = !(sim.nodes)
+
+  let print_bus_stats t =
+    B.print_stats bus;
+end

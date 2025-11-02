@@ -18,6 +18,8 @@ module type S = sig
 
   type roles = role list
 
+  val role_of_string : string -> role
+
   module State : sig
     type t =
       | Idle
@@ -34,6 +36,8 @@ module type S = sig
       | Decided of V.t
     [@@deriving sexp]
   end
+
+  val state_of_string_opt:string option -> State.t option
 
   type simulation_config = {mutable quorum: int option ref}
 
@@ -101,6 +105,12 @@ module Make_node (V : Value.S)
 
   type inbox = (proposal_key, inbox_entry) Hashtbl.t
 
+  let role_of_string = function
+    | "Proposer" -> Proposer
+    | "Acceptor" -> Acceptor
+    | "Learner" -> Learner
+    | s -> failwith ("Unknown role: " ^ s)
+
   module State = struct
     type t =
       | Idle
@@ -114,7 +124,14 @@ module Make_node (V : Value.S)
       | AcceptedLocally of { proposal : Types.proposal_id; value : V.t }
       | Decided of V.t
     [@@deriving sexp]
+
   end
+
+let state_of_string_opt = function
+  | Some "Idle" -> Some State.Idle
+  | Some "Echo" -> Some State.Echo
+  (* | Some "Preparing" -> Some NodeImpl.State.Preparing { current_proposal = ...; awaiting = [] }  (\* fill args *\) *)
+  | _ -> failwith "Unsupported initial state string"
 
   type simulation_config = {
     mutable quorum: int option ref;
