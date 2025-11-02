@@ -5,24 +5,34 @@ open Time
   A Runtime manages time, nodes, and event scheduling.
 *)
 module type Runtime = sig
+  type t
+
+  (* here, we expose the modules that will be used to create a node *)
   module V : Value.S
 
   module B : Event_bus.S
 
   module S : Storage.S
 
-  type t
-
   type msg
 
   val msg_of_message : V.t Message.Message.t -> msg
+  (** [msg_of_message] returns a Runtime.msg nominal type.
+
+    FIXME SMELL: this is a hack, possible code smell because we have structural type equality but the nominal types are different.
+
+    We can observe this in the simulation setup where our [send_message] expects the message to be [type Simulator.msg], but using the
+    Constructor for [Message.Coordination] gives us type [V.t Message.Message.t].
+
+    Seems like some sort of type definition drift. This feels like a smell in the design of things.
+   *)
 
   type node
 
   type event
 
   val create : config:Config.t -> t
-  (** Create a new simulation runtime from configuration. *)
+  (** Create a new (simulation) runtime from configuration. *)
 
   val add_node : t -> node_spec:Config.node_spec -> node
   (** Add a new node to the simulation. Returns the created node. *)
@@ -46,7 +56,7 @@ module type Runtime = sig
     -> to_:node option
     -> msg:msg
     -> unit
-  (** Send a message between nodes over a particular topic. Optionally specify destination. *)
+  (** Send a message between nodes over a particular topic. Optionally specify destination to have a direct message. *)
 
   val on_event : t -> (event -> unit) -> unit
   (** Subscribe to simulation-level events (for logging, metrics, etc.). *)
@@ -61,4 +71,5 @@ module type Runtime = sig
   (** Reset simulation to initial time and state. *)
 
   val print_bus_stats : t -> unit
+  (** Gives a rudimentary print-dump of the state within the event bus used for the simulation.*)
 end

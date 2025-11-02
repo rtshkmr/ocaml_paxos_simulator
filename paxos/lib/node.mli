@@ -46,24 +46,29 @@ module type S = sig
 
   val role_of_string : string -> role
 
-  (** Internal GADT representing the various states of a node during the Paxos
+  (** Internal ADT representing the various states of a node during the Paxos
       consensus process. Each constructor optionally carries data typed using
       [V.t], ensuring the node's state is parametrically tied to the concrete
       value type chosen in [V]. *)
   module State : sig
     type t =
-      | Idle
       | Echo
+      | Idle
+          (** Node is inactive or waiting to initiate consensus or for messages *)
       | Preparing of
           {current_proposal: Types.proposal_id; awaiting: Types.node_id list}
+          (** Proposer has sent Prepare requests, awaiting promises *)
       | WaitingForPromises of
           { proposal: Types.proposal_id
           ; promises_received:
               (Types.node_id * (Types.proposal_id * V.t) option) list }
+          (** Proposer is collecting promises and evaluating highest accepted proposals *)
       | Accepting of
           {proposal: Types.proposal_id; value: V.t; acks: Types.node_id list}
+          (** Proposer sending Accept requests, waiting for acknowledgments *)
       | AcceptedLocally of {proposal: Types.proposal_id; value: V.t}
-      | Decided of V.t
+          (** Acceptor has accepted a proposal locally *)
+      | Decided of V.t  (** Consensus value is decided and learned *)
     [@@deriving sexp]
   end
 

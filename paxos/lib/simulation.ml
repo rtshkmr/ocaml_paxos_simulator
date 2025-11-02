@@ -3,7 +3,6 @@ open Message
 open Simulator
 
 module Simulation = struct
-  (* module V = Value_string.Value_string *)
   module V = Simulator.V
   module B = Event_bus.Event_bus
   module S = Storage_mem.Storage_mem (V)
@@ -38,18 +37,13 @@ module Simulation = struct
     ; initial_nodes= node_spec_lists
     ; log_jsonl= None }
 
+
+  (* === create sim *)
   let sim = Simulator.create ~config:sim_config
-
+  (* === create nodes to exist within sim *)
   let n1 = Simulator.add_node sim ~node_spec:node_spec_1
-
   let n2 = Simulator.add_node sim ~node_spec:node_spec_2
 
-  (* let first_msg = *)
-  (*   let proposal_id = Types.Types.make_proposal_id ~seq:1 ~node:1 in *)
-  (*   let time = Simulator.current_time sim in *)
-  (*   let from_id_val = 1 in *)
-  (*   let coord_msg = Message.make_permission_request ~msg_id:1 ~time ~topic:Types.Types.Coordination ~from:from_id_val ~proposal:proposal_id ~value:(make_val "Let's go Ritesh, let's go !!!") in *)
-  (*   Message.Coordination coord_msg *)
 
  let first_msg =
   let open Simulator in

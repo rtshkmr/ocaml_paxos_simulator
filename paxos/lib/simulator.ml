@@ -12,14 +12,14 @@ open Message
   Implements the Runtime interface using a discrete-time event scheduler.
 *)
 module Simulator : Runtime = struct
-  (* concretising things *)
+  (* concretizing modules *)
   module V = Value_string.Value_string
   module B = Event_bus
   module S = Storage_mem.Storage_mem (V)
   module NodeImpl = Node.Make_node (V) (S) (B)
 
-  type msg = V.t Message.t
-  let msg_of_message (m: V.t Message.t): msg = m
+  type msg = V.t Message.t (* shadow type *)
+  let msg_of_message (m: V.t Message.t): msg = m (* converts structurally equal type to shadow type *)
 
   type node = NodeImpl.t
 
@@ -52,14 +52,6 @@ module Simulator : Runtime = struct
 
   let base_state = NodeImpl.State.Echo
 
-  (* let create_node_config_from_sim_spec spec:Config.node_spec = *)
-  (*   let simulation_config = { *)
-  (*     mutable quorum: node_spec.initial_quorum; *)
-  (*   } in *)
-  (*   let roles = List.map spec.roles ~f:(NodeImpl.role_of_string) in *)
-  (*   let storage = S.create() in *)
-  (*   {simulation: simulation_config; roles:roles: storage.storage} *)
-
   let add_node_to_sim sim ~node_config =
     let new_node_id = 1 + List.length !(sim.nodes) in
     let new_node =
@@ -84,7 +76,7 @@ module Simulator : Runtime = struct
   let send_message sim ~topic ~from:node ~to_:node ~msg =
     let cb = fun () -> Event_bus.publish bus ~topic msg in
     let event =
-      {EventScheduler.time= Time.now sim.clock; action= (fun () -> cb ())}
+      {id=1; EventScheduler.time= Time.now sim.clock; action= (fun () -> cb ())}
     in
     EventScheduler.add_event !(sim.scheduler) event
 
@@ -92,6 +84,14 @@ module Simulator : Runtime = struct
 
   let current_time sim = Time.now sim.clock
 
+  (** This is one step that includes:
+     1. simulator gathers all the events to be dispatched for this step
+     3. the simulator clock will tick and the tick will propagate to all nodes
+
+    We should respect design principles such as:
+    - our [Event_bus] will always be passive and reactive.
+    - [Nodes] in the system will never be directly changed by the simulation, their internal state may only be updated via message passing.
+*)
   let step sim =
     let now = current_time sim in
     let due = EventScheduler.pop_due_events !(sim.scheduler) now in
@@ -101,7 +101,6 @@ module Simulator : Runtime = struct
         ev.action () ;
         List.iter ~f:(fun cb -> cb ev) !(sim.event_callbacks) )
       due ;
-    (* Advance node states *)
     (* Advance logical clock *)
     Time.tick sim.clock
 

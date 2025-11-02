@@ -20,20 +20,26 @@ module type S = sig
 
   val role_of_string : string -> role
 
+  (* -- TODO: actually implement the FSM state changes for simple paxos. Refer to the notes in this response for a rough starting ground: https://www.perplexity.ai/search/i-m-writing-out-this-functor-i-yCdty5gmQjelAtQTW4J97g#15 *)
   module State : sig
     type t =
-      | Idle
       | Echo
+      | Idle
+          (** Node is inactive or waiting to initiate consensus or for messages *)
       | Preparing of
           {current_proposal: Types.proposal_id; awaiting: Types.node_id list}
+          (** Proposer has sent Prepare requests, awaiting promises *)
       | WaitingForPromises of
           { proposal: Types.proposal_id
           ; promises_received:
               (Types.node_id * (Types.proposal_id * V.t) option) list }
+          (** Proposer is collecting promises and evaluating highest accepted proposals *)
       | Accepting of
           {proposal: Types.proposal_id; value: V.t; acks: Types.node_id list}
+          (** Proposer sending Accept requests, waiting for acknowledgments *)
       | AcceptedLocally of {proposal: Types.proposal_id; value: V.t}
-      | Decided of V.t
+          (** Acceptor has accepted a proposal locally *)
+      | Decided of V.t  (** Consensus value is decided and learned *)
     [@@deriving sexp]
   end
 
@@ -113,8 +119,8 @@ module Make_node (V : Value.S)
 
   module State = struct
     type t =
-      | Idle
       | Echo
+      | Idle
       | Preparing of { current_proposal : Types.proposal_id; awaiting : Types.node_id list }
       | WaitingForPromises of {
           proposal : Types.proposal_id;
@@ -124,7 +130,6 @@ module Make_node (V : Value.S)
       | AcceptedLocally of { proposal : Types.proposal_id; value : V.t }
       | Decided of V.t
     [@@deriving sexp]
-
   end
 
 let state_of_string_opt = function

@@ -1,9 +1,11 @@
 open Time
 (**
   A simple deterministic event scheduler that orders events by logical time.
+
+  TODO: [Perf] This is definitely not performant, a better datastructure could be used.
 *)
 module EventScheduler : sig
-  type event = {time: Time.t; action: unit -> unit}
+  type event = {time: Time.t; action: unit -> unit; id: int}
 
   type t
 
@@ -19,7 +21,7 @@ module EventScheduler : sig
   val peek_next_event_time : t -> Time.t option
   (** Return time of the next scheduled event, if any. *)
 end = struct
-  type event = {time: Time.t; action: unit -> unit}
+  type event = {time: Time.t; action: unit -> unit; id: int}
 
   type t = event list ref
 

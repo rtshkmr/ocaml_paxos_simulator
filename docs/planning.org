@@ -1584,7 +1584,7 @@ Dumped the code and asked for critique and here's how it went ([[https://chatgpt
 I think the scrutiny by the bot is great, I agre with many of the things that it has raised.
 I'll inject them as tasks into this list.
 
-**** DONE Time Simulation
+**** DONE Groundworks for Time Simulation
 CLOSED: [2025-11-01 Sat 10:03]
 :PROPERTIES:
 :EFFORT:   1h
@@ -1623,7 +1623,7 @@ CLOSED: [2025-11-01 Sat 10:02]
 :EFFORT:   1.5h
 :END:
 :LOGBOOK:
-CLOCK: [2025-11-02 Sun 10:07]--[2025-11-02 Sun 12:47] =>  2:40
+CLOCK: [2025-11-02 Sun 10:07]--[2025-11-02 Sun 17:37] =>  7:30
 CLOCK: [2025-11-02 Sun 09:10]--[2025-11-02 Sun 09:11] =>  0:01
 CLOCK: [2025-11-01 Sat 16:53]--[2025-11-01 Sat 17:12] =>  0:19
 CLOCK: [2025-11-01 Sat 16:15]--[2025-11-01 Sat 16:21] =>  0:06
@@ -1643,6 +1643,8 @@ this one needs some designing:
  - [X] Implement and integrate the EventQueue module.
 
  - [ ] Propagate time ticks via message passing from the simulator
+
+   This is just a broadcast over the Time topic, nothing special here.
 
  - [ ] Add message meta timestamps drawn from simulator clock.
 
@@ -1693,6 +1695,29 @@ So, we can actually just use a separate heartbeat topic for time events like tic
         - Allows modeling network delays, jitter, and dropped ticks (if desired) naturally as message loss or delay in the simulation.
 
         - Makes the system fully event-driven with no hidden side effects, enabling controlled, deterministic simulation ticking.
+****** Rollout
+- [ ] Define messages for the time topic
+  The messages should anticipate the kind of time related events that the simulation will handle.
+
+  From runtime we can expect some of the following:
+
+  1. =heartbeat= - this just registers a tick
+
+     I'm not sure if this should be more of a "hey node, update your time value to this" or whether it should be more of a "hey the global time just ticked" --> allowing the local event handlers to take care of things (e.g. tick the local clock.)
+
+  2. =sync_to=: like a set state, can be used for synchro across multiple local clocks
+
+  3. =diff_offset=: like a diff jump that would preserve the relative time drifts in local clocks (if any)
+
+- [ ] Register callbacks by default for the time topic
+
+  This is nothing special, it's just calling subscribe.
+
+- [ ] Setup a basic timeloop @ simulator to show that we can tick every 1 second
+
+  - just a simple print statement should be sufficient here.
+
+
 **** TODO Paxos Protocol Groundworks
 :PROPERTIES:
 :EFFORT:   30min
@@ -1772,6 +1797,7 @@ The update cycle for the hashtabl can happen @ =Event_bus.subscribe= where we ca
 currently it's all broadcasts. This works right now (because even for simulation events, the simulator can just use one of the nodes it has access to and just broadcast a message with a target node in mind and all recipients ignore it if that target is not them).
 
 It will be nicer to reduce the noise on the comms channel and just do message passing from source A to target B.
+***** [ ] Simulator interface should have a =broadcast_msg= vs =send_msg=
 
 ***** [ ] [#B] node config state to be updated via =simulation= topic msg passing
 
