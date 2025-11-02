@@ -1642,11 +1642,11 @@ this one needs some designing:
 
  - [X] Implement and integrate the EventQueue module.
 
- - [ ] Refactor simulator run loop according to logical time ticks.
-
  - [ ] Propagate time ticks via message passing from the simulator
 
  - [ ] Add message meta timestamps drawn from simulator clock.
+
+ - [ ] Refactor simulator run loop according to logical time ticks.
 
  - [ ] Begin applying inbox stateful processing in nodes upon tick calls.
 ***** DONE Extract out node signature
@@ -1670,23 +1670,7 @@ That was the important change.
 I can't seem to extract out a signature just for the node. This is messing me up because this means that I can't define the interface for the Simulator properly.
 
 I'll give it another 30mins to try it out.
-**** TODO Paxos Protocol Groundworks
-:PROPERTIES:
-:EFFORT:   30min
-:END:
-Not the whole algo yet, but somewhere close
-***** TODO Add explicit proposal field to response messages
-
-Why: Correlating responses to proposals must be unambiguous.
-
-Files: lib/message.mli|ml
-
-Changes:
-
-Add proposal: Types.proposal_id to PermissionGranted and Nack message variants (and ensure constructors accept it).
-
-Acceptance: Message.proposal_id_of returns proposal for request and response variants consistently.
-**** TODO Integrating time ticking
+***** TODO Integrating time ticking
 :PROPERTIES:
 :EFFORT:   45min
 :END:
@@ -1709,6 +1693,22 @@ So, we can actually just use a separate heartbeat topic for time events like tic
         - Allows modeling network delays, jitter, and dropped ticks (if desired) naturally as message loss or delay in the simulation.
 
         - Makes the system fully event-driven with no hidden side effects, enabling controlled, deterministic simulation ticking.
+**** TODO Paxos Protocol Groundworks
+:PROPERTIES:
+:EFFORT:   30min
+:END:
+Not the whole algo yet, but somewhere close
+***** TODO Add explicit proposal field to response messages
+
+Why: Correlating responses to proposals must be unambiguous.
+
+Files: lib/message.mli|ml
+
+Changes:
+
+Add proposal: Types.proposal_id to PermissionGranted and Nack message variants (and ensure constructors accept it).
+
+Acceptance: Message.proposal_id_of returns proposal for request and response variants consistently.
 **** TODO Add better logging to simulation
 :PROPERTIES:
 :EFFORT:   1h
@@ -1733,7 +1733,7 @@ Let Event_bus.create accept logger that returns string; publish should capture i
 
 Acceptance: A run produces a readable, timestamped event log that can be replayed.
 
-**** TODO Basic Simulation Event Logging
+***** TODO Basic Simulation Event Logging
 :PROPERTIES:
 :EFFORT:   30min
 :END:
