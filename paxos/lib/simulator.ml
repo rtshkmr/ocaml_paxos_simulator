@@ -75,7 +75,7 @@ module Simulator : Runtime = struct
     let raw_msg = Message.make_heartbeat_msg ~msg_id ~time in
     let msg = Message.Time raw_msg in
     let topic = Types.Types.Time in
-    Event_bus.publish bus ~topic msg
+    Event_bus.publish_broadcast bus ~topic msg
     (* let cb = fun () -> Event_bus.publish bus ~topic msg in *)
     (* let event_id = 2 in *)
     (* (\* FIXME: the id here needs a counter and everything -- this should be event_id*\) *)
@@ -83,12 +83,15 @@ module Simulator : Runtime = struct
     (* Event_bus.publish   *)
     (* (\* EventScheduler    EventScheduler.add_event !(sim.scheduler) event *\) *)
 
-  let send_message sim ?(send_after=Time.now sim.clock) ~topic ~from:node ~to_:node ~msg () =
-    let cb = fun () -> Event_bus.publish bus ~topic msg in
-    let event =
-      {id=1; EventScheduler.time=send_after; action= (fun () -> cb ())}
+  let send_message sim ?(send_after=Time.now sim.clock) ?to_node ~topic ~from:node ~msg () =
+    let cb () =
+      (match to_node with
+      | None -> Event_bus.publish_broadcast bus ~topic msg
+      | Some target_node -> Event_bus.publish_to_node ~node_id:(NodeImpl.id target_node) bus ~topic msg)
     in
+    let event = {id = 1; EventScheduler.time = send_after; action = cb} in
     EventScheduler.add_event !(sim.scheduler) event
+
 
   let on_event sim f = sim.event_callbacks := f :: !(sim.event_callbacks)
 

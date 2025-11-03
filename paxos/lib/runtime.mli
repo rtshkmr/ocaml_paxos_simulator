@@ -52,9 +52,9 @@ module type Runtime = sig
   val send_message :
        t
     -> ?send_after:int
+    -> ?to_node:node
     -> topic:Types.Types.topic
     -> from:node
-    -> to_:node option
     -> msg:msg
     -> unit
     -> unit

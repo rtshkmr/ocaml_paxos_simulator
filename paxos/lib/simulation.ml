@@ -80,8 +80,10 @@ module Simulation = struct
 
   let run () =
     Simulator.print_bus_stats sim ;
-    Simulator.send_message sim ~send_after:12 ~topic:Types.Types.Coordination
-      ~from:n1 ~to_:(Some n2) ~msg:first_msg () ;
+    Simulator.send_message sim ~send_after:2 ~topic:Types.Types.Coordination
+      ~from:n1 ~to_node:n2 ~msg:first_msg () ;
+    (* Simulator.send_message sim ~send_after:2 ~topic:Types.Types.Coordination *)
+    (*   ~from:n1 ~msg:first_msg () ; *)
     Simulator.print_bus_stats sim ;
     run_with_pause sim
 end

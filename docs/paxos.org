@@ -10,7 +10,7 @@
 
 * Understanding Paxos
 
-These are some brief notes based on [[https://understandingpaxos.wordpress.com/][a primer on paxos]]. It's supposed to be generic, some aspects are straight up yanked from the resource and others are my own phrasing or summaries of the content from the primer. All credit should go to the author of that primer for the content in this file, I'm just a parrot.
+These are some brief notes based on [[https://understandingpaxos.wordpress.com/][a primer on paxos]]. The notes are supposed to be brief, some aspects are straight up yanked from the resource and others are my own phrasing or summaries of the content from the primer. All credit should go to the author of that primer for the content in this file, I'm really just a parrot.
 
 The notes (and the primer content) are structured like so:
 1. a high-level overview of what Paxos is and the niche it fills in the distributed systems field
@@ -30,7 +30,7 @@ _Standard/Simple Paxos:_
 
 /Paxos is a mechanism for achieving consensus on a single value over unreliable communication channels./
 
-An extension to this is the topic on how multiple values could be reliably and efficiently chained together $\implies$ typically categorised until "Multi-Paxos" nowadays.
+An extension to this is the topic on how multiple values could be reliably and efficiently chained together $\implies$ typically categorised as "Multi-Paxos" nowadays.
 
 - we should separate algo from use-cases
 
@@ -43,9 +43,15 @@ An extension to this is the topic on how multiple values could be reliably and e
 - The algo is a P2P consensus protocol
 - relies on a simple-majority rule that can ensure that one and only one resulting value is achieved
 - All peers are equal, all peers can make suggestions
-- There are NO dedicated leaders in Paxos
+- There are NO dedicated leaders in Paxos (the simple variant).
 - Any peer may make a suggestion and lead the resolution effort
+
+  It makes sense to write logic that encapsulates the overall processes so that we can treat the process as having a lifecycle.
+
+  This will allow us to do things like killing the process early, when say we have Nack optimisations that help us cut the amount of traffic flow needed and so on. It would also allow us to easily add in the retry logic for these processes.
+
 - Overriding of neighbour's efforts is possible
+
 - A majority of peers will agree on a suggestion and the associated value within that suggestion will be the final solution.
 
 *** Failure Tolerance
@@ -57,15 +63,18 @@ An extension to this is the topic on how multiple values could be reliably and e
   - machine crashes
   - network outages
 
-- However: Paxos is NOT resilient against malicious / misbehaving peers. *Assumption*: each peer adheres to the protocol requirements.
+- However: Paxos is NOT resilient against malicious / misbehaving peers. We can see byzantine paxos variants for inspiration on how to design protocols for cases where some peers may be malicious.
 
-*** Incomplete Specification -- flexibility!
+  *Assumption*: each peer adheres to the protocol requirements.
+
+*** Incomplete Specification in Protocol $\implies$ flexibility to design the system!
 
 - Paxos gives some specific rules on message handling by peers (for correctness of end results)
 
 - Basic algo doesn't have comprehensive definition for some aspects of message handling. Leaves several areas of practical importance completely undefined.
   * e.g. how are failed nodes detected?
   * e.g. how to handle collisions between multiple peers making simultaneous suggestions?
+  * Forward progression to reach the same final-state. 
 
 - The algo guarantees correctness regardless of implementation liberties in response to he incomplete spec.
 
@@ -84,8 +93,8 @@ e.g.
 
    orthogonal goals: latency needed to detect and recover from peer-failures vs the network traffic use.
 
-   With respect to this tradeoff, we may choose to implement an _*adaptive techniques*_  that respond to changing behaviour of network traffic.
-   For this project, I think I just want these aspects to be parameterised and for me to change the value at runtime so that it's not as involved of an implementation as the adaptive version but can be extended into an adaptive one in the future.
+   With respect to this tradeoff, we may choose to implement *_adaptive techniques_* that respond to changing behaviour of network traffic.
+   For this project, I think I just /want these aspects to be parameterised/ and for me to change the value at runtime so that it's not as involved of an implementation as the adaptive version but can be extended into an adaptive one in the future.
 
 *** Proper Mindset for Understanding Paxos
 - Large and complex systems should be understood with a focus on high-level abstract components and interactions between them, with little focus on details.

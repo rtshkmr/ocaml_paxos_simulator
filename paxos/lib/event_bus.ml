@@ -1,3 +1,4 @@
+[@@@ocaml.warning "-69"] (** TODO: remove unused variable warnings*)
 open Base
 open Types
 
@@ -11,13 +12,23 @@ module type S = sig
 
   val create : ?logger:(Types.topic -> 'a -> string) -> unit -> 'a t
 
-  val subscribe : 'a t -> topic:Types.topic -> ('a -> unit) -> sub_handle
+  val subscribe :
+       'a t
+    -> topic:Types.topic
+    -> node_id:Types.node_id
+    -> ('a -> unit)
+    -> sub_handle
 
   val unsubscribe : 'a t -> sub_handle -> unit
 
-  val publish : 'a t -> topic:Types.topic -> 'a -> unit
+  val publish_broadcast : 'a t -> topic:Types.topic -> 'a -> unit
 
-  val enqueue : 'a t -> topic:Types.topic -> 'a -> unit
+  val publish_to_node : 'a t -> topic:Types.topic -> node_id:int -> 'a -> unit
+
+
+  type 'a enqueuable_thunk = ((Types.topic * Types.node_id option) * 'a)
+
+  val enqueue : 'a t -> 'a enqueuable_thunk -> unit
 
   val drain : 'a t -> unit
 
@@ -30,21 +41,28 @@ module Event_bus : S = struct
   (** sub_handle is the type for what a subscription handle looks like.
       -  [id] here refers to a subscription id (arbitrary for now)
   *)
-  type sub_handle = {topic: Types.topic; id: int}
+  type sub_handle = {topic: Types.topic; id: int; node_id: Types.node_id}
   [@@deriving sexp, compare, equal, hash]
 
   type 'a callback = 'a -> unit
 
+  type 'a subscription_info =
+    {node_id: Types.node_id; sub_handle: sub_handle; callback: 'a callback}
+
   type 'a topic_state =
-    { mutable subs: (int * 'a callback) list
+    { subs: (sub_handle, 'a subscription_info) Hashtbl.t
     ; mutable published: int
     ; mutable delivered: int
     ; mutable queued: int }
 
+  (** A thunk that can be queued such that it will either be published as a broadcast or as a publish to
+   a single node *)
+  type 'a enqueuable_thunk = ((Types.topic * Types.node_id option) * 'a)
+
   type 'a t =
     { mutable next_id: int
     ; topics: (Types.topic, 'a topic_state) Hashtbl.Poly.t
-    ; queue: (Types.topic * 'a) Queue.t
+    ; queue: 'a enqueuable_thunk Queue.t
     ; logger: (Types.topic -> 'a -> string) option }
 
   let create ?logger () =
@@ -58,52 +76,57 @@ module Event_bus : S = struct
     | Some ts ->
         ts
     | None ->
-        let ts = {subs= []; published= 0; delivered= 0; queued= 0} in
+        let ts =
+          {subs= Hashtbl.Poly.create (); published= 0; delivered= 0; queued= 0}
+        in
         Hashtbl.set t.topics ~key:topic ~data:ts ;
         ts
 
-  let subscribe t ~topic cb =
+  let subscribe t ~topic ~node_id callback =
     let subscription_id = t.next_id in
     t.next_id <- subscription_id + 1 ;
     let ts = ensure_topic_state t topic in
-    ts.subs <- (subscription_id, cb) :: ts.subs ;
-    {topic; id= subscription_id}
+    let sub_handle = {topic; id= subscription_id; node_id} in
+    let subscription_info = {node_id; sub_handle; callback} in
+    Hashtbl.add_exn ts.subs ~key:sub_handle ~data:subscription_info ;
+    sub_handle
 
-  let unsubscribe t handle =
-    match Hashtbl.find t.topics handle.topic with
+  let unsubscribe t sub_handle =
+    match Hashtbl.find t.topics sub_handle.topic with
     | None ->
         ()
     | Some ts ->
-        ts.subs <- List.filter ts.subs ~f:(fun (id, _) -> id <> handle.id) ;
+        Hashtbl.remove ts.subs sub_handle ;
         if
-          List.is_empty ts.subs && ts.published = 0 && ts.queued = 0
-          && ts.delivered = 0
-        then Hashtbl.remove t.topics handle.topic
-        else Hashtbl.set t.topics ~key:handle.topic ~data:ts
+          Hashtbl.length ts.subs = 0
+          && ts.published = 0 && ts.queued = 0 && ts.delivered = 0
+        then Hashtbl.remove t.topics sub_handle.topic
+        else Hashtbl.set t.topics ~key:sub_handle.topic ~data:ts
 
-  let publish t ~topic payload =
+  let publish_broadcast t ~topic payload =
     let ts = ensure_topic_state t topic in
     ts.published <- ts.published + 1 ;
-    (* TODO: improve logger soon. Optionally log serialized payload *)
-    ( match t.logger with
-    | Some f ->
-        (* temp solution: just print statement based logger.*)
-        ignore (f topic payload)
-        (* logger side-effect only; caller's logger can persist it *)
-    | None ->
-        () ) ;
-    match ts.subs with
-    | [] ->
-        ()
-    | callbacks ->
-        List.iter callbacks ~f:(fun (_, cb) ->
-            cb payload ;
-            ts.delivered <- ts.delivered + 1 )
+    (match t.logger with Some f -> ignore (f topic payload) | None -> ()) ;
+    if Hashtbl.is_empty ts.subs then ()
+    else
+      Hashtbl.iter ts.subs ~f:(fun subscription_info ->
+          subscription_info.callback payload ;
+          ts.delivered <- ts.delivered + 1 )
 
-  let enqueue t ~topic payload =
+  let publish_to_node t ~topic ~node_id payload =
+    match Hashtbl.find t.topics topic with
+    | None -> ()
+    | Some ts ->
+      Hashtbl.iteri ts.subs ~f:(fun ~key ~data ->
+          if key.node_id = node_id then
+            data.callback payload);
+       ts.delivered <- ts.delivered + 1
+
+  let enqueue t thunk =
+    let ((topic, _target_opt), _msg) = thunk in
     let ts = ensure_topic_state t topic in
     ts.queued <- ts.queued + 1 ;
-    Queue.enqueue t.queue (topic, payload)
+    Queue.enqueue t.queue thunk
 
   let drain t =
     let q_size = Queue.length t.queue in
@@ -113,20 +136,23 @@ module Event_bus : S = struct
     (* Snapshot the current queue to isolate this batch *)
     let current_batch = Queue.to_list t.queue in
     Queue.clear t.queue ;
-    List.iter current_batch ~f:(fun (topic, payload) ->
-        ( match Hashtbl.find t.topics topic with
+    List.iter current_batch ~f:(fun ((topic, node_id_opt), payload) ->
+        match Hashtbl.find t.topics topic with
         | None ->
             ()
         | Some ts ->
-            ts.queued <- Int.max 0 (ts.queued - 1) ) ;
-        publish t ~topic payload )
-  (* Any enqueued messages during publish will accumulate in t.queue
-     for the next tick — not this one. *)
+            match node_id_opt with
+              | None -> publish_broadcast t ~topic payload
+              | Some node_id -> publish_to_node t  ~node_id ~topic payload;
+            ts.queued <- Int.max 0 (ts.queued - 1))
+
+  (* Any enqueued messages during publish will accumulate in t.queue for the next tick — not this one *)
 
   let stats t =
     Hashtbl.to_alist t.topics
     |> List.map ~f:(fun (topic, ts) ->
-           (topic, (List.length ts.subs, ts.published, ts.delivered, ts.queued)) )
+           ( topic
+           , (Hashtbl.length ts.subs, ts.published, ts.delivered, ts.queued) ) )
 
   let print_stats t =
     let stats = stats t in

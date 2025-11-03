@@ -203,12 +203,14 @@ let state_of_string_opt = function
     node.state <- new_state
 
   (* Node propose: create PermissionRequest and rely on simulator/bus to broadcast *)
+  (* FIXME: there's a violation of SRP here. see planning notes diff for this commit. *)
   let propose ~msg_id ~time ~bus t ~proposal ~value =
     (* Build PermissionRequest for this node *)
     let coord_msg = Message.make_permission_request ~msg_id ~time ~topic:Types.Coordination ~from:t.id ~proposal ~value in
     let msg = Message.Coordination coord_msg in
+    let thunk = (Types.Coordination, None ), msg   in
     (* For v0 we'll have simulator broadcast on behalf of node; but provide direct publish too *)
-    Bus.enqueue bus ~topic:Types.Coordination msg
+    Bus.enqueue bus thunk
 
   let make_node_idle ~msg_id ~time ~bus t ~node_id =
     (* Build PermissionRequest for this node *)
@@ -216,7 +218,7 @@ let state_of_string_opt = function
     let sim_ctrl_msg = Message.make_sim_control_idle_node ~msg_id ~time ~node_id in
     let msg = Message.Control sim_ctrl_msg in
     (* For v0 we'll have simulator broadcast on behalf of node; but provide direct publish too *)
-    Bus.publish bus ~topic:Types.Simulation_control msg
+    Bus.publish_to_node bus ~node_id ~topic:Types.Simulation_control msg
 
 
 
@@ -332,7 +334,8 @@ let process_inboxes (node: t) : unit =
             table
         in
         let callback msg = get_handler_for_topic node topic msg in
-        let subscription_handle = Bus.subscribe bus ~topic callback in
+        let node_id = node.id in
+        let subscription_handle = Bus.subscribe bus ~topic ~node_id callback in
         Hashtbl.add_exn topic_table ~key:subscription_handle ~data:bus
       );
 
