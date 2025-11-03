@@ -1199,7 +1199,6 @@ Things that could be within that config:
 
 It would be great to just pass in a json object for config for this actually. It will clean up how we're doing the creation of nodes, but this json config part is not important right now. We just need to have some type / module encapsulation of such config info within the node.
 
-
 **** DONE [vanity] simulation system controls
 CLOSED: [2025-11-01 Sat 07:56]
 :PROPERTIES:
@@ -1584,41 +1583,67 @@ Dumped the code and asked for critique and here's how it went ([[https://chatgpt
 I think the scrutiny by the bot is great, I agre with many of the things that it has raised.
 I'll inject them as tasks into this list.
 
-**** TODO Time Simulation
+**** DONE Groundworks for Time Simulation
+CLOSED: [2025-11-01 Sat 10:03]
 :PROPERTIES:
-:EFFORT:   2h
+:EFFORT:   1h
 :END:
+- CLOSING NOTE [2025-11-01 Sat 10:03] \\
+  Donezo
+:LOGBOOK:
+CLOCK: [2025-11-01 Sat 09:55]--[2025-11-01 Sat 10:03] =>  0:08
+CLOCK: [2025-11-01 Sat 08:34]--[2025-11-01 Sat 09:31] =>  0:57
+:END:
+This will not include the time looping, we need the SimulationEvents and EventsQueue prior to that.
+Perhaps a proper scheduler or something around it.
 
-***** [ ] Make time into logical ints instead of floats, Make time & message meta deterministic
+QQ: I think it would be right to just have a simple "SimulationEventScheduler" to which the simulator can commit events to, then for each tick, request next events and so on instead of keeping that within the simulator directly
+
+***** [X] Make time into logical ints instead of floats, Make time & message meta deterministic
+CLOSED: [2025-11-01 Sat 09:23]
+- CLOSING NOTE [2025-11-01 Sat 09:23] \\
+  Done
 - [ ] Replace Message.make_meta so it accepts (id:int64, timestamp:Time.t, topic) rather than creating UUID/time itself.
-- [ ] Remove =Uuidm.v4= and =Unix.gettimeofday()= from message creation.
-- [ ] Let the Simulator be the sole creator of message ids and timestamps.
+- [X] Remove =Uuidm.v4= and =Unix.gettimeofday()= from message creation.
+- [X] Let the Simulator be the sole creator of message ids and timestamps.
 
 Files: lib/types.ml|mli (Time), lib/message.ml|mli
 Acceptance: Running the harness produces deterministic, reorderable logs when provided with a fixed seed (or no RNG used).
-***** [ ] Create time related interfaces
-- [ ] Clock module
-- [ ] Simulator owns a clock
-- [ ] Messages use the simulator clock, contain time meta within meta
-**** TODO Paxos Protocol Groundworks
+***** [X] Create time related interfaces
+CLOSED: [2025-11-01 Sat 10:02]
+- CLOSING NOTE [2025-11-01 Sat 10:02] \\
+  Wonderful we have invented time now.
+- [X] Clock module
+- [X] Simulator owns a clock
+  -- i just put up a dummy version of this, have to do the sim events and queue first for this to work properly
+- [X] Messages use the simulator clock, contain time meta within meta
+**** DONE Add a good interface for Simulator, SimulationEvents and EventQueue
+CLOSED: [2025-11-03 Mon 07:27]
 :PROPERTIES:
-:EFFORT:   30min
+:EFFORT:   2h
 :END:
-Not the whole algo yet, but somewhere close
-***** TODO Add explicit proposal field to response messages
+- CLOSING NOTE [2025-11-03 Mon 07:27] \\
+  this took a lot longer than expected.
 
-Why: Correlating responses to proposals must be unambiguous.
+  It was unexpectedly difficult to extract out the node signature from its inlined form within the functor because I didn't have a good mental model of how abstract modules may be "binded" to. It turns out that we can do destructive substitution on abstract modules within a signature directly.
 
-Files: lib/message.mli|ml
+  I don't really know whether this is a good pattern, I'm just happy to see the outcome of being able to extract out a signature of its own.
 
-Changes:
 
-Add proposal: Types.proposal_id to PermissionGranted and Nack message variants (and ensure constructors accept it).
-
-Acceptance: Message.proposal_id_of returns proposal for request and response variants consistently.
-**** Todo SimulationEvents and EventQueue
-:PROPERTIES:
-:EFFORT:   1h
+  #+begin_src ocaml
+  module Make_node : functor
+    (V : Value.S)
+    (Storage : Storage.S)
+    (Bus : sig
+       include module type of Event_bus
+     end)
+    -> S with module V := V with module Storage := Storage with module Bus := Bus
+  #+end_src
+:LOGBOOK:
+CLOCK: [2025-11-02 Sun 10:07]--[2025-11-02 Sun 17:37] =>  7:30
+CLOCK: [2025-11-02 Sun 09:10]--[2025-11-02 Sun 09:11] =>  0:01
+CLOCK: [2025-11-01 Sat 16:53]--[2025-11-01 Sat 17:12] =>  0:19
+CLOCK: [2025-11-01 Sat 16:15]--[2025-11-01 Sat 16:21] =>  0:06
 :END:
 something like a precursor to a scheduler of sorts?
 
@@ -1628,9 +1653,62 @@ this one needs some designing:
  - link between simulator events and simulator topic (for message passing and coordination?)
  - tick event @ simulator and message passing?
 
-**** TODO Integrating time ticking
+ - [X] Define the Runtime module type signature in a .mli file.
+
+ - [X] Implement a minimal stub of the simulator conforming to Runtime for incremental development.
+
+ - [X] Implement and integrate the EventQueue module.
+
+ - [X] Propagate time ticks via message passing from the simulator
+
+   This is just a broadcast over the Time topic, nothing special here.
+
+ - [X] Add message meta timestamps drawn from simulator clock.
+
+ - [X] Refactor simulator run loop according to logical time ticks.
+
+***** DONE Extract out node signature
+:PROPERTIES:
+:EFFORT:   30min
+:END:
+:LOGBOOK:
+CLOCK: [2025-11-02 Sun 08:29]--[2025-11-02 Sun 08:55] =>  0:26
+CLOCK: [2025-11-02 Sun 08:20]--[2025-11-02 Sun 08:29] =>  0:09
+:END:
+
+I had a misconception here and it was about the way destructive substitution of types is done.
+
+Our objective here was that given our =Make_node= functor, extract out the inline signature for the return type (=Node=) so that we can reference its signature elsewhere.
+
+The types in our Node depend on the functor parameters so we need to find a way to either do a destructive substitution at the point when the functor is defined, or to do constraint sharing.
+
+That was the important change.
+
+***** Problem: the use of higher kindered types within node functor is giving me issues
+I can't seem to extract out a signature just for the node. This is messing me up because this means that I can't define the interface for the Simulator properly.
+
+I'll give it another 30mins to try it out.
+***** DONE Integrating time ticking
+CLOSED-FORM: [2025-11-02 Sun 21:41]
 :PROPERTIES:
 :EFFORT:   45min
+:END:
+- CLOSING NOTE [2025-11-02 Sun 21:41] \\
+  Wonderful stuff, felt like a eureka moment
+
+  Key things done:
+   1. Time ticking works
+
+   2. Time is propagated throughout the simulation using message passing (Heartbeat message over the Time topic).
+
+   3. time and topics are taken from the config directly (minor dataflow cleanup)
+
+   4. =Runtime.send_message= now accepts a =send_after= which allows us to time when the =Event_scheduler= does the dispatching. That works beautifully
+
+   5. Added in time loop, time loop is stepped through via keypress, paused with spacebar, resumed with 'r' and quit with 'q'.
+
+:LOGBOOK:
+CLOCK: [2025-11-02 Sun 19:23]--[2025-11-02 Sun 20:14] =>  0:51
 :END:
 
 We should keep the =Event_bus= stateless and reactive. We should use message-passing for heartbeats. Otherwise, we would add some coupling between the Simulator and the Nodes. In the future, when Nodes have their own local clocks, then maybe they can do their own ticking internally.
@@ -1651,6 +1729,85 @@ So, we can actually just use a separate heartbeat topic for time events like tic
         - Allows modeling network delays, jitter, and dropped ticks (if desired) naturally as message loss or delay in the simulation.
 
         - Makes the system fully event-driven with no hidden side effects, enabling controlled, deterministic simulation ticking.
+****** Rollout
+- [X] Define messages for the time topic
+  The messages should anticipate the kind of time related events that the simulation will handle.
+
+  From runtime we can expect some of the following:
+
+  1. =heartbeat= - this just registers a tick
+
+     I'm not sure if this should be more of a "hey node, update your time value to this" or whether it should be more of a "hey the global time just ticked" --> allowing the local event handlers to take care of things (e.g. tick the local clock.)
+
+  2. =sync_to=: like a set state, can be used for synchro across multiple local clocks
+
+  3. =diff_offset=: like a diff jump that would preserve the relative time drifts in local clocks (if any)
+
+- [X] Register callbacks by default for the time topic
+
+  This is nothing special, it's just calling subscribe.
+
+- [X] At each step, we need to tick and propagate that via the time message as a heartbeat.
+
+- [X] Setup a basic timeloop @ simulator to show that we can tick every 1 second
+
+  - just a simple print statement should be sufficient here.
+
+  - I want the time loop to look for space bar keyboard event and pause. There's a Simulator.pause that i want us to use.
+
+- [X] Ensure the scheduling works.
+
+  yeah this works. I added a =send_after= and the event scheduler works as intended.
+
+**** TODO Paxos Protocol Groundworks
+:PROPERTIES:
+:EFFORT:   45min
+:END:
+Not the whole algo yet, but somewhere close
+ - [ ] Begin applying inbox stateful processing in nodes upon tick calls.
+ - [ ] outline a test case of communication for one paxos process that we shoud be supporting.
+
+***** TODO Add explicit proposal field to response messages
+
+Why: Correlating responses to proposals must be unambiguous.
+
+Files: lib/message.mli|ml
+
+Changes:
+
+Add proposal: Types.proposal_id to PermissionGranted and Nack message variants (and ensure constructors accept it).
+
+Acceptance: Message.proposal_id_of returns proposal for request and response variants consistently.
+**** TODO Message Passing System Improvements
+
+We are almost ready to implement simple paxos, we shall relook at what our simulated world needs to do to be able to support it.
+
+We had earlier side-stepped the ability to directly message a particular node over a topic. This functionality is technically a nice-to-have because broadcasting (with a target field within message) already works and will be sufficient. However, it will make the log dumps (primary mode of showing what is being simulated) a little messy, and remove from the experience of seeing it at play becasue the "network"/event bus would end up being a noisy communication channel.
+
+Therefore, there's value to have a direct messaging capability. This will be a light lift, because it's just a matter of changing how the event bus stores callbacks, changing it from a list to more of a callback registry.
+
+I think this will require a better callback registry. We'd have to change from a list of =(subscription_id * cb)= to a better registry with better lookup (some sort of Hashtbl).
+
+The update cycle for the hashtabl can happen @ =Event_bus.subscribe= where we can make it =(node_id * subscription_id * cb)= which would just be a changing of the =sub_handle= type. Then we will be able to do well. or maybe some kind of =subscription_info= could be better.
+
+***** [ ] allow message passing from source A to target B
+
+currently it's all broadcasts. This works right now (because even for simulation events, the simulator can just use one of the nodes it has access to and just broadcast a message with a target node in mind and all recipients ignore it if that target is not them).
+
+It will be nicer to reduce the noise on the comms channel and just do message passing from source A to target B.
+***** [ ] Simulator interface should have a =broadcast_msg= vs =send_msg=
+
+***** [ ] [#B] node config state to be updated via =simulation= topic msg passing
+
+jsut have a simulation topic and adjust things like quorum based on the SOT (leader or the simulator).
+
+this is low priority for now
+
+- [ ] remove quorum from message fields
+- [ ] add node creation helper within the simulator:
+- [ ] add new topic for =simulation= and attach a handler for that topic.
+  - maybe we can have a lookup table somewhere for topic to handler(s) or pipeline or something
+
 **** TODO Add better logging to simulation
 :PROPERTIES:
 :EFFORT:   1h
@@ -1675,7 +1832,7 @@ Let Event_bus.create accept logger that returns string; publish should capture i
 
 Acceptance: A run produces a readable, timestamped event log that can be replayed.
 
-**** TODO Basic Simulation Event Logging
+***** TODO Basic Simulation Event Logging
 :PROPERTIES:
 :EFFORT:   30min
 :END:
@@ -1703,29 +1860,6 @@ Acceptance: After a drain, nodes must only change state when Node.tick is called
 
 **** TODO Add storage pattern, in-mem -> persistent storage
 This is not as high priority but will be cool to demonstrate how crashing can still bring things back
-**** TODO Message Passing System Improvements
-
-I think this will require a better callback registry. We'd have to change from a list of =(subscription_id * cb)= to a better registry with better lookup (some sort of Hashtbl).
-
-The update cycle for the hashtabl can happen @ =Event_bus.subscribe= where we can make it =(node_id * subscription_id * cb)= which would just be a changing of the =sub_handle= type. Then we will be able to do well. or maybe some kind of =subscription_info= could be better.
-
-***** [ ] allow message passing from source A to target B
-
-currently it's all broadcasts. This works right now (because even for simulation events, the simulator can just use one of the nodes it has access to and just broadcast a message with a target node in mind and all recipients ignore it if that target is not them).
-
-It will be nicer to reduce the noise on the comms channel and just do message passing from source A to target B.
-
-***** [ ] [#B] node config state to be updated via =simulation= topic msg passing
-
-jsut have a simulation topic and adjust things like quorum based on the SOT (leader or the simulator).
-
-this is low priority for now
-
-- [ ] remove quorum from message fields
-- [ ] add node creation helper within the simulator:
-- [ ] add new topic for =simulation= and attach a handler for that topic.
-  - maybe we can have a lookup table somewhere for topic to handler(s) or pipeline or something
-
 *** TODO Implement v0 (basic paxos algorithm -- main goal)
 DEADLINESs: <2025-11-01 Sat 11:00>
 :PROPERTIES:
@@ -1745,6 +1879,7 @@ Files: bin/simulator.ml (new orchestrator code)
 
 Loop plan:
 
+#+begin_src ocaml
 now = clock.now
 
 events = Event_queue.pop_due now (deterministic order)
@@ -1756,7 +1891,7 @@ After all deliverings of this tick, call List.iter sim.nodes ~f:(fun n -> Node.t
 Optionally inject faults & schedule new events
 
 clock.tick
-
+#+end_src
 Acceptance: A manually scripted scenario (3 nodes, proposer at tick 0) produces expected PermissionRequest → PermissionGranted → Suggestion → Accepted sequence logged in order.
 
 **** TODO Add in proper logic for Node's @ =handle_event=
@@ -1798,7 +1933,6 @@ The tasks here are just documented but won't be in my v0 target. I NEED to arriv
 
 That being said, I'll likely come back to this real soon after I do some explainers and write ups for this project.
 
-
 **** Fault injection APIs
 
 - Partition, drop, delay, node crash and restart. These can be simulated by enqueuing SimAction events that alter a node's subscription or event_queue behavior.
@@ -1834,14 +1968,20 @@ That being said, I'll likely come back to this real soon after I do some explain
 :END:
 *** TODO Write-up
 DEADLINE: <2025-11-01 Sat 22:00>
-— produce blog-style README + literate trace
-**** Retro
+— produce blog-style REDEEM + literate trace
+**** Write up 1: Retro: Beauty of OCaml -- Problem Scope Of Distributed Computing
 ***** Ergonomics of the OCaml Language
+- special things I could do
+- things I couldn't do
+- speaking to a general audience (e.g. python folks)
+- shaping up of problem domain in this context. Problem domain framing.
+  - how the language helped for this framing task
 ***** Ecosystem of the OCaml Language
-**** Artefacts
+**** Write up 2: Personal Artefacts and Proof of Competence
 ***** Working Style and Habits
 ****** What theses to validate w.r.t working styles?
 ****** Areas of Improvement
+**** Write up 3: Using this as a tutorial
 ** Evolution (stretch goal)
 *** TODO Extend basic paxos to multi-paxos
 

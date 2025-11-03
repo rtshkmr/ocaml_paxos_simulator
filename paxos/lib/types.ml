@@ -20,7 +20,3 @@ module Types = struct
     | Time  (** Logical time simulation & clock sync msgs *)
   [@@deriving sexp, compare, hash, equal]
 end
-
-module Time = struct
-  type t = float [@@deriving sexp, compare, equal]
-end
