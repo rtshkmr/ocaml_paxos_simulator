@@ -1,5 +1,6 @@
 open Base
 open Types
+open Time
 
 (**
   Message ADTs for Paxos.
@@ -16,7 +17,7 @@ module Message : sig
   (** Metadata about a message that is useful for displaying.  *)
   module Meta : sig
     type t =
-      { id: Uuidm.t
+      { id: int
       ; timestamp: Time.t  (** Logical / real timestamp*)
       ; topic: Types.topic
             (** bus-level topic -- this is @ the simulation layer*) }
@@ -51,6 +52,12 @@ module Message : sig
     | Nack of {meta: Meta.t; from: Types.node_id; hint: Types.proposal_id option}
   [@@deriving sexp, compare, equal]
 
+  and 'v time_message =
+    | Heartbeat of {meta: Meta.t; time: Time.t}
+    | SyncTo of {meta: Meta.t; time: Time.t}
+    | DiffOffset of {meta: Meta.t; diff: Time.t}
+  [@@deriving sexp, compare, equal]
+
   and 'v simulation_control_message =
     | MakeNodeIdle of {meta: Meta.t; node_id: Types.node_id}
     | MakeNodeEcho of {meta: Meta.t; node_id: Types.node_id}
@@ -63,6 +70,7 @@ module Message : sig
   and 'v t =
     | Coordination of 'v coordination_message
     | Control of 'v simulation_control_message
+    | Time of 'v time_message
   [@@deriving sexp, compare, equal]
 
   val topic_of : _ t -> Types.topic
@@ -76,41 +84,59 @@ module Message : sig
 
   (* helpers to construct messages; ensure meta.topic matches provided topic *)
   val make_permission_request :
-       topic:Types.topic
+       msg_id:int
+    -> topic:Types.topic
+    -> time:Time.t
     -> from:Types.node_id
     -> proposal:Types.proposal_id
     -> value:'v
     -> 'v coordination_message
 
   val make_permission_granted :
-       topic:Types.topic
+       msg_id:int
+    -> topic:Types.topic
+    -> time:Time.t
     -> from:Types.node_id
     -> last_accepted:(Types.proposal_id * 'v) option
     -> 'v coordination_message
 
   val make_suggestion :
-       topic:Types.topic
+       msg_id:int
+    -> topic:Types.topic
+    -> time:Time.t
     -> from:Types.node_id
     -> proposal:Types.proposal_id
     -> value:'v
     -> 'v coordination_message
 
   val make_accepted :
-       topic:Types.topic
+       msg_id:int
+    -> topic:Types.topic
+    -> time:Time.t
     -> from:Types.node_id
     -> proposal:Types.proposal_id
     -> value:'v
     -> 'v coordination_message
 
   val make_nack :
-       topic:Types.topic
+       msg_id:int
+    -> topic:Types.topic
+    -> time:Time.t
     -> from:Types.node_id
     -> hint:Types.proposal_id option
     -> 'v coordination_message
 
   val make_sim_control_idle_node :
-    Types.node_id -> 'v simulation_control_message
+       msg_id:int
+    -> time:Time.t
+    -> node_id:Types.node_id
+    -> 'v simulation_control_message
 
   val make_sim_control_echo_node :
-    Types.node_id -> 'v simulation_control_message
+       msg_id:int
+    -> time:Time.t
+    -> node_id:Types.node_id
+    -> 'v simulation_control_message
+
+  val make_heartbeat_msg : msg_id:int -> time:Time.t -> 'a time_message
 end

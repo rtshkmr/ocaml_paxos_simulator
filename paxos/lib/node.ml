@@ -5,17 +5,102 @@ open Event_bus
 open Types
 open Message
 
+module type S = sig
+  module V : Value.S
 
-(** Make_node is functor that allows us to create a Node.
-    This allows us to effectively bind together an Value, Storage and Bus over which communication happens.
-*)
+  module Storage : Storage.S
+
+  module Bus : sig
+    include module type of Event_bus
+  end
+
+  type role = Proposer | Acceptor | Learner
+
+  type roles = role list
+
+  val role_of_string : string -> role
+
+  (* -- TODO: actually implement the FSM state changes for simple paxos. Refer to the notes in this response for a rough starting ground: https://www.perplexity.ai/search/i-m-writing-out-this-functor-i-yCdty5gmQjelAtQTW4J97g#15 *)
+  module State : sig
+    type t =
+      | Echo
+      | Idle
+          (** Node is inactive or waiting to initiate consensus or for messages *)
+      | Preparing of
+          {current_proposal: Types.proposal_id; awaiting: Types.node_id list}
+          (** Proposer has sent Prepare requests, awaiting promises *)
+      | WaitingForPromises of
+          { proposal: Types.proposal_id
+          ; promises_received:
+              (Types.node_id * (Types.proposal_id * V.t) option) list }
+          (** Proposer is collecting promises and evaluating highest accepted proposals *)
+      | Accepting of
+          {proposal: Types.proposal_id; value: V.t; acks: Types.node_id list}
+          (** Proposer sending Accept requests, waiting for acknowledgments *)
+      | AcceptedLocally of {proposal: Types.proposal_id; value: V.t}
+          (** Acceptor has accepted a proposal locally *)
+      | Decided of V.t  (** Consensus value is decided and learned *)
+    [@@deriving sexp]
+  end
+
+  val state_of_string_opt:string option -> State.t option
+
+  type simulation_config = {mutable quorum: int option ref}
+
+  type config = {simulation: simulation_config; roles: roles; storage: Storage.t;  topics: Types.topic list}
+
+  type t
+
+  val create :
+    ?state:State.t
+    -> id:Types.node_id
+    -> config:config
+    -> bus:V.t Message.t Bus.t
+    -> unit
+    -> t
+
+  val set_node_state : t -> State.t -> unit
+
+  val id : t -> Types.node_id
+
+  val roles : t -> roles
+
+  val state : t -> State.t
+
+  val handle_coordination : t -> V.t Message.t -> unit
+
+  val handle_simulation_control : t -> V.t Message.t -> unit
+
+  val handle_time : t -> V.t Message.t -> unit
+
+  val propose :
+       msg_id:int
+    -> time:int
+    -> bus:V.t Message.t Bus.t
+    -> t
+    -> proposal:Types.proposal_id
+    -> value:V.t
+    -> unit
+
+  val dump_state : t -> Sexp.t
+
+  val make_config :
+    topics: Types.topic list -> roles:roles -> storage:Storage.t -> quorum:int option -> config
+
+  val make_node_idle :
+       msg_id:int
+    -> time:int
+    -> bus:'a Message.t Bus.t
+    -> 'b
+    -> node_id:int
+    -> unit
+end
+
 module Make_node (V : Value.S)
     (Storage : Storage.S)
     (Bus : sig
        include module type of Event_bus
-         (* For type compatibility we assume the Event_bus was compiled with 'a t etc *)
-     end) =
-struct
+     end): S with module V := V with module Storage := Storage with module Bus := Bus = struct
   type role = Proposer | Acceptor | Learner
   type roles = role list
 
@@ -27,10 +112,16 @@ struct
 
   type inbox = (proposal_key, inbox_entry) Hashtbl.t
 
+  let role_of_string = function
+    | "Proposer" -> Proposer
+    | "Acceptor" -> Acceptor
+    | "Learner" -> Learner
+    | s -> failwith ("Unknown role: " ^ s)
+
   module State = struct
     type t =
-      | Idle
       | Echo
+      | Idle
       | Preparing of { current_proposal : Types.proposal_id; awaiting : Types.node_id list }
       | WaitingForPromises of {
           proposal : Types.proposal_id;
@@ -42,6 +133,12 @@ struct
     [@@deriving sexp]
   end
 
+let state_of_string_opt = function
+  | Some "Idle" -> Some State.Idle
+  | Some "Echo" -> Some State.Echo
+  (* | Some "Preparing" -> Some NodeImpl.State.Preparing { current_proposal = ...; awaiting = [] }  (\* fill args *\) *)
+  | _ -> failwith "Unsupported initial state string"
+
   type simulation_config = {
     mutable quorum: int option ref;
   }
@@ -49,6 +146,7 @@ struct
     simulation: simulation_config;
     roles : roles;
     storage : Storage.t;
+    topics: Types.topic list;
   }
 
   type t = {
@@ -105,16 +203,17 @@ struct
     node.state <- new_state
 
   (* Node propose: create PermissionRequest and rely on simulator/bus to broadcast *)
-  let propose ~bus t ~proposal ~value =
+  let propose ~msg_id ~time ~bus t ~proposal ~value =
     (* Build PermissionRequest for this node *)
-    let coord_msg = Message.make_permission_request ~topic:Types.Coordination ~from:t.id ~proposal ~value in
+    let coord_msg = Message.make_permission_request ~msg_id ~time ~topic:Types.Coordination ~from:t.id ~proposal ~value in
     let msg = Message.Coordination coord_msg in
     (* For v0 we'll have simulator broadcast on behalf of node; but provide direct publish too *)
     Bus.enqueue bus ~topic:Types.Coordination msg
 
-  let make_node_idle ~bus t ~node_id =
+  let make_node_idle ~msg_id ~time ~bus t ~node_id =
     (* Build PermissionRequest for this node *)
-    let sim_ctrl_msg = Message.make_sim_control_idle_node node_id in
+    let time = 1 in (*TODO TEMP -- until we wire up simulator time-flow *)
+    let sim_ctrl_msg = Message.make_sim_control_idle_node ~msg_id ~time ~node_id in
     let msg = Message.Control sim_ctrl_msg in
     (* For v0 we'll have simulator broadcast on behalf of node; but provide direct publish too *)
     Bus.publish bus ~topic:Types.Simulation_control msg
@@ -158,6 +257,7 @@ let process_inboxes (node: t) : unit =
             | Message.Suggestion _
             | Message.Nack _ -> false )
         | Message.Control _ -> false
+        | Message.Time _ -> false
       in
       let quorum_reached = is_quorum_reached node inbox_entry ~predicate:needs_quorum in
       if quorum_reached then begin
@@ -187,10 +287,17 @@ let process_inboxes (node: t) : unit =
 
     | _ -> Stdio.printf "---> Node %d received simulation control but did nothing \n%!" node.id
 
+  let handle_time (node: t) (msg: V.t Message.t) =
+    match msg with
+    | Message.Time (Heartbeat {time; _}) -> Stdio.printf "---> Node %d received time msg time = %d! \n%!" node.id time;
+    | _ -> Stdio.printf "---> Node %d received time msg! \n%!" node.id
+
+
   let default_config ~roles ~storage = {
     roles;
     storage;
-    simulation={quorum=ref None;}
+    simulation={quorum=ref None;};
+    topics=[Types.Coordination; Types.Time; Types.Simulation_control]
   }
 
   (** a callback that we can use for communicating via the bus
@@ -202,9 +309,11 @@ let process_inboxes (node: t) : unit =
     match topic with
     | Types.Coordination -> handle_coordination node
     | Types.Simulation_control -> handle_simulation_control node
+    | Types.Time -> handle_time node
     | _ -> handle_coordination node
 
-  let create  ?(topics=[]) ?(state=State.Idle) ~id ~config ~bus () =
+  let create ?(state=State.Idle) ~id ~config ~bus () =
+    let topics = config.topics in
     let node = {
       id;
       state;
@@ -231,7 +340,7 @@ let process_inboxes (node: t) : unit =
                                                                  |> String.concat ~sep:", ");
     node
 
-  let make_config ~roles ~storage ~quorum  : config =
+  let make_config ~topics ~roles ~storage ~quorum  : config =
     let quorum_opt =
       match quorum with
       | None -> None
@@ -239,9 +348,9 @@ let process_inboxes (node: t) : unit =
       | _ -> invalid_arg "Quorum must be > 0 or None"
     in
     {
+      topics;
       simulation = { quorum = ref quorum_opt };
       roles;
       storage
     }
-
 end
