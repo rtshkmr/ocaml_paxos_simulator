@@ -1,4 +1,3 @@
-[@@@ocaml.warning "-32"] (** TODO: remove unused variable warnings*)
 open Message
 open Simulator
 
@@ -8,144 +7,81 @@ module Simulation = struct
   module S = Storage_mem.Storage_mem (V)
   module Node = Node.Make_node (V) (S) (B)
 
-  let make_val string = V.t_of_sexp (Sexplib.Sexp.Atom string)
-  (** can be coordinated, can be controlled by simulator*)
-  let base_topics = [Types.Types.Coordination; Types.Types.Simulation_control; Types.Types.Time]
+  let make_val s = V.t_of_sexp (Sexplib.Sexp.Atom s)
 
-  let node_spec_1 : Config.node_spec =
-    { node_id= 1
-    ; roles= ["Proposer"; "Acceptor"]
-    ; initial_quorum= Some 2
-    ; topics= base_topics
+  let base_topics =
+    [Types.Types.Coordination; Types.Types.Simulation_control; Types.Types.Time]
+
+  let make_node_spec ?(roles = ["Proposer"; "Acceptor"])
+      ?(initial_quorum = Some 2) ?(topics = base_topics) ~node_id () :
+      Config.node_spec =
+    { node_id
+    ; roles
+    ; initial_quorum
+    ; topics
     ; initial_state= None
     ; storage_config= None }
 
-  let node_spec_2 : Config.node_spec =
-    { node_id= 2
-    ; roles= ["Proposer"; "Acceptor"]
-    ; initial_quorum= Some 2
-    ; topics= base_topics
-    ; initial_state= None
-    ; storage_config= None }
+  let node_spec_1 = make_node_spec ~node_id:1 ()
 
-  let node_spec_lists = [node_spec_1; node_spec_2]
+  let node_spec_2 = make_node_spec ~node_id:2 ()
 
-  let sim_config : Config.t =
-    { max_ticks= Some 100
+  let sim_config =
+    { Config.max_ticks= Some 100
     ; deterministic_seed= Some 181
     ; default_quorum= Some 3
-    ; initial_nodes= node_spec_lists
+    ; initial_nodes= [node_spec_1; node_spec_2]
     ; log_jsonl= None }
 
-
-  (* === create sim *)
   let sim = Simulator.create ~config:sim_config
-  (* === create nodes to exist within sim *)
+
   let n1 = Simulator.add_node sim ~node_spec:node_spec_1
+
   let n2 = Simulator.add_node sim ~node_spec:node_spec_2
 
+  let first_msg =
+    let proposal_id = Types.Types.make_proposal_id ~seq:1 ~node:1 in
+    let time = 12 in
+    (* TEMP *)
+    let from_id_val = 1 in
+    let msg =
+      Message.make_permission_request ~msg_id:1 ~time
+        ~topic:Types.Types.Coordination ~from:from_id_val ~proposal:proposal_id
+        ~value:(make_val "Let's go Ritesh Let's go!!!")
+    in
+    Simulator.msg_of_message (Message.Coordination msg)
 
- let first_msg =
-  let proposal_id = Types.Types.make_proposal_id ~seq:1 ~node:1 in
-  let time = 12 in
-  let from_id_val = 1 in
-  let coord_msg = Message.make_permission_request ~msg_id:1 ~time ~topic:Types.Types.Coordination ~from:from_id_val ~proposal:proposal_id ~value:(make_val "Let's go Ritesh Let's go!!!") in
-  let raw_msg = Message.Coordination coord_msg in
-  Simulator.msg_of_message raw_msg
+  let print_flush s = print_endline s ; Out_channel.flush stdout
 
- (** This just adds some basic keyboard events, press any key for tick progression and special keys for cancellation. Remember this is super rudimentary, so you'd have to press special key then enter for it to work.*)
-let run_with_pause sim =
-  let open Stdio in
-  let print_flush s =
-    print_endline s;
-    Out_channel.flush stdout
-  in
-  let fini () =
-    print_flush "Quitting sim";
-    Simulator.print_bus_stats sim
-  in
-  let rec time_loop () =
+  let rec run_with_pause sim =
     match In_channel.input_char In_channel.stdin with
     | Some ' ' ->
-        print_flush "Simulation paused. Press 'r' to resume and 'q' to quit.";
+        print_flush "Simulation paused. Press 'r' to resume and 'q' to quit." ;
         let rec wait_resume () =
           match In_channel.input_char In_channel.stdin with
           | Some 'r' ->
-              print_flush "Resuming simulation.";
-              time_loop ()
+              print_flush "Resuming simulation." ;
+              run_with_pause sim
           | Some 'q' ->
-              fini ()
-          | _ -> wait_resume ()
+              print_flush "Quitting simulation." ;
+              Simulator.print_bus_stats sim
+          | _ ->
+              wait_resume ()
         in
         wait_resume ()
     | Some 'q' ->
-        fini ()
+        print_flush "Quitting simulation." ;
+        Simulator.print_bus_stats sim
     | Some _ ->
-        Simulator.step sim;
-        time_loop ()
+        Simulator.step sim ; run_with_pause sim
     | None ->
-        fini ()
-  in
-  time_loop ()
+        print_flush "EOF received. Quitting." ;
+        Simulator.print_bus_stats sim
 
-
- let run() =
-    Simulator.print_bus_stats sim;
-    Simulator.send_message sim ~send_after:10 ~topic:Types.Types.Coordination ~from:n1 ~to_:(Some n2) ~msg:first_msg ();
-    (* TODO add a time loop here. *)
-    Simulator.print_bus_stats sim;
-    (* Simulator.step sim; *)
-    run_with_pause sim;
-
-
-
-  (* let create_nodes ~bus = *)
-  (*   let num_sim_nodes = 2 in *)
-  (*   let base_config = *)
-  (*     Node.make_config ~quorum:(Some num_sim_nodes) ~roles:[Proposer] *)
-  (*   in *)
-  (*   let n1_config = base_config ~storage:(S.create ()) in *)
-  (*   let n2_config = base_config ~storage:(S.create ()) in *)
-  (*   let n1 = *)
-  (*     Node.create ~id:1 ~bus ~topics:base_topics ~config:n1_config *)
-  (*       ~state:Node.State.Echo () *)
-  (*   in *)
-  (*   let n2 = *)
-  (*     Node.create ~id:2 ~bus ~topics:base_topics ~config:n2_config *)
-  (*       ~state:Node.State.Echo () *)
-  (*   in *)
-  (*   (n1, n2) *)
-
-  (* let bus = *)
-  (*   B.create *)
-  (*     ~logger:(fun topic msg -> *)
-  (*       Printf.sprintf "[LOG][%s] %s" *)
-  (*         (Sexp.to_string (Types.Types.sexp_of_topic topic)) *)
-  (*         (Sexplib.Sexp.to_string (Message.Message.sexp_of_t V.sexp_of_t msg)) ) *)
-  (*     () *)
-
-  (* let n1, n2 = create_nodes ~bus *)
-
-  (* let clock = Time.create_clock () *)
-
-  (* let run () = *)
-  (*   (\* Example proposal *\) *)
-  (*   let time = Time.now clock in *)
-  (*   let proposal = Types.Types.make_proposal_id ~seq:1 ~node:1 in *)
-  (*   Node.propose ~msg_id:1 ~time ~bus n1 ~proposal *)
-  (*     ~value:(make_val "Let's go Ritesh, let's go !!!") ; *)
-  (*   Time.tick clock ; *)
-  (*   B.print_stats bus ; *)
-  (*   B.drain bus ; *)
-  (*   B.print_stats bus ; *)
-  (*   B.drain bus ; *)
-  (*   Stdio.print_endline "\n\nNow, we will just make node 2 idle" ; *)
-  (*   Node.make_node_idle ~msg_id:2 ~time:2 ~bus n1 ~node_id:2 ; *)
-  (*   B.print_stats bus ; *)
-  (*   let time = Time.now clock in *)
-  (*   let proposal = Types.Types.make_proposal_id ~seq:2 ~node:1 in *)
-  (*   Node.propose ~msg_id:3 ~time ~bus n1 ~proposal *)
-  (*     ~value:(make_val "Anyone out there?") ; *)
-  (*   B.drain bus ; *)
-  (*   B.print_stats bus *)
+  let run () =
+    Simulator.print_bus_stats sim ;
+    Simulator.send_message sim ~send_after:12 ~topic:Types.Types.Coordination
+      ~from:n1 ~to_:(Some n2) ~msg:first_msg () ;
+    Simulator.print_bus_stats sim ;
+    run_with_pause sim
 end

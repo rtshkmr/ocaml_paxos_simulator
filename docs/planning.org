@@ -996,7 +996,6 @@ Here's a plausible order of rolling this out:
 
 7) (optional) Add local clocks to nodes for drift simulation.
 
-
 *** TODO Design Logging System
 This will be absolutely essential for the
 *** TODO Design Event Log System @ Global Simulator Level
@@ -1618,10 +1617,28 @@ CLOSED: [2025-11-01 Sat 10:02]
 - [X] Simulator owns a clock
   -- i just put up a dummy version of this, have to do the sim events and queue first for this to work properly
 - [X] Messages use the simulator clock, contain time meta within meta
-**** TODO Add a good interface for Simulator, SimulationEvents and EventQueue
+**** DONE Add a good interface for Simulator, SimulationEvents and EventQueue
+CLOSED: [2025-11-03 Mon 07:27]
 :PROPERTIES:
 :EFFORT:   2h
 :END:
+- CLOSING NOTE [2025-11-03 Mon 07:27] \\
+  this took a lot longer than expected.
+
+  It was unexpectedly difficult to extract out the node signature from its inlined form within the functor because I didn't have a good mental model of how abstract modules may be "binded" to. It turns out that we can do destructive substitution on abstract modules within a signature directly.
+
+  I don't really know whether this is a good pattern, I'm just happy to see the outcome of being able to extract out a signature of its own.
+
+
+  #+begin_src ocaml
+  module Make_node : functor
+    (V : Value.S)
+    (Storage : Storage.S)
+    (Bus : sig
+       include module type of Event_bus
+     end)
+    -> S with module V := V with module Storage := Storage with module Bus := Bus
+  #+end_src
 :LOGBOOK:
 CLOCK: [2025-11-02 Sun 10:07]--[2025-11-02 Sun 17:37] =>  7:30
 CLOCK: [2025-11-02 Sun 09:10]--[2025-11-02 Sun 09:11] =>  0:01
@@ -1642,7 +1659,7 @@ this one needs some designing:
 
  - [X] Implement and integrate the EventQueue module.
 
- - [ ] Propagate time ticks via message passing from the simulator
+ - [X] Propagate time ticks via message passing from the simulator
 
    This is just a broadcast over the Time topic, nothing special here.
 
@@ -1650,7 +1667,6 @@ this one needs some designing:
 
  - [X] Refactor simulator run loop according to logical time ticks.
 
- - [ ] Begin applying inbox stateful processing in nodes upon tick calls.
 ***** DONE Extract out node signature
 :PROPERTIES:
 :EFFORT:   30min
@@ -1748,6 +1764,8 @@ So, we can actually just use a separate heartbeat topic for time events like tic
 :EFFORT:   30min
 :END:
 Not the whole algo yet, but somewhere close
+ - [ ] Begin applying inbox stateful processing in nodes upon tick calls.
+
 ***** TODO Add explicit proposal field to response messages
 
 Why: Correlating responses to proposals must be unambiguous.
@@ -1943,14 +1961,20 @@ That being said, I'll likely come back to this real soon after I do some explain
 :END:
 *** TODO Write-up
 DEADLINE: <2025-11-01 Sat 22:00>
-— produce blog-style README + literate trace
-**** Retro
+— produce blog-style REDEEM + literate trace
+**** Write up 1: Retro: Beauty of OCaml -- Problem Scope Of Distributed Computing
 ***** Ergonomics of the OCaml Language
+- special things I could do
+- things I couldn't do
+- speaking to a general audience (e.g. python folks)
+- shaping up of problem domain in this context. Problem domain framing.
+  - how the language helped for this framing task
 ***** Ecosystem of the OCaml Language
-**** Artefacts
+**** Write up 2: Personal Artefacts and Proof of Competence
 ***** Working Style and Habits
 ****** What theses to validate w.r.t working styles?
 ****** Areas of Improvement
+**** Write up 3: Using this as a tutorial
 ** Evolution (stretch goal)
 *** TODO Extend basic paxos to multi-paxos
 
