@@ -1761,10 +1761,11 @@ So, we can actually just use a separate heartbeat topic for time events like tic
 
 **** TODO Paxos Protocol Groundworks
 :PROPERTIES:
-:EFFORT:   30min
+:EFFORT:   45min
 :END:
 Not the whole algo yet, but somewhere close
  - [ ] Begin applying inbox stateful processing in nodes upon tick calls.
+ - [ ] outline a test case of communication for one paxos process that we shoud be supporting.
 
 ***** TODO Add explicit proposal field to response messages
 
@@ -1777,6 +1778,36 @@ Changes:
 Add proposal: Types.proposal_id to PermissionGranted and Nack message variants (and ensure constructors accept it).
 
 Acceptance: Message.proposal_id_of returns proposal for request and response variants consistently.
+**** TODO Message Passing System Improvements
+
+We are almost ready to implement simple paxos, we shall relook at what our simulated world needs to do to be able to support it.
+
+We had earlier side-stepped the ability to directly message a particular node over a topic. This functionality is technically a nice-to-have because broadcasting (with a target field within message) already works and will be sufficient. However, it will make the log dumps (primary mode of showing what is being simulated) a little messy, and remove from the experience of seeing it at play becasue the "network"/event bus would end up being a noisy communication channel.
+
+Therefore, there's value to have a direct messaging capability. This will be a light lift, because it's just a matter of changing how the event bus stores callbacks, changing it from a list to more of a callback registry.
+
+I think this will require a better callback registry. We'd have to change from a list of =(subscription_id * cb)= to a better registry with better lookup (some sort of Hashtbl).
+
+The update cycle for the hashtabl can happen @ =Event_bus.subscribe= where we can make it =(node_id * subscription_id * cb)= which would just be a changing of the =sub_handle= type. Then we will be able to do well. or maybe some kind of =subscription_info= could be better.
+
+***** [ ] allow message passing from source A to target B
+
+currently it's all broadcasts. This works right now (because even for simulation events, the simulator can just use one of the nodes it has access to and just broadcast a message with a target node in mind and all recipients ignore it if that target is not them).
+
+It will be nicer to reduce the noise on the comms channel and just do message passing from source A to target B.
+***** [ ] Simulator interface should have a =broadcast_msg= vs =send_msg=
+
+***** [ ] [#B] node config state to be updated via =simulation= topic msg passing
+
+jsut have a simulation topic and adjust things like quorum based on the SOT (leader or the simulator).
+
+this is low priority for now
+
+- [ ] remove quorum from message fields
+- [ ] add node creation helper within the simulator:
+- [ ] add new topic for =simulation= and attach a handler for that topic.
+  - maybe we can have a lookup table somewhere for topic to handler(s) or pipeline or something
+
 **** TODO Add better logging to simulation
 :PROPERTIES:
 :EFFORT:   1h
@@ -1829,30 +1860,6 @@ Acceptance: After a drain, nodes must only change state when Node.tick is called
 
 **** TODO Add storage pattern, in-mem -> persistent storage
 This is not as high priority but will be cool to demonstrate how crashing can still bring things back
-**** TODO Message Passing System Improvements
-
-I think this will require a better callback registry. We'd have to change from a list of =(subscription_id * cb)= to a better registry with better lookup (some sort of Hashtbl).
-
-The update cycle for the hashtabl can happen @ =Event_bus.subscribe= where we can make it =(node_id * subscription_id * cb)= which would just be a changing of the =sub_handle= type. Then we will be able to do well. or maybe some kind of =subscription_info= could be better.
-
-***** [ ] allow message passing from source A to target B
-
-currently it's all broadcasts. This works right now (because even for simulation events, the simulator can just use one of the nodes it has access to and just broadcast a message with a target node in mind and all recipients ignore it if that target is not them).
-
-It will be nicer to reduce the noise on the comms channel and just do message passing from source A to target B.
-***** [ ] Simulator interface should have a =broadcast_msg= vs =send_msg=
-
-***** [ ] [#B] node config state to be updated via =simulation= topic msg passing
-
-jsut have a simulation topic and adjust things like quorum based on the SOT (leader or the simulator).
-
-this is low priority for now
-
-- [ ] remove quorum from message fields
-- [ ] add node creation helper within the simulator:
-- [ ] add new topic for =simulation= and attach a handler for that topic.
-  - maybe we can have a lookup table somewhere for topic to handler(s) or pipeline or something
-
 *** TODO Implement v0 (basic paxos algorithm -- main goal)
 DEADLINESs: <2025-11-01 Sat 11:00>
 :PROPERTIES:
