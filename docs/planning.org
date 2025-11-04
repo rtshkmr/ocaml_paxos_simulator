@@ -1947,7 +1947,7 @@ CLOSED: [2025-11-03 Mon 19:20]
 :EFFORT:   2h
 :END:
 :LOGBOOK:
-CLOCK: [2025-11-04 Tue 10:16]
+CLOCK: [2025-11-04 Tue 10:16]--[2025-11-04 Tue 14:10] =>  3:54
 CLOCK: [2025-11-03 Mon 09:27]--[2025-11-03 Mon 09:33] =>  0:06
 :END:
 Not the whole algo yet, but somewhere close
@@ -2046,7 +2046,6 @@ That being said, I'll likely come back to this real soon after I do some explain
 - Use Notty/Lwt/Voodoo if you want a terminal UI — not required for demo; skip unless you have spare time.
 
 
-
 ** Testing
 *** TODO Iterate and test scenarios
 :PROPERTIES:
@@ -2062,7 +2061,7 @@ That being said, I'll likely come back to this real soon after I do some explain
 :PROPERTIES:
 :EFFORT:   2h
 :END:
-*** TODO Write-up
+*** TODO Write-ups
 DEADLINE: <2025-11-01 Sat 22:00>
 — produce blog-style REDEEM + literate trace
 **** Write up 1: Retro: Beauty of OCaml -- Problem Scope Of Distributed Computing

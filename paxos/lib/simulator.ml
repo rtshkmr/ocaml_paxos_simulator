@@ -29,13 +29,26 @@ module Simulator : Runtime = struct
 
   type event = EventScheduler.event
 
-  let bus =
-    B.create
-      ~logger:(fun topic msg ->
-        Printf.sprintf "[LOG][%s] %s"
-          (Sexp.to_string (Types.Types.sexp_of_topic topic))
-          (Sexplib.Sexp.to_string (Message.sexp_of_t V.sexp_of_t msg)) )
-      ()
+  (* let bus = *)
+  (*   B.create *)
+  (*     ~logger:(fun topic msg -> *)
+  (*       Printf.sprintf "[LOG][%s] %s" *)
+  (*         (Sexp.to_string (Types.Types.sexp_of_topic topic)) *)
+  (*         (Sexplib.Sexp.to_string (Message.sexp_of_t V.sexp_of_t msg)) ) *)
+  (*     () *)
+
+let bus =
+  B.create
+    ~logger:(fun topic msg ->
+      let open Sexplib.Sexp in
+      let topic_sexp = Types.Types.sexp_of_topic topic in
+      let msg_sexp = Message.sexp_of_t V.sexp_of_t msg in
+      let formatted =
+        Sexp.to_string_hum (List [List [Atom "LOG"; topic_sexp]; msg_sexp])
+      in
+      formatted
+    )
+    ()
 
   type t =
     { mutable halted: bool
@@ -77,6 +90,7 @@ module Simulator : Runtime = struct
       | Some target_node ->  msg_factory ~msg_id ~from ~to_node:target_node ~time ()
       | None -> msg_factory ~msg_id ~from ~time ()
                 in
+                (* FIXME: this should be enqueing, not using the publish functions directly *)
     let action () =
       match to_node with
       | None -> Event_bus.publish_broadcast bus ~topic msg
