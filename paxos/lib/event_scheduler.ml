@@ -9,6 +9,8 @@ module EventScheduler : sig
 
   type t
 
+  val create_event : int -> int -> (unit -> unit) -> event
+
   val create : unit -> t
   (** Create an empty scheduler. *)
 
@@ -21,11 +23,21 @@ module EventScheduler : sig
   val peek_next_event_time : t -> Time.t option
   (** Return time of the next scheduled event, if any. *)
 end = struct
+
+  (** Represents a simulation event for our simulator.
+
+      Events will be kept by this EventScheduler, which on every tick, will gather the events that are viable to
+      dispatch.
+*)
   type event = {time: Time.t; action: unit -> unit; id: int}
+
+  let create_event id time action =
+    {time; action;id}
 
   type t = event list ref
 
   let create () = ref []
+
 
   let add_event q ev = q := ev :: !q
 

@@ -1,3 +1,4 @@
+open Base
 open Message
 open Simulator
 
@@ -40,8 +41,8 @@ module Simulation = struct
   let n2 = Simulator.add_node sim ~node_spec:node_spec_2
 
   let first_msg =
-    let proposal_id = Types.Types.make_proposal_id ~seq:1 ~node:1 in
-    let time = 12 in
+    let proposal_id = Types.Types.make_proposal_id ~seq:0 ~node:1 in
+    let time = 3 in
     (* TEMP *)
     let from_id_val = 1 in
     let msg =
@@ -51,7 +52,24 @@ module Simulation = struct
     in
     Simulator.msg_of_message (Message.Coordination msg)
 
-  let print_flush s = print_endline s ; Out_channel.flush stdout
+  let print_flush s =
+    Stdio.print_endline s ;
+    Out_channel.flush Stdio.stdout
+
+  let initiation_events =
+    [ Simulator.make_message_event 0 2 ~topic:Types.Types.Coordination ~from:n1
+        ~to_node:n2 ~msg:first_msg () ]
+
+  let print_events =
+    [ Simulator.make_event 1 1 (fun () -> Simulator.print_bus_stats sim) ()
+    ; Simulator.make_event 2 2 (fun () -> Simulator.print_bus_stats sim) ()
+    ; Simulator.make_event 3 5 (fun () -> Simulator.print_bus_stats sim) ()
+    ; Simulator.make_event 3 6 (fun () -> Simulator.print_bus_stats sim) () ]
+
+  let predetermined_events = initiation_events @ print_events
+
+  let seed_predetermined_events sim events =
+    List.iter ~f:(fun e -> Simulator.schedule_event sim e) events
 
   let rec run_with_pause sim =
     match In_channel.input_char In_channel.stdin with
@@ -79,9 +97,7 @@ module Simulation = struct
         Simulator.print_bus_stats sim
 
   let run () =
-    Simulator.print_bus_stats sim ;
-    Simulator.send_message sim ~send_after:12 ~topic:Types.Types.Coordination
-      ~from:n1 ~to_:(Some n2) ~msg:first_msg () ;
-    Simulator.print_bus_stats sim ;
-    run_with_pause sim
+    seed_predetermined_events sim predetermined_events ;
+    run_with_pause sim ;
+    Simulator.print_bus_stats sim
 end

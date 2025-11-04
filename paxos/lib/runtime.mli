@@ -49,16 +49,21 @@ module type Runtime = sig
   val get_nodes : t -> node list
   (** Get the list of registered nodes. *)
 
-  val send_message :
-       t
-    -> ?send_after:int
+  val make_event : int -> int -> (unit -> unit) -> unit -> event
+  (** Creates an general event that can be scheduled as a simulation event*)
+
+  val make_message_event :
+       int
+    -> int
+    -> ?to_node:node
     -> topic:Types.Types.topic
     -> from:node
-    -> to_:node option
     -> msg:msg
     -> unit
-    -> unit
-  (** Send a message between nodes over a particular topic. Optionally specify destination to have a direct message. *)
+    -> event
+  (** Creates a message passing event between nodes over a particular topic. Optionally specify destination to have a direct message. *)
+
+  val schedule_event : t -> event -> unit
 
   val on_event : t -> (event -> unit) -> unit
   (** Subscribe to simulation-level events (for logging, metrics, etc.). *)

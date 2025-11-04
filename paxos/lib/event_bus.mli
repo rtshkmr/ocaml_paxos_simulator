@@ -12,7 +12,12 @@ module type S = sig
         logger : topic -> payload -> string
   *)
 
-  val subscribe : 'a t -> topic:Types.topic -> ('a -> unit) -> sub_handle
+  val subscribe :
+       'a t
+    -> topic:Types.topic
+    -> node_id:Types.node_id
+    -> ('a -> unit)
+    -> sub_handle
   (** Subscribe: returns a handle used for fine-grained unsubscribe.
       The callback will be invoked synchronously during publish/drain.
 
@@ -31,10 +36,15 @@ module type S = sig
   val unsubscribe : 'a t -> sub_handle -> unit
   (** Unsubscribe using the handle returned earlier. *)
 
-  val publish : 'a t -> topic:Types.topic -> 'a -> unit
+  val publish_broadcast : 'a t -> topic:Types.topic -> 'a -> unit
   (** Synchronous, inline publish to all subscribers for the topic *)
 
-  val enqueue : 'a t -> topic:Types.topic -> 'a -> unit
+  val publish_unicast : 'a t -> topic:Types.topic -> node_id:int -> 'a -> unit
+  (** Synchronous, inline publish to a particular subscriber (via the node_id) for the topic *)
+
+  type 'a enqueuable_thunk = (Types.topic * Types.node_id option) * 'a
+
+  val enqueue : 'a t -> 'a enqueuable_thunk -> unit
   (** Queue-based publish for deterministic simulation step. *)
 
   val drain : 'a t -> unit
