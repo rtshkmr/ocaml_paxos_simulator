@@ -29,6 +29,8 @@ module type Runtime = sig
 
   type node
 
+  val id_of_node : node -> int
+
   type event
 
   val create : config:Config.t -> t
@@ -49,12 +51,13 @@ module type Runtime = sig
   val get_nodes : t -> node list
   (** Get the list of registered nodes. *)
 
-  val make_event : int -> int -> (unit -> unit) -> unit -> event
+  val make_event : t -> ?id:int -> time:int -> (unit -> unit) -> unit -> event
   (** Creates an general event that can be scheduled as a simulation event*)
 
   val make_message_event :
-       int
-    -> int
+       t
+    -> ?id:int
+    -> time:int
     -> ?to_node:node
     -> topic:Types.Types.topic
     -> from:node
@@ -62,6 +65,19 @@ module type Runtime = sig
     -> unit
     -> event
   (** Creates a message passing event between nodes over a particular topic. Optionally specify destination to have a direct message. *)
+
+  type msg_factory =
+    msg_id:int -> from:node -> ?to_node:node -> time:Time.t -> unit -> msg
+
+  val create_message_event :
+       t
+    -> topic:Types.Types.topic
+    -> from:node
+    -> ?to_node:node
+    -> ?time:Time.t
+    -> msg_factory:msg_factory
+    -> unit
+    -> event
 
   val schedule_event : t -> event -> unit
 

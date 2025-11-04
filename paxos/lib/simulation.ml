@@ -40,33 +40,52 @@ module Simulation = struct
 
   let n2 = Simulator.add_node sim ~node_spec:node_spec_2
 
-  let first_msg =
-    let proposal_id = Types.Types.make_proposal_id ~seq:0 ~node:1 in
-    let time = 3 in
-    (* TEMP *)
-    let from_id_val = 1 in
-    let msg =
-      Message.make_permission_request ~msg_id:1 ~time
-        ~topic:Types.Types.Coordination ~from:from_id_val ~proposal:proposal_id
-        ~value:(make_val "Let's go Ritesh Let's go!!!")
-    in
-    Simulator.msg_of_message (Message.Coordination msg)
-
   let print_flush s =
     Stdio.print_endline s ;
     Out_channel.flush Stdio.stdout
 
-  let initiation_events =
-    [ Simulator.make_message_event 0 2 ~topic:Types.Types.Coordination ~from:n1
-        ~to_node:n2 ~msg:first_msg () ]
+  [@@@ocaml.warning "-27"] (* TODO fixme: remove this eventually @ cleanup *)
+
+  let permission_event_factory my_string : Simulator.msg_factory =
+   fun ~msg_id ~from ?to_node ~time () ->
+    let from_id = Simulator.id_of_node from in
+    let raw_msg =
+      Message.make_permission_request ~msg_id ~time
+        ~topic:Types.Types.Coordination ~from:from_id
+        ~proposal:(Types.Types.make_proposal_id ~seq:0 ~node:1)
+        ~value:(make_val my_string)
+    in
+    Simulator.msg_of_message (Message.Coordination raw_msg)
+
+  let permission_events =
+    [ Simulator.create_message_event sim ~time:2 ~topic:Types.Types.Coordination
+        ~from:n1 ~to_node:n2
+        ~msg_factory:(permission_event_factory "Let's go ritesh let's go")
+        ()
+    ; Simulator.create_message_event sim ~time:4 ~topic:Types.Types.Coordination
+        ~from:n2
+        ~msg_factory:(permission_event_factory "We are so close to our goal")
+        ()
+    ; Simulator.create_message_event sim ~time:4 ~topic:Types.Types.Coordination
+        ~from:n2
+        ~msg_factory:(permission_event_factory "We must persist")
+        () ]
 
   let print_events =
-    [ Simulator.make_event 1 1 (fun () -> Simulator.print_bus_stats sim) ()
-    ; Simulator.make_event 2 2 (fun () -> Simulator.print_bus_stats sim) ()
-    ; Simulator.make_event 3 5 (fun () -> Simulator.print_bus_stats sim) ()
-    ; Simulator.make_event 3 6 (fun () -> Simulator.print_bus_stats sim) () ]
+    [ Simulator.make_event sim ~time:1
+        (fun () -> Simulator.print_bus_stats sim)
+        ()
+    ; Simulator.make_event sim ~time:2
+        (fun () -> Simulator.print_bus_stats sim)
+        ()
+    ; Simulator.make_event sim ~time:5
+        (fun () -> Simulator.print_bus_stats sim)
+        ()
+    ; Simulator.make_event sim ~time:6
+        (fun () -> Simulator.print_bus_stats sim)
+        () ]
 
-  let predetermined_events = initiation_events @ print_events
+  let predetermined_events = permission_events @ print_events
 
   let seed_predetermined_events sim events =
     List.iter ~f:(fun e -> Simulator.schedule_event sim e) events

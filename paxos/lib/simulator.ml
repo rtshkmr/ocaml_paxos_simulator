@@ -1,6 +1,7 @@
 [@@@ocaml.warning "-27-33"] (** TODO: remove unused variable warnings*)
 open Base
 open Time
+open Counter
 open Event_bus
 open Node
 open Runtime
@@ -23,6 +24,9 @@ module Simulator : Runtime = struct
 
   type node = NodeImpl.t
 
+  let id_of_node node = NodeImpl.id node
+
+
   type event = EventScheduler.event
 
   let bus =
@@ -38,25 +42,57 @@ module Simulator : Runtime = struct
     ; mutable clock: Time.clock
     ; scheduler: EventScheduler.t ref
     ; nodes: node list ref
-    ; event_callbacks: (event -> unit) list ref }
+    ; event_callbacks: (event -> unit) list ref
+    ; event_id_counter: Counter.t
+    ; msg_id_counter: Counter.t
+    }
 
-  let make_event id time action () = EventScheduler.create_event id time action
+  let next_event_id t = Counter.next t.event_id_counter
+  let next_msg_id t = Counter.next t.msg_id_counter
 
-  let make_message_event id time ?to_node ~topic ~from:node ~msg () =
+  let make_event sim ?(id=next_event_id sim) ~time action () = EventScheduler.create_event id time action
+
+  let make_message_event sim ?(id=next_msg_id sim)  ~time ?to_node ~topic ~from:node ~msg () =
     let action () =
       (match to_node with
       | None -> Event_bus.publish_broadcast bus ~topic msg
       | Some target_node -> Event_bus.publish_unicast ~node_id:(NodeImpl.id target_node) bus ~topic msg)
     in
-    let event = {id = 1; EventScheduler.time = time; action} in
+    let event = {id; EventScheduler.time = time; action} in
     event
+
+  type msg_factory =  msg_id:int -> from:node -> ?to_node:node -> time:Time.t -> unit -> msg
+
+  let create_message_event
+      (sim : t)
+      ~(topic : Types.Types.topic)
+      ~(from : node)
+      ?to_node
+      ?(time : Time.t = Time.now sim.clock)
+      ~(msg_factory : msg_factory)
+      ()
+    : event =
+    let msg_id = next_msg_id sim in
+    let msg = match to_node with
+      | Some target_node ->  msg_factory ~msg_id ~from ~to_node:target_node ~time ()
+      | None -> msg_factory ~msg_id ~from ~time ()
+                in
+    let action () =
+      match to_node with
+      | None -> Event_bus.publish_broadcast bus ~topic msg
+      | Some target_node -> Event_bus.publish_unicast ~node_id:(NodeImpl.id target_node) bus ~topic msg
+    in
+    make_event sim ~time action ()
 
   let create ~config:_ =
     { halted= false
     ; clock= Time.create_clock ()
     ; scheduler= ref (EventScheduler.create ())
     ; nodes= ref []
-    ; event_callbacks= ref [] }
+    ; event_callbacks= ref []
+    ; event_id_counter = Counter.create 1
+    ; msg_id_counter = Counter.create 1
+    }
 
   (** can be coordinated, can be controlled by simulator*)
   let base_state = NodeImpl.State.Echo

@@ -1869,29 +1869,6 @@ this is fixed now, the simulator's event scheduler keeps generic simulation even
 the =event_bus= keeps messages buffered. This is so that we can simulate async without doing async by draining deterministically.
 
 
-**** TODO Paxos Protocol Groundworks
-:PROPERTIES:
-:EFFORT:   45min
-:END:
-:LOGBOOK:
-CLOCK: [2025-11-03 Mon 09:27]--[2025-11-03 Mon 09:33] =>  0:06
-:END:
-Not the whole algo yet, but somewhere close
- - [ ] Re-read paxos notes, some documentation touch ups on the nodes
- - [ ] Begin applying inbox stateful processing in nodes upon tick calls.
- - [ ] outline a test case of communication for one paxos process that we should be supporting.
-
-***** TODO Add explicit proposal field to response messages
-
-Why: Correlating responses to proposals must be unambiguous.
-
-Files: lib/message.mli|ml
-
-Changes:
-
-Add proposal: Types.proposal_id to PermissionGranted and Nack message variants (and ensure constructors accept it).
-
-Acceptance: Message.proposal_id_of returns proposal for request and response variants consistently.
 **** TODO Add better logging to simulation
 :PROPERTIES:
 :EFFORT:   1h
@@ -1965,6 +1942,32 @@ CLOSED: [2025-11-03 Mon 19:20]
   Done
 - [ ] add =node_id= within the subscription handle
 
+**** TODO Paxos Protocol Groundworks
+:PROPERTIES:
+:EFFORT:   2h
+:END:
+:LOGBOOK:
+CLOCK: [2025-11-04 Tue 10:16]
+CLOCK: [2025-11-03 Mon 09:27]--[2025-11-03 Mon 09:33] =>  0:06
+:END:
+Not the whole algo yet, but somewhere close
+ - [X] Improve Simulator ergonomics
+   - allow a simulator to have a bunch of counters, just use the counters to generate new ids so that we don't get lost about it.
+ - [ ] Re-read paxos notes, some documentation touch ups on the nodes
+ - [ ] Begin applying inbox stateful processing in nodes upon tick calls.
+ - [ ] outline a test case of communication for one paxos process that we should be supporting.
+
+***** TODO Add explicit proposal field to response messages
+
+Why: Correlating responses to proposals must be unambiguous.
+
+Files: lib/message.mli|ml
+
+Changes:
+
+Add proposal: Types.proposal_id to PermissionGranted and Nack message variants (and ensure constructors accept it).
+
+Acceptance: Message.proposal_id_of returns proposal for request and response variants consistently.
 **** TODO Add in proper logic for Node's @ =handle_event=
 :PROPERTIES:
 :EFFORT:   1.5h
