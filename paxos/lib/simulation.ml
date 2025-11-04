@@ -14,11 +14,11 @@ module Simulation = struct
     [Types.Types.Coordination; Types.Types.Simulation_control; Types.Types.Time]
 
   let make_node_spec ?(roles = ["Proposer"; "Acceptor"])
-      ?(initial_quorum = Some 2) ?(topics = base_topics) ~node_id () :
+      ?(initial_cluster_size = Some 2) ?(topics = base_topics) ~node_id () :
       Config.node_spec =
     { node_id
     ; roles
-    ; initial_quorum
+    ; initial_cluster_size
     ; topics
     ; initial_state= None
     ; storage_config= None }
@@ -30,7 +30,7 @@ module Simulation = struct
   let sim_config =
     { Config.max_ticks= Some 100
     ; deterministic_seed= Some 181
-    ; default_quorum= Some 3
+    ; default_cluster_size= Some 3
     ; initial_nodes= [node_spec_1; node_spec_2]
     ; log_jsonl= None }
 

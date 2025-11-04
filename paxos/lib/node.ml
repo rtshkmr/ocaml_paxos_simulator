@@ -45,7 +45,7 @@ module type S = sig
 
   val state_of_string_opt:string option -> State.t option
 
-  type simulation_config = {mutable quorum: int option ref}
+  type simulation_config = {mutable cluster_size: int option ref}
 
   type config = {simulation: simulation_config; roles: roles; storage: Storage.t;  topics: Types.topic list}
 
@@ -85,7 +85,7 @@ module type S = sig
   val dump_state : t -> Sexp.t
 
   val make_config :
-    topics: Types.topic list -> roles:roles -> storage:Storage.t -> quorum:int option -> config
+    topics: Types.topic list -> roles:roles -> storage:Storage.t -> cluster_size:int option -> config
 
   val make_node_idle :
        msg_id:int
@@ -141,7 +141,7 @@ let state_of_string_opt = function
   | _ -> failwith "Unsupported initial state string"
 
   type simulation_config = {
-    mutable quorum: int option ref;
+    mutable cluster_size: int option ref;
   }
   type config = {
     simulation: simulation_config;
@@ -237,7 +237,7 @@ let state_of_string_opt = function
          maybe we can just pass in a predicate function into this as a param.
   *)
 let is_quorum_reached (node: t) (inbox_entry: inbox_entry) ~(predicate: 'v Message.t -> bool) =
-  match !(node.config.simulation.quorum) with
+  match !(node.config.simulation.cluster_size) with
   | None -> false
   | Some total ->
     let quorum_threshold = (total / 2) + 1 in
@@ -297,7 +297,7 @@ let process_inboxes (node: t) : unit =
   let default_config ~roles ~storage = {
     roles;
     storage;
-    simulation={quorum=ref None;};
+    simulation={cluster_size=ref None;};
     topics=[Types.Coordination; Types.Time; Types.Simulation_control]
   }
 
@@ -342,16 +342,16 @@ let process_inboxes (node: t) : unit =
                                                                  |> String.concat ~sep:", ");
     node
 
-  let make_config ~topics ~roles ~storage ~quorum  : config =
-    let quorum_opt =
-      match quorum with
+  let make_config ~topics ~roles ~storage ~cluster_size  : config =
+    let cluster_size_opt =
+      match cluster_size with
       | None -> None
       | Some x when x > 0 -> Some x
-      | _ -> invalid_arg "Quorum must be > 0 or None"
+      | _ -> invalid_arg "cluster_size must be > 0 or None"
     in
     {
       topics;
-      simulation = { quorum = ref quorum_opt };
+      simulation = { cluster_size = ref cluster_size_opt };
       roles;
       storage
     }

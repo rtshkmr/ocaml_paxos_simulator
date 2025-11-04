@@ -2307,10 +2307,12 @@ When A receives Prepare(7), it checks:
        #+end_src
      * need to define any assumptions that I haven't considered
 
-**** TODO Stage 0: Verify Logic in my write ups
+**** DONE Stage 0: Verify Logic in my write ups, do some chores
+CLOSED: [2025-11-05 Wed 01:51]
 :PROPERTIES:
 :EFFORT:   1h
 :END:
+- CLOSING NOTE [2025-11-05 Wed 01:51]
 :LOGBOOK:
 CLOCK: [2025-11-04 Tue 23:24]--[2025-11-04 Tue 23:55] =>  0:31
 CLOCK: [2025-11-04 Tue 22:00]--[2025-11-04 Tue 23:00] =>  1:00
@@ -2318,6 +2320,7 @@ CLOCK: [2025-11-04 Tue 22:00]--[2025-11-04 Tue 23:00] =>  1:00
  - [X] Begin applying inbox stateful processing in nodes upon tick calls.
  - [ ] outline a test case of communication for one paxos process that we should be supporting.
  - [X] verify if the outline written above makes sense, improve on that.
+ - [X] Add some hhelper functions
 
 **** TODO Stage 1: Node Logic Skeleton
 :PROPERTIES:
@@ -2348,96 +2351,6 @@ CLOCK: [2025-11-04 Tue 22:00]--[2025-11-04 Tue 23:00] =>  1:00
 - Deliverable:
   - A functioning message→state transition graph without correctness proofs yet (just internal transitions and prints).
 
-***** Chores
-:PROPERTIES:
-:EFFORT:   1h
-:END:
-
-- [ ] Clarifications
-  - we should tie-down the definition of quorum, especially in the context of
-
-    #+begin_quote
-A quorum is the minimum number of members required to be present at a meeting in order to conduct official business. This number is usually specified in an organization's bylaws or governing documents.
-    #+end_quote
-
-    - "quorum shifts elsewhere"
-
-      + this affects correctness and termination conditions
-
-      + for the subset of messages that we are tracking, =quorum_threshold= is reached when =let quorum_threshold_reached = total count count >== =(total / 2) + 1=.
-
-    - "nack quorum" vs "promises quorum"
-
-    - in a way we have an inaccurate use of language where quorum within the config has been set to number of nodes and I make reference to =quorum_threshold= in addition. I think I shall continue with this inconsistency and just point it out.
-
-  - [ ] Inject =quorum_type= (message type) and do a lazy check if any of them are reached when judging if proposer node can stop collecting and respond.
-
-- [ ] should have a =last_seen= or something? or =last_accepted=
-
-  not sure if the current design for node will be sufficient
-
-  Seems like our =Acceptor_record= will work.
-  #+begin_src ocaml
-  (* helper to persist acceptor record *)
-  module Acceptor_record = struct
-    type value = {
-      promised : Types.proposal_id option;
-      accepted : (Types.proposal_id * V.t) option;
-    } [@@deriving sexp]
-  end
-  #+end_src
-
-  - [ ] Add helper functions:
-    - =Storage.get_promised_id=
-    - =Storage.get_accepted_value=
-
-- [ ] Ensure role-specific states can be defined
-
-  currently I only have a single state submodule. I'm not sure if this is sufficient, or if I should be using a record of states. This is be cause states should be role-specific and at the moment, we only have one state submodule.
-
-  regardless of implementation, we need to be able to respond to multiple messages in our tick (mimicked-concurrency).
-
-  This needs a change, our variants are not sufficient, we can layer it to create sub-states:
-
-  #+begin_src ocaml
-type proposer_state =
-  | Idle
-  | Preparing of proposal_id
-  | WaitingForPromises of proposal_id * promises
-  | Accepting of proposal_id * V.t * acks
-  | Decided of V.t
-
-type acceptor_state =
-  { promised_id: proposal_id option
-  ; accepted: (proposal_id * V.t) option }
-
-type learner_state = Learned of V.t option
-
-type role_state = {
-  proposer: proposer_state;
-  acceptor: acceptor_state;
-  learner: learner_state;
-}
-  #+end_src
-
-  and within =type t=:
-  #+begin_src ocaml
-type t = {
-  ...
-  role_state : role_state;
-}
-  #+end_src
-
-  And an example of the state demuxing could be:
-  #+begin_src ocaml
-let handle_coordination node msg =
-  match msg with
-  | PermissionRequest _ -> handle_as_acceptor node msg
-  | PermissionGranted _ -> handle_as_proposer node msg
-  | Suggestion _ -> handle_as_acceptor node msg
-  | Accepted _ -> handle_as_proposer node msg
-  | Decided _ -> handle_as_learner node msg
-#+end_src
 ***** GPT5-critique of the design of the simulated time-loop
 
 I like the critique, will dump it in full:
@@ -2681,6 +2594,98 @@ If you’d like, I can diagram the **per-tick callgraph** (e.g., which functions
 
 #+end_src
 
+***** Chores
+:PROPERTIES:
+:EFFORT:   1h
+:END:
+
+- [ ] Minor cleanups of tick event loop
+
+- [ ] Clarifications
+  - we should tie-down the definition of quorum, especially in the context of
+
+    #+begin_quote
+A quorum is the minimum number of members required to be present at a meeting in order to conduct official business. This number is usually specified in an organization's bylaws or governing documents.
+    #+end_quote
+
+    - "quorum shifts elsewhere"
+
+      + this affects correctness and termination conditions
+
+      + for the subset of messages that we are tracking, =quorum_threshold= is reached when =let quorum_threshold_reached = total count count >== =(total / 2) + 1=.
+
+    - "nack quorum" vs "promises quorum"
+
+    - in a way we have an inaccurate use of language where quorum within the config has been set to number of nodes and I make reference to =quorum_threshold= in addition. I think I shall continue with this inconsistency and just point it out.
+
+  - [ ] Inject =quorum_type= (message type) and do a lazy check if any of them are reached when judging if proposer node can stop collecting and respond.
+
+- [ ] should have a =last_seen= or something? or =last_accepted=
+
+  not sure if the current design for node will be sufficient
+
+  Seems like our =Acceptor_record= will work.
+  #+begin_src ocaml
+  (* helper to persist acceptor record *)
+  module Acceptor_record = struct
+    type value = {
+      promised : Types.proposal_id option;
+      accepted : (Types.proposal_id * V.t) option;
+    } [@@deriving sexp]
+  end
+  #+end_src
+
+  - [ ] Add helper functions:
+    - =Storage.get_promised_id=
+    - =Storage.get_accepted_value=
+
+- [ ] Ensure role-specific states can be defined
+
+  currently I only have a single state submodule. I'm not sure if this is sufficient, or if I should be using a record of states. This is be cause states should be role-specific and at the moment, we only have one state submodule.
+
+  regardless of implementation, we need to be able to respond to multiple messages in our tick (mimicked-concurrency).
+
+  This needs a change, our variants are not sufficient, we can layer it to create sub-states:
+
+  #+begin_src ocaml
+type proposer_state =
+  | Idle
+  | Preparing of proposal_id
+  | WaitingForPromises of proposal_id * promises
+  | Accepting of proposal_id * V.t * acks
+  | Decided of V.t
+
+type acceptor_state =
+  { promised_id: proposal_id option
+  ; accepted: (proposal_id * V.t) option }
+
+type learner_state = Learned of V.t option
+
+type role_state = {
+  proposer: proposer_state;
+  acceptor: acceptor_state;
+  learner: learner_state;
+}
+  #+end_src
+
+  and within =type t=:
+  #+begin_src ocaml
+type t = {
+  ...
+  role_state : role_state;
+}
+  #+end_src
+
+  And an example of the state demuxing could be:
+  #+begin_src ocaml
+let handle_coordination node msg =
+  match msg with
+  | PermissionRequest _ -> handle_as_acceptor node msg
+  | PermissionGranted _ -> handle_as_proposer node msg
+  | Suggestion _ -> handle_as_acceptor node msg
+  | Accepted _ -> handle_as_proposer node msg
+  | Decided _ -> handle_as_learner node msg
+#+end_src
 **** TODO Stage 2: State Transitions
 :PROPERTIES:
 :EFFORT:   2.5h

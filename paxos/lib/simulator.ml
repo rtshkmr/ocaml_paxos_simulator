@@ -113,9 +113,9 @@ module Simulator : Runtime = struct
   let create_node_config_from_sim_spec (node_spec : Config.node_spec) :
     NodeImpl.config =
     let roles = List.map node_spec.roles ~f:NodeImpl.role_of_string in
-    let initial_quorum = node_spec.initial_quorum in
+    let initial_cluster_size = node_spec.initial_cluster_size in
     let storage = S.create () in
-    let simulation = {NodeImpl.quorum= ref initial_quorum} in
+    let simulation = {NodeImpl.cluster_size= ref initial_cluster_size} in
     let topics = node_spec.topics in
     {NodeImpl.simulation; roles; storage; topics}
 
@@ -144,38 +144,32 @@ module Simulator : Runtime = struct
 
   let current_time sim = Time.now sim.clock
 
-  (** Simulator specific tick logic grouped as one.
-      1. advance the logical clock
-      2. send the heartbeat message
-  *)
-
-  let tick t =
-    let msg = "..." in
-    let formatted_tick_msg = Time.format_tick_msg t.clock ~msg () in
-    Stdio.print_endline  formatted_tick_msg;
-    Event_bus.drain bus;
-    Time.tick t.clock;
-    broadcast_heartbeat t ~msg_id:(next_msg_id t)
-
   (** This is one step that includes:
-      1. simulator gathers all the events to be dispatched for this step
-      3. the simulator clock will tick and the tick will propagate to all nodes
+      1. simulator gathers all the events to be dispatched for this step and dispatches them
+      2. we format a tick message for the current tick
+      3. we drain the bus, letting the nodes react independently
+      4. we move to the next tick and broadcast that via message-passing
 
       We should respect design principles such as:
       - our [Event_bus] will always be passive and reactive.
       - [Nodes] in the system will never be directly changed by the simulation, their internal state may only be updated via message passing.
+      - time flows through the system via message-passing
   *)
   let step sim =
     let now = current_time sim in
     let sim_events_due = EventScheduler.pop_due_events !(sim.scheduler) now in
-    (* Run all due events *)
-    List.iter
-      ~f:(fun ev ->
-          ev.action ())
-      (* List.iter ~f:(fun cb -> cb ev) !(sim.event_callbacks) ) *)
-      sim_events_due ;
+    List.iter ~f:(fun e -> e.action ()) sim_events_due;
 
-    tick sim
+
+    let msg = "..." in
+    let formatted_tick_msg = Time.format_tick_msg sim.clock ~msg () in
+    Stdio.print_endline  formatted_tick_msg;
+
+    Event_bus.drain bus;
+
+
+    Time.tick sim.clock;
+    broadcast_heartbeat sim ~msg_id:(next_msg_id sim)
 
   let start sim =
     sim.halted <- false ;

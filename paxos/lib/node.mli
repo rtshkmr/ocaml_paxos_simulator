@@ -74,8 +74,8 @@ module type S = sig
 
   val state_of_string_opt : string option -> State.t option
 
-  (** Configuration for simulation semantics, including mutable quorum tracking. *)
-  type simulation_config = {mutable quorum: int option ref}
+  (** Configuration for simulation semantics, including mutable cluster_size tracking. *)
+  type simulation_config = {mutable cluster_size: int option ref}
 
   (** Node runtime configuration consisting of simulation settings, assigned roles,
       and a persistence storage backend. The types here are tied to the [Storage]
@@ -149,12 +149,12 @@ module type S = sig
        topics:Types.topic list
     -> roles:roles
     -> storage:Storage.t
-    -> quorum:int option
+    -> cluster_size:int option
     -> config
   (** Construct a configuration record for the node.
       - [roles]: list of roles to assign.
       - [storage]: storage backend instance.
-      - [quorum]: optional quorum size, must be positive if given. *)
+      - [cluster_size]: optional cluster_size, must be positive if given. *)
 
   val make_node_idle :
        msg_id:int
