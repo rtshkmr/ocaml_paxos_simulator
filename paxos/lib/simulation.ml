@@ -48,11 +48,11 @@ module Simulation = struct
 
   let permission_event_factory my_string : Simulator.msg_factory =
    fun ~msg_id ~from ?to_node ~time () ->
+    let proposal = Types.Types.make_proposal_id ~seq:0 ~node:1 in
     let from_id = Simulator.id_of_node from in
     let raw_msg =
       Message.make_permission_request ~msg_id ~time
-        ~topic:Types.Types.Coordination ~from:from_id
-        ~proposal:(Types.Types.make_proposal_id ~seq:0 ~node:1)
+        ~topic:Types.Types.Coordination ~from:from_id ~proposal
         ~value:(make_val my_string)
     in
     Simulator.msg_of_message (Message.Coordination raw_msg)

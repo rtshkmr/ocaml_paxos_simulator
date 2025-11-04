@@ -128,6 +128,7 @@ Mixin class with logic for:
 1. forward progress towards resolution
 2. anti inter-peer interference is handled here
 
+
 ** Designing
 *** DONE Design Messages & State Types
 CLOSED: [2025-10-28 Tue 20:52]
@@ -1869,18 +1870,24 @@ this is fixed now, the simulator's event scheduler keeps generic simulation even
 the =event_bus= keeps messages buffered. This is so that we can simulate async without doing async by draining deterministically.
 
 
-**** TODO Add better logging to simulation
+**** DONE Add better logging to simulation
+CLOSED: [2025-11-04 Tue 20:30]
 :PROPERTIES:
 :EFFORT:   1h
 :END:
 
+- CLOSING NOTE [2025-11-04 Tue 20:30] \\
+  Good enough for now
 this is almost a subsystem of its own
 
 We can add logging at every callback level so all the message passing is logged out.
 
 This one can use jane street's =Log= library. I'm not sure how big of a lift that is. It's definitely essential for the polishing of this mini project though.
-***** [ ] Replace UUID/time logging with simulator-managed logging
+***** [X] Replace UUID/time logging with simulator-managed logging
+CLOSED: [2025-11-04 Tue 20:30]
 
+- CLOSING NOTE [2025-11-04 Tue 20:30] \\
+  Done
 Why: You need a single authoritative event log to show traces to interviewers and debug runs.
 
 Files: bin/simulator.ml, lib/event_bus.ml
@@ -1893,10 +1900,13 @@ Let Event_bus.create accept logger that returns string; publish should capture i
 
 Acceptance: A run produces a readable, timestamped event log that can be replayed.
 
-***** TODO Basic Simulation Event Logging
+***** DONE Basic Simulation Event Logging
+CLOSED: [2025-11-04 Tue 20:30]
 :PROPERTIES:
 :EFFORT:   30min
 :END:
+- CLOSING NOTE [2025-11-04 Tue 20:30] \\
+  This is somewhat done, good enough for now, anything else shall be incrementall added
 This is necessary for the completion of this project because without it, the simulation visuals won't be sexy.
 
 this part involves adding in the loops we were talking about.
@@ -1910,11 +1920,14 @@ DEADLINESs: <2025-11-01 Sat 11:00>
 - New deadline from "[2025-11-01 Sat]" on [2025-10-31 Fri 19:39]
 — deterministic single-threaded simulation
 - then, an integration between this and the orchestration code
-**** TODO Simulator run loop (single threaded)
+**** DONE Simulator run loop (single threaded)
+CLOSED: [2025-11-04 Tue 20:31]
 :PROPERTIES:
 :EFFORT:   30min
 :END:
 
+- CLOSING NOTE [2025-11-04 Tue 20:31] \\
+  this works
 Why: Orchestrates ticks and node processing deterministically. Interviewers expect a clear run loop.
 
 Files: bin/simulator.ml (new orchestrator code)
@@ -1951,12 +1964,13 @@ CLOCK: [2025-11-04 Tue 10:16]--[2025-11-04 Tue 14:10] =>  3:54
 CLOCK: [2025-11-03 Mon 09:27]--[2025-11-03 Mon 09:33] =>  0:06
 :END:
 Not the whole algo yet, but somewhere close
+***** DONE Finish some chores
+CLOSED: [2025-11-04 Tue 20:48]
+- CLOSING NOTE [2025-11-04 Tue 20:48] \\
+  Ready to go
  - [X] Improve Simulator ergonomics
    - allow a simulator to have a bunch of counters, just use the counters to generate new ids so that we don't get lost about it.
- - [ ] Re-read paxos notes, some documentation touch ups on the nodes
- - [ ] Begin applying inbox stateful processing in nodes upon tick calls.
- - [ ] outline a test case of communication for one paxos process that we should be supporting.
-
+ - [X] Re-read paxos notes, some documentation touch ups on the nodes
 ***** TODO Add explicit proposal field to response messages
 
 Why: Correlating responses to proposals must be unambiguous.
@@ -1968,40 +1982,540 @@ Changes:
 Add proposal: Types.proposal_id to PermissionGranted and Nack message variants (and ensure constructors accept it).
 
 Acceptance: Message.proposal_id_of returns proposal for request and response variants consistently.
-**** TODO Add in proper logic for Node's @ =handle_event=
+***** TODO Outline Rollout Plan
+:LOGBOOK:
+CLOCK: [2025-11-04 Tue 20:51]--[2025-11-04 Tue 21:41] =>  0:50
+:END:
+- [ ] Stage 1: Logic Skeleton, the layers from =handle_coordination= / =handle_event= to FSM-state-based handling
+- [ ] Stage 2: Implement state transitions (simple paxos happy path)
+- [ ] Stage 3: Storage & Learning - Persist Acceptor state, enable learners to converge
+- [ ] Stage 4: Simulation Demo Case
+- [ ] Stage 5: Refinement and Clean-up
+- [ ] Stage 6: considering extensions
+  - Post-v0 Extensions (to note but skip for now)
+    - Retries / backoff policy.
+
+    - Nack optimization.
+
+    - Timeout-based progress.
+
+    - Multi-decree Paxos (reusing per-inbox states).
+
+    - Learner sync broadcast (once decided).
+
+****** Protocol Outline
+I wish to represent the logic as intuitively as possible. I need to be able to represent the suggestor's POV and acceptor's POV
+
+Here's my brief notes on the process. This outline of cases will be absolutely useful as a blueprint for us. We shall keep improving on the accuracy of the terms here and completeness of info w.r.t the FSM states, transitions, stimuli and transition conditions.
+
+ - Outline:
+
+   * [what is a paxos protocol process]
+
+      #+begin_quote
+      *a single run of the paxos protocol == attempt single value consensus driving.*
+      #+end_quote
+
+     - a run may fail. On failure, the suggestor will get NACKs and may choose to respond to failure with:
+
+       - FAILURE REPONSE CASE A: retry with improved proposal (using information from NACK)
+
+       - FAILURE RESPONSE CASE B: shut up and don't do anything $\implies$ QQ: HOW TO KNOW when to do this?
+
+     - possible edge cases:
+
+        a)???
+
+   * a process = single run. has 2 phases:
+
+     a) permission acquisition phase
+
+        1) step 1: request for permission
+
+           * request is just broadcasted
+
+           * *possible edge cases:*
+
+             a) multiple peers requesting at the same time
+
+           * *assumptions/constraint relaxations*:
+
+             a) no network issues
+
+             b) we don't simulate network delays
+
+        2) step 2: wait for responses from voters (unicasted, NOT broadcasted)
+
+           1) *Outcomes:*
+
+              1. every node (including self) in the network will respond (everyone with acceptor role)
+                  We have 3 cases for each node's response:
+
+                 a) case A: voter responds with ack
+
+                 b) condition for ACK:
+
+                      TODO: define the condition
+
+                 c) case B: voter responds with nack
+
+                 d) condition for NACK and reason:
+
+                      TODO: define the condition
+
+                 e) case C: voter doesn't respond (idle, network issues)
+
+              2. QQ: how does a suggestor node know that they've gotten all responses? or does it just keep waiting ad infinitum?
+
+                 Ans:
+
+                 There are two answers depending on simulation realism:
+
+                   * *Simplified (our v0 case):*
+
+                     assume synchronous or bounded delivery, so:
+
+                      You know all nodes $N$.
+
+                      You wait for either:
+
+                        - $|Promise| + |Nack| = N$, or
+
+                        - Quorum of Promises, or
+
+                        - Quorum of Nacks.
+
+
+                        That’s sufficient to deterministically conclude.
+
+                   * Realistic (asynchronous case, post-v0):
+
+                     We'd add a timeout + backoff policy.
+
+                     So for v0, just count total responses = N or quorum whichever earlier.
+
+              1. when the node is able to conclude, there's only 2 case:
+
+                 a) case A: success $\implies$ can proceed to the phase B: Value Suggestion Phase
+
+                 b) case B: failure $\implies$ decide if they should do FAILURE RESPONSE CASE A or FAILURE RESPONSE CASE B
+
+              2. *possible edge cases:*
+
+                 a) voter no respond, what do we do? How to know if they'll never respond and it's possible for suggestor node to make a decision.
+
+                 b) while waiting for response, suggestor receives a request for permission $\implies$
+
+                    QQ: then what to do?
+
+                    ANS:
+
+                    Handle this via the Acceptor branch of the FSM — your proposer is also an acceptor.
+
+                    So:
+
+                    - Still handle incoming Prepare normally (promise or nack it).
+
+                    - Don’t interrupt your proposer *waiting loop*.
+
+                    - Your current proposal might fail if quorum shifts elsewhere — and that’s OK (safety first).
+
+
+           3) *assumptions/constraint relaxations*:
+
+              - no delay simulation
+
+              - can simulate idleness or network partitioning
+
+     b) Value Suggestion phase
+
+        1. We enter this phase only when the previous one has succeeded.
+
+        2. Suggestor node will now suggest and broadcast that suggestion to all the voters
+
+        3. voters will double check their internal state, and then respond
+
+           1. Case A: accepted
+
+           2. Case B: rejected and returns an NACK
+
+              1. Reasons for rejecting?
+
+                   TODO: enumerate all the reasons for rejecting
+****** Improved Outline
+This is the improved outline for 1 round of the paxos protocol, which is our minimum intent.
+
+******* Phase 1: Permission/Prepare Phase (Proposer's POV)
+******** message
+
+=Prepare(proposal_id)=
+
+******** sender
+
+=Proposer=
+
+******** recipient
+
+All nodes with roles containing =Acceptor=.
+
+********* recipient behaviour (acceptor role)
+********** Case 1: =no_promises_made || proposal_id > promised_id=
+
+1) recipient records =promised_id= =:== =proposal_id=
+
+2) reply unicast to sender with =Promise(accepted_id_opt, accepted_value_opt)=
+
+********** Case 2: else
+
+1) reply with =Nack(promised_id)=
+
+********* sender's behaviour (proposer role)
+- sender will wait for quorum of =Promise= messages
+
+********** Case 1: on quorum
+   1) Pick value by considering promises:
+      - consider highest =proposal_id= from =promises= (highest =promise_id=)
+
+        if non-=None=, then pick that associated value to propose $\implies$ since it's a broadcast, the cases get simpler.
+
+        this could be =None=.
+
+      - if =highest_promised_id= is =None=
+
+        - propose own value.
+
+   2) Transition sender state:
+      - Transition end state: =Accepting(proposal, value)=
+
+********** Case 2: Or failure = rejection (majority nack) or timeout or ...
+   1) Fail the round.
+
+******* Phase 2: Accept Phase
+******** message
+=AcceptRequest(proposal_id, value)=
+
+******** sender
+
+=Proposer=
+
+******** recipient
+
+All nodes with roles containing =Acceptor=.
+
+********* Recipient's Behaviour:
+
+********** Case 1: =proposal_id= =>== =promised_id=
+
+1) Record =accepted_id= =:== =proposal_id= and =accepted_value=  =:== =value=
+
+2) Reply =Accepted(proposal_id, value)=
+
+********** Case 2: Else
+
+1) Reply =Nack(promised_id)=
+
+********* Sender's Behaviour:
+
+1. wait for quorum of =Accepted= s
+2. =on_quorum=:
+   1. consensus reached
+   2. broadcast =Decided(value)= to all learners (including self)
+   3. Transition state: =-> Decided(value)=
+
+****** Some questions
+1. [X] A node will have multiple states at once, correct?
+
+   In fact, at any time, a node can always vote, right? The other state will either be a learner or a suggestor.
+
+   Is it possible for a node to both suggest and receive a request for permission at the same time? -- this makes sense to me, since nodes are supposed to broadcast, so messages get sent to itself. On receiving multiple messages, the node shall take "complete" mailboxes (requests) and respond only to the one with the highest proposal order, right?
+
+   a) _Resolved:_
+
+      a. In Paxos, a single node may play multiple roles =concurrently=:
+
+         Proposer (a node initiating a proposal)
+
+         Acceptor (a node that promises or accepts proposals)
+
+         Learner (a node that learns the decided value)
+
+         */A node may simultaneously be in proposer’s WaitingForPromises and acceptor’s “promised proposal N” state. Those are logically independent slices of node state (and must not overwrite each other)./*
+
+         Key Idea: *each role will have it's own FSM state*
+
+      b. Possible options for supporting this role-specific FSM:
+
+         - model this as a single node with multiple submodules / substates,
+
+         — simpler: have a unified FSM with flags or nested variants for role states.
+
+      c. Fundamental concurrency case
+
+         - example case:
+
+           #+begin_quote
+Node A starts a proposal with proposal_id = 5.
+
+Node B, independently, starts another proposal with proposal_id = 7.
+
+Both nodes broadcast Prepare(5) and Prepare(7) messages, each will receive the other’s message as well.
+
+When A receives Prepare(7), it checks:
+
+    Has it already promised a higher proposal than 7?
+
+    If not, it must promise 7 (even if it’s currently in the middle of waiting for responses for proposal 5).
+
+    This doesn’t violate safety — it just means A’s own round 5 will likely fail (since quorum members might move on to 7).
+           #+end_quote
+
+      d. Some invariants:
+         - Nodes can absolutely receive permission requests while proposing their own value.
+         - Each received Prepare (permission request) is evaluated independently using acceptor rules (based on local highest promised proposal).
+         - The proposer logic should not assume “exclusive attention” from peers.
+
+
+2. [X] need to verify the correctness of the outline above and improve on the outline.
+
+   - At the moment, this outline needs improvements in the following areas:
+     * the cases and conditions with TODOs need to be enumerated
+     * the outline doesn't explicitly define the state changes w.r.t the node state variant ADT that we have defined. We need to merge the terminology in for consistency-sake.
+       #+begin_src ocaml
+     module State : sig
+       type t =
+         | Echo
+         | Idle
+             (** Node is inactive or waiting to initiate consensus or for messages *)
+         | Preparing of
+             {current_proposal: Types.proposal_id; awaiting: Types.node_id list}
+             (** Proposer has sent Prepare requests, awaiting promises *)
+         | WaitingForPromises of
+             { proposal: Types.proposal_id
+             ; promises_received:
+                 (Types.node_id * (Types.proposal_id * V.t) option) list }
+             (** Proposer is collecting promises and evaluating highest accepted proposals *)
+         | Accepting of
+             {proposal: Types.proposal_id; value: V.t; acks: Types.node_id list}
+             (** Proposer sending Accept requests, waiting for acknowledgments *)
+         | AcceptedLocally of {proposal: Types.proposal_id; value: V.t}
+             (** Acceptor has accepted a proposal locally *)
+         | Decided of V.t  (** Consensus value is decided and learned *)
+       [@@deriving sexp]
+     end
+
+
+       #+end_src
+     * need to define any assumptions that I haven't considered
+
+**** TODO Stage 0: Verify Logic in my write ups
+:PROPERTIES:
+:EFFORT:   1h
+:END:
+:LOGBOOK:
+CLOCK: [2025-11-04 Tue 23:24]--[2025-11-04 Tue 23:55] =>  0:31
+CLOCK: [2025-11-04 Tue 22:00]--[2025-11-04 Tue 23:00] =>  1:00
+:END:
+ - [X] Begin applying inbox stateful processing in nodes upon tick calls.
+ - [ ] outline a test case of communication for one paxos process that we should be supporting.
+ - [X] verify if the outline written above makes sense, improve on that.
+
+**** TODO Stage 1: Node Logic Skeleton
+:PROPERTIES:
+:EFFORT:   2h
+:END:
+- Goal:
+
+  - Turn =Node.handle_coordination= and =process_inboxes= into a real FSM driver.
+
+- Tasks:
+
+  1. Define clear event handlers for each Paxos message variant:
+
+     - PermissionRequest
+
+     - PermissionGranted
+
+     - Nack
+
+     - Suggestion
+
+     - Accepted
+
+  2. Each handler updates node state accordingly.
+
+  3. Ensure proposers and acceptors both handle their role responsibilities.
+
+- Deliverable:
+  - A functioning message→state transition graph without correctness proofs yet (just internal transitions and prints).
+
+***** Chores
+:PROPERTIES:
+:EFFORT:   1h
+:END:
+
+- [ ] Clarifications
+  - we should tie-down the definition of quorum, especially in the context of
+
+    #+begin_quote
+A quorum is the minimum number of members required to be present at a meeting in order to conduct official business. This number is usually specified in an organization's bylaws or governing documents.
+    #+end_quote
+
+    - "quorum shifts elsewhere"
+
+      + this affects correctness and termination conditions
+
+      + for the subset of messages that we are tracking, =quorum_threshold= is reached when =let quorum_threshold_reached = total count count >== =(total / 2) + 1=.
+
+    - "nack quorum" vs "promises quorum"
+
+    - in a way we have an inaccurate use of language where quorum within the config has been set to number of nodes and I make reference to =quorum_threshold= in addition. I think I shall continue with this inconsistency and just point it out.
+
+  - [ ] Inject =quorum_type= (message type) and do a lazy check if any of them are reached when judging if proposer node can stop collecting and respond.
+
+- [ ] should have a =last_seen= or something? or =last_accepted=
+
+  not sure if the current design for node will be sufficient
+
+  Seems like our =Acceptor_record= will work.
+  #+begin_src ocaml
+  (* helper to persist acceptor record *)
+  module Acceptor_record = struct
+    type value = {
+      promised : Types.proposal_id option;
+      accepted : (Types.proposal_id * V.t) option;
+    } [@@deriving sexp]
+  end
+  #+end_src
+
+  - [ ] Add helper functions:
+    - =Storage.get_promised_id=
+    - =Storage.get_accepted_value=
+
+- [ ] Ensure role-specific states can be defined
+
+  currently I only have a single state submodule. I'm not sure if this is sufficient, or if I should be using a record of states. This is be cause states should be role-specific and at the moment, we only have one state submodule.
+
+  regardless of implementation, we need to be able to respond to multiple messages in our tick (mimicked-concurrency).
+
+  This needs a change, our variants are not sufficient, we can layer it to create sub-states:
+
+  #+begin_src ocaml
+type proposer_state =
+  | Idle
+  | Preparing of proposal_id
+  | WaitingForPromises of proposal_id * promises
+  | Accepting of proposal_id * V.t * acks
+  | Decided of V.t
+
+type acceptor_state =
+  { promised_id: proposal_id option
+  ; accepted: (proposal_id * V.t) option }
+
+type learner_state = Learned of V.t option
+
+type role_state = {
+  proposer: proposer_state;
+  acceptor: acceptor_state;
+  learner: learner_state;
+}
+  #+end_src
+
+  and within =type t=:
+  #+begin_src ocaml
+type t = {
+  ...
+  role_state : role_state;
+}
+  #+end_src
+
+  And an example of the state demuxing could be:
+  #+begin_src ocaml
+let handle_coordination node msg =
+  match msg with
+  | PermissionRequest _ -> handle_as_acceptor node msg
+  | PermissionGranted _ -> handle_as_proposer node msg
+  | Suggestion _ -> handle_as_acceptor node msg
+  | Accepted _ -> handle_as_proposer node msg
+  | Decided _ -> handle_as_learner node msg
+#+end_src
+
+**** TODO Stage 2: State Transitions
+:PROPERTIES:
+:EFFORT:   2.5h
+:END:
+Goal: Make a single round of Paxos succeed.
+
+Implementation outline:
+
+| Role     | Message                    | Expected Behavior                                            |
+|----------+----------------------------+--------------------------------------------------------------|
+| Proposer | sends PermissionRequest    | → transitions to WaitingForPromises                          |
+| Acceptor | receives PermissionRequest | → if proposal > promised, reply PermissionGranted; else Nack |
+| Proposer | collects PermissionGranted | (quorum) → sends Suggestion                                  |
+| Acceptor | receives Suggestion        | → accepts and replies Accepted                               |
+| Proposer | collects Accepted          | (quorum) → transitions to Decided                            |
+| Learners | learn via Accepted/Decided | → update local state                                         |
+**** TODO Stage 3: Storage & Learning
 :PROPERTIES:
 :EFFORT:   1.5h
 :END:
-***** [ ] for acceptor logic
-***** [ ] for state transitions
-***** [ ] learner behaviour
-**** TODO Implement full minimal Paxos state-machine inside Node
+- Goal:
+
+  - Persist acceptor state and enable learners to converge.
+
+- Tasks:
+
+  1) Implement small persistence helpers:
+
+     - =Storage.write_acceptor_record=
+
+     - =Storage.read_acceptor_record=
+
+  2) Ensure acceptors don’t forget promises between rounds.
+
+  3) Learners aggregate Accepted messages and decide locally.
+
+
+- Deliverables:
+
+    - Durable acceptor state per node
+
+    - Simple learning logic integrated
+**** TODO Stage 4: Simulation Demo Case
 :PROPERTIES:
-:EFFORT:   30min
+:EFFORT:   1h
 :END:
 
-Why: Now that the simulator loops are deterministic, you must implement the protocol transitions properly.
+- Goal: Demonstrate full cycle in the simulator.
 
-Files: lib/node.ml
+- Tasks:
 
-Minimal behavior:
+  1) Build a small scenario with 3 nodes: one proposer, two acceptors.
 
-On PermissionRequest (proposer sends): acceptors respond with PermissionGranted(proposal, last_accepted_opt) or Nack(proposal, hint) depending on persisted promised.
+  2) Run a proposal to consensus (quorum 2/3).
 
-Node.handle_message: enqueue messages into inbox_entry keyed by proposal.
+  3) Verify end state logs show all nodes learned the same value.
 
-Node.tick:
+- Deliverable:
 
-If WaitingForPromises and >= quorum promises: determine value (highest accepted if any) → send Suggestion (AcceptRequest).
+  - End-to-end trace printed via Simulator.print_bus_stats + Node.dump_state.
+**** TODO Stage 5: Refinements & Cleanup
+:PROPERTIES:
+:EFFORT:   1h
+:END:
 
-If Accepting and acks >= quorum: persist accepted locally and move to Decided.
+- Goal: Harden ergonomics and readability.
 
-Implement per-inbox created_at and timeout handling.
+- Tasks:
+  1) Move logging into a small Node.debug helper.
 
-Maintain per-inbox seen_nodes to avoid double-counting.
+  2) Remove unnecessary Stdio.printf noise.
 
-Acceptance: tests below succeed.
-**** TODO Isolated areas in consideration
+  3) Tighten signatures, remove unsafe partial matches.
+
+  4) Final documentation pass.
+
+**** TODO Correctness check: Isolated areas in consideration
 
 These are mechanisms that we need to add in part by part. It would be greate to add a sort of pipelining capability to this though and to just add in policy elements direclty.
 
