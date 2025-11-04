@@ -32,15 +32,16 @@ CLOCK: [2025-10-27 Mon 21:11]--[2025-10-27 Mon 21:14] =>  0:03
 CLOCK: [2025-10-27 Mon 18:37]--[2025-10-27 Mon 19:56] =>  1:19
 CLOCK: [2025-10-27 Mon 17:00]--[2025-10-27 Mon 18:37] =>  1:37
 :END:
-- Review Lamport’s “Paxos Made Simple” and Tom Cocagne’s examples
-- Need to gain an intuition for the design patterns that may be necessary here.
-- the objective here is really to JUST do the single-decree paxos first, but there needs to be some basic understanding of how the basic paxos extends to more complex variants so that the code design may attempt to have affordances for that.
-- for design patterns, can make reference to the [[https://people.csail.mit.edu/dnj/teaching/6898/projects/vicente-wagner.pdf][design patterns book in ocaml]], just be careful when introducing mutable state
 
-**** Key Ideas behind interface design for paxos variants
+- [ ] Review lamport's paper and Tom Cocagne’s examples
+- [ ] Need to gain an intuition for the design patterns that may be necessary here.
+- [ ] the objective here is really to JUST do the single-decree paxos first, but there needs to be some basic understanding of how the basic paxos extends to more complex variants so that the code design may attempt to have affordances for that.
+- [ ] for design patterns, can make reference to the [[https://people.csail.mit.edu/dnj/teaching/6898/projects/vicente-wagner.pdf][design patterns book in ocaml]], just be careful when introducing mutable state
 
-Just dumped my notes into a bot, asked it to define some guidelines on interface design for future extension into paxos variants.
-
+**** References
+1. leslie lamport's papers
+   - Paxos made simple Lamport’s [[https://lamport.azurewebsites.net/pubs/paxos-simple.pdf][“Paxos Made Simple”]]
+   - lamport [[https://lamport.azurewebsites.net/pubs/pubs.html#time-clocks][has a great blog]] that is basically a treasure trove of interesting papers
 *** DONE Understand the Reference Python repo
 CLOSED: [2025-10-28 Tue 14:14] SCHEDULED: <2025-10-27 Mon 17:30>
 :PROPERTIES:
@@ -996,10 +997,7 @@ Here's a plausible order of rolling this out:
 
 7) (optional) Add local clocks to nodes for drift simulation.
 
-*** TODO Design Logging System
-This will be absolutely essential for the
-*** TODO Design Event Log System @ Global Simulator Level
-I think the rough idea for this is that we can have something like a pipeline that sits at the simulator so that many of the simulator's orchestration actions can have some event log reporter. this is low priority but comes after the logging system implementation.
+
 *** TODO Design Simulator Interface
 
 Since one of the goals of this project is to provide some simulations for learning purposes (and for future TigerBeetle-like demonstrations), we should try to think about what the Simulator should be able to do.
@@ -1119,10 +1117,11 @@ If you'd like, I can help generate an initial OCaml signature (`.mli`) and sketc
    though I'm not sure which would be beter design. I can see value in both cases. The simulation events could just be events within the same scheduler events and so on.
 
 2. how big of a lift is it to implement some shhell like keyboard event capture and event handlers and all that in ocaml? are there any terminal app building packages in the ocaml world that are worth using for this?
-**** Decisions
-***** Separation of Concerns: Should the time loop and simulation loop be two separate loops?
 
+*** TODO Design Event Log System @ Global Simulator Level
+I think the rough idea for this is that we can have something like a pipeline that sits at the simulator so that many of the simulator's orchestration actions can have some event log reporter. this is low priority but comes after the logging system implementation.
 
+This can be done a towards the end, when we are prettifying things.
 ** Implementation
 *** TODO Basic Instrumentation & Orchestration Code
 :PROPERTIES:
@@ -1759,13 +1758,128 @@ So, we can actually just use a separate heartbeat topic for time events like tic
 
   yeah this works. I added a =send_after= and the event scheduler works as intended.
 
+**** DONE Message Passing System Improvements
+CLOSED: [2025-11-03 Mon 19:11]
+- CLOSING NOTE [2025-11-03 Mon 19:11] \\
+  Letsgo closer to the end
+:LOGBOOK:
+CLOCK: [2025-11-03 Mon 16:25]--[2025-11-03 Mon 19:11] =>  2:46
+:END:
+
+We are almost ready to implement simple paxos, we shall relook at what our simulated world needs to do to be able to support it.
+
+We had earlier side-stepped the ability to directly message a particular node over a topic. This functionality is technically a nice-to-have because broadcasting (with a target field within message) already works and will be sufficient. However, it will make the log dumps (primary mode of showing what is being simulated) a little messy, and remove from the experience of seeing it at play becasue the "network"/event bus would end up being a noisy communication channel.
+
+Therefore, there's value to have a direct messaging capability. This will be a light lift, because it's just a matter of changing how the event bus stores callbacks, changing it from a list to more of a callback registry.
+
+I think this will require a better callback registry. We'd have to change from a list of =(subscription_id * cb)= to a better registry with better lookup (some sort of Hashtbl).
+
+The update cycle for the hashtabl can happen @ =Event_bus.subscribe= where we can make it =(node_id * subscription_id * cb)= which would just be a changing of the =sub_handle= type. Then we will be able to do well. or maybe some kind of =subscription_info= could be better.
+
+***** [X] allow message passing from source A to target B
+CLOSED: [2025-11-03 Mon 19:10]
+
+- CLOSING NOTE [2025-11-03 Mon 19:10] \\
+  Donesoz
+currently it's all broadcasts. This works right now (because even for simulation events, the simulator can just use one of the nodes it has access to and just broadcast a message with a target node in mind and all recipients ignore it if that target is not them).
+
+It will be nicer to reduce the noise on the comms channel and just do message passing from source A to target B.
+- [X] Simulator interface should have a =broadcast_msg= vs =send_msg=
+- [X] =event_bus=: =publish_broadcast= vs =publish_to_node=
+- [X] =event_bus= support broadcast multicast @ drain function:
+  - queue of events, when drained is going to just do a broadcast for all
+  - we need to be able to enqueue such that we can have the queue items being =(int option * payload)= then we can dispatch accordingly.
+  - haven't add in the draining equivalent to this, since all that will be drained will only be broadcasted. fixing this would just mean that we have to do a =(int option * cb)= for the queue of messages to be dispatched out.
+***** [X] [#B] node config state to be updated via =simulation= topic msg passing
+CLOSED: [2025-11-03 Mon 16:26]
+
+- CLOSING NOTE [2025-11-03 Mon 16:26] \\
+  this is already done, handled earlier
+jsut have a simulation topic and adjust things like quorum based on the SOT (leader or the simulator).
+
+this is low priority for now
+
+- [ ] remove quorum from message fields
+- [ ] add node creation helper within the simulator:
+- [ ] add new topic for =simulation= and attach a handler for that topic.
+  - maybe we can have a lookup table somewhere for topic to handler(s) or pipeline or something
+
+**** DONE Rely on tick boundaries, avoid SRP violations from immediate sync actions
+CLOSED: [2025-11-04 Tue 09:38]
+
+- CLOSING NOTE [2025-11-04 Tue 09:38] \\
+  Wonderful stuff, it feels a little cleaner now
+:PROPERTIES:
+:EFFORT:   45min
+:END:
+:LOGBOOK:
+CLOCK: [2025-11-03 Mon 19:45]--[2025-11-03 Mon 19:53] =>  0:08
+CLOCK: [2025-11-03 Mon 19:21]--[2025-11-03 Mon 19:29] =>  0:08
+:END:
+
+This is more about tidying up how we do the event simulation, the task might be redundant by the time we get near this area
+
+Why: Current handle_message calls process_inboxes immediately during publish; that makes ordering depend on callback timing.
+
+Files: lib/event_bus.ml, lib/node.ml
+
+Changes:
+
+Event_bus.publish may still call subscribers synchronously, but nodes should only enqueue messages to their inbox then return. Actual evaluation (quorum checks, state transitions) should happen on Node.tick.
+
+drain behavior is fine, but ensure Node.tick is called after a drain completes for the current tick.
+
+Acceptance: After a drain, nodes must only change state when Node.tick is called, not during publish.
+
+***** DONE fixme: fix SRP violation for scheduler and event_bus buffers
+CLOSED: [2025-11-04 Tue 09:37]
+- CLOSING NOTE [2025-11-04 Tue 09:37] \\
+  Done, improved the simulator ergonomics a little also
+- [X] QQ: why is drain not being used by the simulation / simulator????
+
+  Bit of an oopsie was done:
+
+  - We have a buffer @ the simulator side which holds event callbacks and we call it the eventSceduler. This makes sense.
+
+    When simulator sends messages, it's always going to be synchronous action immediately (broadcast / unicast).
+
+  - We also have our =event_bus= with a queue. This was to allow for bufferring of messages and sending them at once with =drain=
+
+  - this overlap in responsibilities needs to be fixed because initially there was a clear separation of concerns
+    * the reason for the =event_bus= having a buffer (and therefore being "stateful" is to simulate async behaviour without using async frameworks
+      * because of that, the event bus's buffer was supposed to be for messages that will be passed
+
+    * the eventScheduler's buffer was for *simulation events*. An example of a simulation event is if a propose action is pickled and then a coordination simulation event is calling that pickle
+
+  - The violation happens when the simulator bypasses the eventScheduler and directly uses the =event_bus=
+    * Ideally, nodes should only enqueue messages to the event bus buffer.
+
+    * The simulator's scheduler should schedule the drain or dispatch of the event bus buffer as simulation events (e.g., draining all queued messages at one tick).
+
+  - This will cleanly separate concerns:
+    - Event bus owns buffering and dispatch semantics,
+    - Simulator owns scheduling simulation time and triggering buffer flushes.
+
+****** Problem
+
+The problem is our simulator logic. It's doing JIT sync actions (direclty publishing over the event-bus) instead of following the initial design intent of letting messages be bufferred @ the event bus.
+
+this is fixed now, the simulator's event scheduler keeps generic simulation events buffered.
+
+the =event_bus= keeps messages buffered. This is so that we can simulate async without doing async by draining deterministically.
+
+
 **** TODO Paxos Protocol Groundworks
 :PROPERTIES:
 :EFFORT:   45min
 :END:
+:LOGBOOK:
+CLOCK: [2025-11-03 Mon 09:27]--[2025-11-03 Mon 09:33] =>  0:06
+:END:
 Not the whole algo yet, but somewhere close
+ - [ ] Re-read paxos notes, some documentation touch ups on the nodes
  - [ ] Begin applying inbox stateful processing in nodes upon tick calls.
- - [ ] outline a test case of communication for one paxos process that we shoud be supporting.
+ - [ ] outline a test case of communication for one paxos process that we should be supporting.
 
 ***** TODO Add explicit proposal field to response messages
 
@@ -1778,36 +1892,6 @@ Changes:
 Add proposal: Types.proposal_id to PermissionGranted and Nack message variants (and ensure constructors accept it).
 
 Acceptance: Message.proposal_id_of returns proposal for request and response variants consistently.
-**** TODO Message Passing System Improvements
-
-We are almost ready to implement simple paxos, we shall relook at what our simulated world needs to do to be able to support it.
-
-We had earlier side-stepped the ability to directly message a particular node over a topic. This functionality is technically a nice-to-have because broadcasting (with a target field within message) already works and will be sufficient. However, it will make the log dumps (primary mode of showing what is being simulated) a little messy, and remove from the experience of seeing it at play becasue the "network"/event bus would end up being a noisy communication channel.
-
-Therefore, there's value to have a direct messaging capability. This will be a light lift, because it's just a matter of changing how the event bus stores callbacks, changing it from a list to more of a callback registry.
-
-I think this will require a better callback registry. We'd have to change from a list of =(subscription_id * cb)= to a better registry with better lookup (some sort of Hashtbl).
-
-The update cycle for the hashtabl can happen @ =Event_bus.subscribe= where we can make it =(node_id * subscription_id * cb)= which would just be a changing of the =sub_handle= type. Then we will be able to do well. or maybe some kind of =subscription_info= could be better.
-
-***** [ ] allow message passing from source A to target B
-
-currently it's all broadcasts. This works right now (because even for simulation events, the simulator can just use one of the nodes it has access to and just broadcast a message with a target node in mind and all recipients ignore it if that target is not them).
-
-It will be nicer to reduce the noise on the comms channel and just do message passing from source A to target B.
-***** [ ] Simulator interface should have a =broadcast_msg= vs =send_msg=
-
-***** [ ] [#B] node config state to be updated via =simulation= topic msg passing
-
-jsut have a simulation topic and adjust things like quorum based on the SOT (leader or the simulator).
-
-this is low priority for now
-
-- [ ] remove quorum from message fields
-- [ ] add node creation helper within the simulator:
-- [ ] add new topic for =simulation= and attach a handler for that topic.
-  - maybe we can have a lookup table somewhere for topic to handler(s) or pipeline or something
-
 **** TODO Add better logging to simulation
 :PROPERTIES:
 :EFFORT:   1h
@@ -1839,25 +1923,6 @@ Acceptance: A run produces a readable, timestamped event log that can be replaye
 This is necessary for the completion of this project because without it, the simulation visuals won't be sexy.
 
 this part involves adding in the loops we were talking about.
-**** TODO Stop synchronous immediate processing side-effects — rely on tick boundaries
-:PROPERTIES:
-:EFFORT:   45min
-:END:
-
-This is more about tidying up how we do the event simulation, the task might be redundant by the time we get near this area
-
-Why: Current handle_message calls process_inboxes immediately during publish; that makes ordering depend on callback timing.
-
-Files: lib/event_bus.ml, lib/node.ml
-
-Changes:
-
-Event_bus.publish may still call subscribers synchronously, but nodes should only enqueue messages to their inbox then return. Actual evaluation (quorum checks, state transitions) should happen on Node.tick.
-
-drain behavior is fine, but ensure Node.tick is called after a drain completes for the current tick.
-
-Acceptance: After a drain, nodes must only change state when Node.tick is called, not during publish.
-
 **** TODO Add storage pattern, in-mem -> persistent storage
 This is not as high priority but will be cool to demonstrate how crashing can still bring things back
 *** TODO Implement v0 (basic paxos algorithm -- main goal)
@@ -1894,6 +1959,12 @@ clock.tick
 #+end_src
 Acceptance: A manually scripted scenario (3 nodes, proposer at tick 0) produces expected PermissionRequest → PermissionGranted → Suggestion → Accepted sequence logged in order.
 
+**** DONE Improve the storage of callbacks
+CLOSED: [2025-11-03 Mon 19:20]
+- CLOSING NOTE [2025-11-03 Mon 19:20] \\
+  Done
+- [ ] add =node_id= within the subscription handle
+
 **** TODO Add in proper logic for Node's @ =handle_event=
 :PROPERTIES:
 :EFFORT:   1.5h
@@ -1927,6 +1998,28 @@ Implement per-inbox created_at and timeout handling.
 Maintain per-inbox seen_nodes to avoid double-counting.
 
 Acceptance: tests below succeed.
+**** TODO Isolated areas in consideration
+
+These are mechanisms that we need to add in part by part. It would be greate to add a sort of pipelining capability to this though and to just add in policy elements direclty.
+
+e.g. imagine =forward_progres= policy combined with =nack_optimisation= and so on. However,  i think doing that is too difficult of a task and should be ignored for v0 implementation of this project.
+
+A. Correctness
+
+   - As long as the messaging rules are adhered to, correctness is ensured by the algorithm and is independent of all other application considerations.
+B. Ensuring Forward Progress
+
+   - The application-defined retry and backoff logic used to ensure that resolution is eventually achieved.
+C. Learning the Final Result
+
+   - The application-defined mechanism used to ensure all peers eventually learn the result once consensus has been achieved.
+D. Latency Optimizations
+
+   - Optional techniques that can reduce the number of round trips required to achieve resolution under certain circumstances.
+E. Application-Level Logic
+
+   - How the application uses the results of Paxos instances
+
 
 *** TODO Implementation v1 (with async frameworks) [optional -- out of scope for this sprint]
 The tasks here are just documented but won't be in my v0 target. I NEED to arrive at SOME point of completion. Need to move onto other things.

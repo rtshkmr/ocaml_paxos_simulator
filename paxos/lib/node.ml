@@ -127,6 +127,7 @@ module Make_node (V : Value.S)
           proposal : Types.proposal_id;
           promises_received : (Types.node_id * (Types.proposal_id * V.t) option) list;
         }
+
       | Accepting of { proposal : Types.proposal_id; value : V.t; acks : Types.node_id list }
       | AcceptedLocally of { proposal : Types.proposal_id; value : V.t }
       | Decided of V.t
@@ -207,18 +208,18 @@ let state_of_string_opt = function
     (* Build PermissionRequest for this node *)
     let coord_msg = Message.make_permission_request ~msg_id ~time ~topic:Types.Coordination ~from:t.id ~proposal ~value in
     let msg = Message.Coordination coord_msg in
+    let thunk = (Types.Coordination, None ), msg   in
     (* For v0 we'll have simulator broadcast on behalf of node; but provide direct publish too *)
-    Bus.enqueue bus ~topic:Types.Coordination msg
+    Bus.enqueue bus thunk
 
   let make_node_idle ~msg_id ~time ~bus t ~node_id =
     (* Build PermissionRequest for this node *)
     let time = 1 in (*TODO TEMP -- until we wire up simulator time-flow *)
     let sim_ctrl_msg = Message.make_sim_control_idle_node ~msg_id ~time ~node_id in
     let msg = Message.Control sim_ctrl_msg in
+    let thunk = (Types.Simulation_control, Some node_id), msg in
     (* For v0 we'll have simulator broadcast on behalf of node; but provide direct publish too *)
-    Bus.publish bus ~topic:Types.Simulation_control msg
-
-
+    Bus.enqueue bus thunk
 
   (* unsubscribe helpers *)
   let shutdown t =
@@ -332,7 +333,8 @@ let process_inboxes (node: t) : unit =
             table
         in
         let callback msg = get_handler_for_topic node topic msg in
-        let subscription_handle = Bus.subscribe bus ~topic callback in
+        let node_id = node.id in
+        let subscription_handle = Bus.subscribe bus ~topic ~node_id callback in
         Hashtbl.add_exn topic_table ~key:subscription_handle ~data:bus
       );
 
