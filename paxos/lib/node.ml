@@ -127,6 +127,7 @@ module Make_node (V : Value.S)
           proposal : Types.proposal_id;
           promises_received : (Types.node_id * (Types.proposal_id * V.t) option) list;
         }
+
       | Accepting of { proposal : Types.proposal_id; value : V.t; acks : Types.node_id list }
       | AcceptedLocally of { proposal : Types.proposal_id; value : V.t }
       | Decided of V.t
@@ -203,7 +204,6 @@ let state_of_string_opt = function
     node.state <- new_state
 
   (* Node propose: create PermissionRequest and rely on simulator/bus to broadcast *)
-  (* FIXME: there's a violation of SRP here. see planning notes diff for this commit. *)
   let propose ~msg_id ~time ~bus t ~proposal ~value =
     (* Build PermissionRequest for this node *)
     let coord_msg = Message.make_permission_request ~msg_id ~time ~topic:Types.Coordination ~from:t.id ~proposal ~value in
@@ -217,10 +217,9 @@ let state_of_string_opt = function
     let time = 1 in (*TODO TEMP -- until we wire up simulator time-flow *)
     let sim_ctrl_msg = Message.make_sim_control_idle_node ~msg_id ~time ~node_id in
     let msg = Message.Control sim_ctrl_msg in
+    let thunk = (Types.Simulation_control, Some node_id), msg in
     (* For v0 we'll have simulator broadcast on behalf of node; but provide direct publish too *)
-    Bus.publish_to_node bus ~node_id ~topic:Types.Simulation_control msg
-
-
+    Bus.enqueue bus thunk
 
   (* unsubscribe helpers *)
   let shutdown t =

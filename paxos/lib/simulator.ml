@@ -40,6 +40,17 @@ module Simulator : Runtime = struct
     ; nodes: node list ref
     ; event_callbacks: (event -> unit) list ref }
 
+  let make_event id time action () = EventScheduler.create_event id time action
+
+  let make_message_event id time ?to_node ~topic ~from:node ~msg () =
+    let action () =
+      (match to_node with
+      | None -> Event_bus.publish_broadcast bus ~topic msg
+      | Some target_node -> Event_bus.publish_to_node ~node_id:(NodeImpl.id target_node) bus ~topic msg)
+    in
+    let event = {id = 1; EventScheduler.time = time; action} in
+    event
+
   let create ~config:_ =
     { halted= false
     ; clock= Time.create_clock ()
@@ -70,7 +81,8 @@ module Simulator : Runtime = struct
     let node_config = create_node_config_from_sim_spec node_spec in
     add_node_to_sim sim ~node_config
 
-  let send_heartbeat sim ~msg_id =
+  (** This is not scheduled*)
+  let broadcast_heartbeat sim ~msg_id =
     let time = Time.now sim.clock in
     let raw_msg = Message.make_heartbeat_msg ~msg_id ~time in
     let msg = Message.Time raw_msg in
@@ -83,15 +95,8 @@ module Simulator : Runtime = struct
     (* Event_bus.publish   *)
     (* (\* EventScheduler    EventScheduler.add_event !(sim.scheduler) event *\) *)
 
-  let send_message sim ?(send_after=Time.now sim.clock) ?to_node ~topic ~from:node ~msg () =
-    let cb () =
-      (match to_node with
-      | None -> Event_bus.publish_broadcast bus ~topic msg
-      | Some target_node -> Event_bus.publish_to_node ~node_id:(NodeImpl.id target_node) bus ~topic msg)
-    in
-    let event = {id = 1; EventScheduler.time = send_after; action = cb} in
+  let schedule_event sim event =
     EventScheduler.add_event !(sim.scheduler) event
-
 
   let on_event sim f = sim.event_callbacks := f :: !(sim.event_callbacks)
 
@@ -105,7 +110,7 @@ module Simulator : Runtime = struct
   let tick t =
     Stdio.print_endline "#### TICK SIMULATOR";
     Time.tick t.clock;
-    send_heartbeat t ~msg_id:2
+    broadcast_heartbeat t ~msg_id:2
 
   (** This is one step that includes:
      1. simulator gathers all the events to be dispatched for this step
@@ -147,4 +152,5 @@ module Simulator : Runtime = struct
 
   let print_bus_stats t =
     B.print_stats bus;
+
 end

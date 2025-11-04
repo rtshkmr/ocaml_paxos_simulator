@@ -137,7 +137,10 @@ module type S = sig
     -> unit
   (** Proposal function for the node to propose a value.
       It takes the message id, time, communication bus (parametrized on message
-      type matching [V.t]), the node, proposal id, and value to propose. *)
+      type matching [V.t]), the node, proposal id, and value to propose.
+
+      Based on our design, this enqueues to the bus instead of synchronously dispatching (i.e. it will get added to the current buffer).
+   *)
 
   val dump_state : t -> Sexp.t
   (** Dump the current state of the node as an s-expression for debugging. *)
