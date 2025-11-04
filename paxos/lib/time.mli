@@ -16,4 +16,6 @@ module Time : sig
   val now : clock -> t
 
   val tick : clock -> unit
+
+  val format_tick_msg : clock -> ?msg:string -> unit -> string
 end

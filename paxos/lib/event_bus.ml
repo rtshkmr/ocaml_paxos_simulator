@@ -122,18 +122,18 @@ module Event_bus : S = struct
     enqueue = (fun topic queue_size ->
         let topic_str = Color.bold (Color.cyan (Sexp.to_string_hum ~indent:1 (Types.sexp_of_topic topic))) in
         Printf.sprintf "%s Enqueued message, queue size now %s"
-          (Color.yellow "[ENQUEUE]")
+          (Color.bold(Color.underline(Color.yellow "[ENQUEUE]")) )
           (Color.magenta (Int.to_string queue_size)) ^ " for topic " ^ topic_str
       );
 
     drain_start = (fun batch_size ->
-        Printf.sprintf "%s Starting to drain queue of %s messages..."
-          (Color.bold (Color.green "[DRAIN_START]"))
-          (Color.magenta (Int.to_string batch_size))
+        Color.underline(Printf.sprintf "%s Starting to drain queue of %s messages..."
+          (Color.bold (Color.bright_blue "[DRAIN_START]"))
+          (Color.bold (Color.magenta (Int.to_string batch_size))))
       );
 
     drain_end = (fun () ->
-        Color.bold (Color.green "[DRAIN_END] Finished draining queue.")
+        Color.underline(Color.bold (Color.bright_blue "[DRAIN_END] Finished draining queue."))
       );
 
     print_stats = (fun () ->

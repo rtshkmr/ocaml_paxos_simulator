@@ -65,6 +65,7 @@ let bus =
 
   let make_event sim ?(id=next_event_id sim) ~time action () = EventScheduler.create_event id time action
 
+  (* DEPRECATED *)
   let make_message_event sim ?(id=next_msg_id sim)  ~time ?to_node ~topic ~from:node ~msg () =
     let action () =
       (match to_node with
@@ -90,12 +91,11 @@ let bus =
       | Some target_node ->  msg_factory ~msg_id ~from ~to_node:target_node ~time ()
       | None -> msg_factory ~msg_id ~from ~time ()
                 in
-                (* FIXME: this should be enqueing, not using the publish functions directly *)
-    let action () =
-      match to_node with
-      | None -> Event_bus.publish_broadcast bus ~topic msg
-      | Some target_node -> Event_bus.publish_unicast ~node_id:(NodeImpl.id target_node) bus ~topic msg
-    in
+    let to_node_id = match to_node with
+      | None -> None
+      | Some node -> Some (NodeImpl.id node) in
+    let thunk = ((topic, to_node_id), msg) in
+    let action () = Event_bus.enqueue bus thunk  in
     make_event sim ~time action ()
 
   let create ~config:_ =
@@ -158,9 +158,12 @@ let bus =
    *)
 
   let tick t =
-    Stdio.print_endline "#### TICK SIMULATOR";
+    let msg = "..." in
+    let formatted_tick_msg = Time.format_tick_msg t.clock ~msg () in
+    Stdio.print_endline  formatted_tick_msg;
+    Event_bus.drain bus;
     Time.tick t.clock;
-    broadcast_heartbeat t ~msg_id:2
+    broadcast_heartbeat t ~msg_id:(next_msg_id t)
 
   (** This is one step that includes:
      1. simulator gathers all the events to be dispatched for this step
@@ -172,13 +175,14 @@ let bus =
 *)
   let step sim =
     let now = current_time sim in
-    let due = EventScheduler.pop_due_events !(sim.scheduler) now in
+    let sim_events_due = EventScheduler.pop_due_events !(sim.scheduler) now in
     (* Run all due events *)
     List.iter
       ~f:(fun ev ->
-        ev.action () ;
-        List.iter ~f:(fun cb -> cb ev) !(sim.event_callbacks) )
-      due ;
+        ev.action ())
+        (* List.iter ~f:(fun cb -> cb ev) !(sim.event_callbacks) ) *)
+      sim_events_due ;
+
     tick sim
 
   let start sim =
