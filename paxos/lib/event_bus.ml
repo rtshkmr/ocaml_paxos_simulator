@@ -23,7 +23,7 @@ module type S = sig
 
   val publish_broadcast : 'a t -> topic:Types.topic -> 'a -> unit
 
-  val publish_to_node : 'a t -> topic:Types.topic -> node_id:int -> 'a -> unit
+  val publish_unicast : 'a t -> topic:Types.topic -> node_id:int -> 'a -> unit
 
 
   type 'a enqueuable_thunk = ((Types.topic * Types.node_id option) * 'a)
@@ -113,7 +113,7 @@ module Event_bus : S = struct
           subscription_info.callback payload ;
           ts.delivered <- ts.delivered + 1 )
 
-  let publish_to_node t ~topic ~node_id payload =
+  let publish_unicast t ~topic ~node_id payload =
     match Hashtbl.find t.topics topic with
     | None -> ()
     | Some ts ->
@@ -143,7 +143,7 @@ module Event_bus : S = struct
         | Some ts ->
             match node_id_opt with
               | None -> publish_broadcast t ~topic payload
-              | Some node_id -> publish_to_node t  ~node_id ~topic payload;
+              | Some node_id -> publish_unicast t  ~node_id ~topic payload;
             ts.queued <- Int.max 0 (ts.queued - 1))
 
   (* Any enqueued messages during publish will accumulate in t.queue for the next tick — not this one *)

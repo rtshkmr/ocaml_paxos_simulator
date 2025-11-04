@@ -46,7 +46,7 @@ module Simulator : Runtime = struct
     let action () =
       (match to_node with
       | None -> Event_bus.publish_broadcast bus ~topic msg
-      | Some target_node -> Event_bus.publish_to_node ~node_id:(NodeImpl.id target_node) bus ~topic msg)
+      | Some target_node -> Event_bus.publish_unicast ~node_id:(NodeImpl.id target_node) bus ~topic msg)
     in
     let event = {id = 1; EventScheduler.time = time; action} in
     event

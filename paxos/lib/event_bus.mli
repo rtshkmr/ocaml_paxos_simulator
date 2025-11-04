@@ -39,7 +39,7 @@ module type S = sig
   val publish_broadcast : 'a t -> topic:Types.topic -> 'a -> unit
   (** Synchronous, inline publish to all subscribers for the topic *)
 
-  val publish_to_node : 'a t -> topic:Types.topic -> node_id:int -> 'a -> unit
+  val publish_unicast : 'a t -> topic:Types.topic -> node_id:int -> 'a -> unit
   (** Synchronous, inline publish to a particular subscriber (via the node_id) for the topic *)
 
   type 'a enqueuable_thunk = (Types.topic * Types.node_id option) * 'a

@@ -1869,7 +1869,6 @@ this is fixed now, the simulator's event scheduler keeps generic simulation even
 the =event_bus= keeps messages buffered. This is so that we can simulate async without doing async by draining deterministically.
 
 
-
 **** TODO Paxos Protocol Groundworks
 :PROPERTIES:
 :EFFORT:   45min
