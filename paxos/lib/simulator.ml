@@ -29,26 +29,18 @@ module Simulator : Runtime = struct
 
   type event = EventScheduler.event
 
-  (* let bus = *)
-  (*   B.create *)
-  (*     ~logger:(fun topic msg -> *)
-  (*       Printf.sprintf "[LOG][%s] %s" *)
-  (*         (Sexp.to_string (Types.Types.sexp_of_topic topic)) *)
-  (*         (Sexplib.Sexp.to_string (Message.sexp_of_t V.sexp_of_t msg)) ) *)
-  (*     () *)
-
-let bus =
-  B.create
-    ~logger:(fun topic msg ->
-      let open Sexplib.Sexp in
-      let topic_sexp = Types.Types.sexp_of_topic topic in
-      let msg_sexp = Message.sexp_of_t V.sexp_of_t msg in
-      let formatted =
-        Sexp.to_string_hum (List [List [Atom "LOG"; topic_sexp]; msg_sexp])
-      in
-      formatted
-    )
-    ()
+  let bus =
+    B.create
+      ~logger:(fun topic msg ->
+          let open Sexplib.Sexp in
+          let topic_sexp = Types.Types.sexp_of_topic topic in
+          let msg_sexp = Message.sexp_of_t V.sexp_of_t msg in
+          let formatted =
+            Sexp.to_string_hum (List [List [Atom "LOG"; topic_sexp]; msg_sexp])
+          in
+          formatted
+        )
+      ()
 
   type t =
     { mutable halted: bool
@@ -69,8 +61,8 @@ let bus =
   let make_message_event sim ?(id=next_msg_id sim)  ~time ?to_node ~topic ~from:node ~msg () =
     let action () =
       (match to_node with
-      | None -> Event_bus.publish_broadcast bus ~topic msg
-      | Some target_node -> Event_bus.publish_unicast ~node_id:(NodeImpl.id target_node) bus ~topic msg)
+       | None -> Event_bus.publish_broadcast bus ~topic msg
+       | Some target_node -> Event_bus.publish_unicast ~node_id:(NodeImpl.id target_node) bus ~topic msg)
     in
     let event = {id; EventScheduler.time = time; action} in
     event
@@ -90,7 +82,7 @@ let bus =
     let msg = match to_node with
       | Some target_node ->  msg_factory ~msg_id ~from ~to_node:target_node ~time ()
       | None -> msg_factory ~msg_id ~from ~time ()
-                in
+    in
     let to_node_id = match to_node with
       | None -> None
       | Some node -> Some (NodeImpl.id node) in
@@ -119,7 +111,7 @@ let bus =
     new_node
 
   let create_node_config_from_sim_spec (node_spec : Config.node_spec) :
-      NodeImpl.config =
+    NodeImpl.config =
     let roles = List.map node_spec.roles ~f:NodeImpl.role_of_string in
     let initial_quorum = node_spec.initial_quorum in
     let storage = S.create () in
@@ -138,12 +130,12 @@ let bus =
     let msg = Message.Time raw_msg in
     let topic = Types.Types.Time in
     Event_bus.publish_broadcast bus ~topic msg
-    (* let cb = fun () -> Event_bus.publish bus ~topic msg in *)
-    (* let event_id = 2 in *)
-    (* (\* FIXME: the id here needs a counter and everything -- this should be event_id*\) *)
-    (* let event = {id=event_id; EventScheduler.time= Time.now sim.clock; action= (fun () -> cb ())} in *)
-    (* Event_bus.publish   *)
-    (* (\* EventScheduler    EventScheduler.add_event !(sim.scheduler) event *\) *)
+  (* let cb = fun () -> Event_bus.publish bus ~topic msg in *)
+  (* let event_id = 2 in *)
+  (* (\* FIXME: the id here needs a counter and everything -- this should be event_id*\) *)
+  (* let event = {id=event_id; EventScheduler.time= Time.now sim.clock; action= (fun () -> cb ())} in *)
+  (* Event_bus.publish   *)
+  (* (\* EventScheduler    EventScheduler.add_event !(sim.scheduler) event *\) *)
 
   let schedule_event sim event =
     EventScheduler.add_event !(sim.scheduler) event
@@ -155,7 +147,7 @@ let bus =
   (** Simulator specific tick logic grouped as one.
       1. advance the logical clock
       2. send the heartbeat message
-   *)
+  *)
 
   let tick t =
     let msg = "..." in
@@ -166,21 +158,21 @@ let bus =
     broadcast_heartbeat t ~msg_id:(next_msg_id t)
 
   (** This is one step that includes:
-     1. simulator gathers all the events to be dispatched for this step
-     3. the simulator clock will tick and the tick will propagate to all nodes
+      1. simulator gathers all the events to be dispatched for this step
+      3. the simulator clock will tick and the tick will propagate to all nodes
 
-    We should respect design principles such as:
-    - our [Event_bus] will always be passive and reactive.
-    - [Nodes] in the system will never be directly changed by the simulation, their internal state may only be updated via message passing.
-*)
+      We should respect design principles such as:
+      - our [Event_bus] will always be passive and reactive.
+      - [Nodes] in the system will never be directly changed by the simulation, their internal state may only be updated via message passing.
+  *)
   let step sim =
     let now = current_time sim in
     let sim_events_due = EventScheduler.pop_due_events !(sim.scheduler) now in
     (* Run all due events *)
     List.iter
       ~f:(fun ev ->
-        ev.action ())
-        (* List.iter ~f:(fun cb -> cb ev) !(sim.event_callbacks) ) *)
+          ev.action ())
+      (* List.iter ~f:(fun cb -> cb ev) !(sim.event_callbacks) ) *)
       sim_events_due ;
 
     tick sim

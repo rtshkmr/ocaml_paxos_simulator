@@ -2438,6 +2438,248 @@ let handle_coordination node msg =
   | Accepted _ -> handle_as_proposer node msg
   | Decided _ -> handle_as_learner node msg
 #+end_src
+***** GPT5-critique of the design of the simulated time-loop
+
+I like the critique, will dump it in full:
+
+#+begin_src md
+Excellent — this is a really good point to pause and evaluate the lifecycle of a **single simulation tick** in your architecture.
+
+Let’s walk through the current tick lifecycle *as implemented*, and then I’ll flag both **conceptual gaps** and **architectural smells / refinements** that will help you stabilize the next iteration.
+
+----
+
+## 🧭 Current Tick Lifecycle (as implemented)
+
+Let’s trace one full `Simulator.step sim`:
+
+1. **Collect due events**
+
+   ```ocaml
+   let sim_events_due = EventScheduler.pop_due_events !(sim.scheduler) now
+   ```
+
+   → Scheduler partitions pending events into “due now” vs “future”, using the simulator’s current logical time.
+
+2. **Execute event actions**
+
+   ```ocaml
+   List.iter ~f:(fun ev -> ev.action ()) sim_events_due
+   ```
+
+   → Each event’s `action` executes immediately.
+   → Those actions are *usually one of:*
+
+   * Enqueuing messages into the `Event_bus`
+   * Printing stats
+   * Possibly modifying simulator-level state.
+
+3. **Tick the simulator clock**
+
+   ```ocaml
+   tick sim
+   ```
+
+   Inside `tick`:
+
+   * `Event_bus.drain bus` — flushes all enqueued messages (delivering them to subscribed nodes).
+   * `Time.tick t.clock` — increments logical time.
+   * `broadcast_heartbeat t` — pushes a periodic `Time` topic message (heartbeat) into the bus.
+
+---
+
+## 🧩 Sequence of Flow
+
+So the actual chronological flow in a single tick is:
+
+```
+1. Gather due events (EventScheduler)
+2. Execute each event (→ enqueues messages)
+3. Drain bus (deliver those messages to nodes)
+4. Increment logical time (tick)
+5. Broadcast heartbeat (enqueued for next tick)
+```
+
+That means:
+
+  * All messages enqueued during this tick are delivered within this tick.
+  * The heartbeat is queued *after* draining, so it will only deliver on the *next* tick. (This is actually good deterministic behavior.)
+
+---
+
+## ⚙️ Key Design Observations
+
+Here’s what you’ve done *very well*:
+✅ Clear separation between scheduling (EventScheduler), dispatch (Event_bus), and simulation progression (tick).
+✅ Nodes are not directly mutated — all behavior is mediated via message passing.
+✅ Time advancement is explicit, not implicit (deterministic).
+✅ Logically, a “frame” (tick) maps cleanly to one cycle of event dispatch + message drain + clock advance.
+
+---
+
+## 🚨 What’s Missing / Potential Design Gaps
+
+### 1. **Node Progression Isn’t Yet Time-Aware**
+
+ * Nodes don’t “tick” in sync with simulation time — they only react to incoming messages.
+ * You might want `NodeImpl.on_tick` callbacks for time-based internal logic (timeouts, retries, etc.).
+
+  ```ocaml
+  List.iter !(sim.nodes) ~f:(fun node -> NodeImpl.on_tick node (Time.now sim.clock))
+  ```
+
+  so nodes can implement “liveness” logic.
+
+---
+
+### 2. **Scheduler Time Does Not Auto-Advance to Next Event**
+
+Right now, `step` just advances the logical clock by `Time.tick`.
+But that’s a fixed unit increment — it doesn’t necessarily match the *next scheduled event time*.
+
+If no events are due for 50 ticks, the simulator will still walk through 50 empty ticks doing heartbeats.
+That’s fine for real-time simulation, but wasteful for *discrete-event simulation*.
+
+➡️ Possible refinement:
+
+```ocaml
+match EventScheduler.peek_next_event_time !(sim.scheduler) with
+| Some next_time when next_time > now -> Time.advance_to sim.clock next_time
+| _ -> Time.tick sim.clock
+```
+
+This makes the simulator “jump” to the next event time.
+
+---
+
+### 3. **Bus and Scheduler Are Loosely Coupled**
+
+You enqueue message sends as *events* into the scheduler, then *those* enqueue into the bus, and then the bus drains to nodes.
+
+That’s a 3-step chain:
+
+```
+EventScheduler → Event_bus.enqueue → Event_bus.drain → node callbacks
+```
+
+It’s good separation, but could cause subtle ordering bugs (e.g., event ordering vs. bus order).
+
+**Improvement:**
+Consider a clearer “phase separation” in each tick:
+
+```ocaml
+phase 1: run all due events (scheduler)
+phase 2: drain all bus messages (delivery)
+phase 3: tick time + heartbeat
+```
+
+Right now, these are interleaved slightly — but enforcing the discipline keeps simulation semantics crisp.
+
+---
+
+### 4. **Events Don’t Carry Type Context**
+
+Your `event` is just `{time; action; id}`.
+It’s *opaque* — you can’t introspect what kind of event it was (message vs metric vs node control).
+
+In debugging and logging, this becomes painful.
+
+➡️ Suggest adding an event type:
+
+```ocaml
+type event_kind =
+  | MessageSend of { topic: topic; from: node_id; to_: node_id option }
+  | Callback of string
+  | Print of string
+  | Custom of Sexp.t
+
+type event = {
+  id: int;
+  time: Time.t;
+  action: unit -> unit;
+  kind: event_kind;
+}
+```
+
+so you can later record or replay event traces deterministically.
+
+---
+
+### 5. **No Feedback from Node → Scheduler**
+
+Nodes can enqueue messages to the bus, but not schedule *future* events.
+
+Eventually, a node might want to do:
+
+```ocaml
+Simulator.schedule_event sim
+  (Simulator.make_event sim ~time:(now + 5) (fun () -> NodeImpl.timeout node))
+```
+
+That’s currently impossible unless nodes are given a handle to the `Simulator.t`.
+
+➡️ You can fix that later by giving nodes a thin handle or `Runtime.schedule_after` API.
+
+---
+
+### 6. **No Stop Condition Other Than Key Input**
+
+Your top-level loop `run_with_pause` depends on stdin interaction.
+For autonomous testing, it’d be better to support “headless mode” (run until max_ticks or event queue empty).
+
+---
+
+### 7. **Bus Queues are Global**
+
+Currently, the `Event_bus` is a singleton inside the simulator.
+If you ever want multi-network or partition simulation (e.g. drop/delay), you’ll want `Event_bus` per *network region* or delay wrapper.
+
+For now, fine — but good to note.
+
+---
+
+## 🔮 Future-Proof Additions
+
+To make this architecture extend cleanly into Paxos proper:
+
+| Need                   | Feature                                                   |
+| ---------------------- | --------------------------------------------------------- |
+| Timeouts & Retransmits | Node-level on_tick + schedule_after                       |
+| Controlled randomness  | EventScheduler.random_delay + deterministic seed          |
+| Replay & determinism   | event_kind logging                                        |
+| Parallel simulation    | independent sub-schedulers per network partition          |
+| Visualization          | expose bus state each tick as JSON (for Graphviz/HTML UI) |
+
+---
+
+## ✅ Summary of Lifecycle (Idealized Form)
+
+Your ideal tick should look like this:
+
+```ocaml
+let step sim =
+  let now = current_time sim in
+
+  (* 1. Gather and execute due events *)
+  let due = EventScheduler.pop_due_events !(sim.scheduler) now in
+  List.iter due ~f:(fun ev -> ev.action ());
+
+  (* 2. Deliver all enqueued messages *)
+  Event_bus.drain bus;
+
+  (* 3. Let nodes react to time passage *)
+  List.iter !(sim.nodes) ~f:(fun n -> NodeImpl.on_tick n now);
+
+  (* 4. Advance clock and send heartbeat *)
+  Time.tick sim.clock;
+  broadcast_heartbeat sim ~msg_id:(next_msg_id sim);
+```
+
+---
+
+If you’d like, I can diagram the **per-tick callgraph** (e.g., which functions call which, visually) or refactor your `step` implementation to this idealized pattern — would you like me to do that next?
+
+#+end_src
 
 **** TODO Stage 2: State Transitions
 :PROPERTIES:
