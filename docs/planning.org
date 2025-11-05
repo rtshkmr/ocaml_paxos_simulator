@@ -2698,6 +2698,21 @@ let handle_coordination node msg =
    1. we shall soon add in another =Inactive= state for future connectivity simulations, but not for now.
 
 2. Reinstated the ability to do =Simulation_control= from the simulator. We can now make a node inactive.
+***** Layer the event handlers
+Define clear event handlers for each Paxos message variant:
+
+- [ ] PermissionRequest
+
+- [ ] PermissionGranted
+
+- [ ] Nack
+
+- [ ] Suggestion
+
+- [ ] Accepted
+
+
+
 
 **** TODO Stage 2: State Transitions
 :PROPERTIES:

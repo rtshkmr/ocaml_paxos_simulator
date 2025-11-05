@@ -20,7 +20,7 @@ module type S = sig
 
   val role_of_string : string -> role
 
- (** Acceptor_record module for local acceptor state snapshot *)
+  (** Acceptor_record module for local acceptor state snapshot *)
   module Acceptor_record : sig
     (** The value a local acceptor holds as part of the Paxos state.
 
@@ -85,7 +85,7 @@ module type S = sig
   val handle_time : t -> V.t Message.t -> unit
 
   val propose :
-       msg_id:int
+    msg_id:int
     -> time:int
     -> bus:V.t Message.t Bus.t
     -> t
@@ -99,7 +99,7 @@ module type S = sig
     topics: Types.topic list -> roles:roles -> storage:Storage.t -> cluster_size:int option -> config
 
   val make_node_idle :
-       msg_id:int
+    msg_id:int
     -> time:int
     -> bus:'a Message.t Bus.t
     -> 'b
@@ -129,48 +129,48 @@ module Make_node (V : Value.S)
     | "Learner" -> Learner
     | s -> failwith ("Unknown role: " ^ s)
 
-module Acceptor_record = struct
-  (** Local acceptor state snapshot for Paxos *)
+  module Acceptor_record = struct
+    (** Local acceptor state snapshot for Paxos *)
 
-  type value = {
-    promised : Types.proposal_id option;
-    accepted : (Types.proposal_id * V.t) option;
-  }
-  [@@deriving sexp]
-end
-
-
-module State = struct
-  type proposer_state =Inactive |  Idle | Preparing [@@deriving sexp]
-
-  type acceptor_state = Inactive | Idle | Accepting of Acceptor_record.value [@@deriving sexp]
-
-  type learner_state = Learned of V.t option [@@deriving sexp]
-
-  type role_state =
-    { proposer: proposer_state
-    ; acceptor: acceptor_state
-    ; learner: learner_state }
-  [@@deriving sexp]
-
-  (* Constructor for the idle state for all roles *)
-  let idle_of () = {
-    proposer = Idle;
-    acceptor = Idle;
-    learner = Learned None;
-  }
-
-  let inactive_of () = {
-    proposer = Inactive;
-    acceptor = Inactive;
-    learner = Learned None;
-  }
+    type value = {
+      promised : Types.proposal_id option;
+      accepted : (Types.proposal_id * V.t) option;
+    }
+    [@@deriving sexp]
   end
 
-let state_of_string_opt = function
-  | Some "Idle" -> Some (State.idle_of ())
-  | Some "Inactive" -> Some (State.inactive_of ())
-  | _ -> failwith "Unsupported initial state string"
+
+  module State = struct
+    type proposer_state =Inactive |  Idle | Preparing [@@deriving sexp]
+
+    type acceptor_state = Inactive | Idle | Accepting of Acceptor_record.value [@@deriving sexp]
+
+    type learner_state = Learned of V.t option [@@deriving sexp]
+
+    type role_state =
+      { proposer: proposer_state
+      ; acceptor: acceptor_state
+      ; learner: learner_state }
+    [@@deriving sexp]
+
+    (* Constructor for the idle state for all roles *)
+    let idle_of () = {
+      proposer = Idle;
+      acceptor = Idle;
+      learner = Learned None;
+    }
+
+    let inactive_of () = {
+      proposer = Inactive;
+      acceptor = Inactive;
+      learner = Learned None;
+    }
+  end
+
+  let state_of_string_opt = function
+    | Some "Idle" -> Some (State.idle_of ())
+    | Some "Inactive" -> Some (State.inactive_of ())
+    | _ -> failwith "Unsupported initial state string"
 
   type simulation_config = {
     mutable cluster_size: int option ref;
@@ -257,49 +257,49 @@ let state_of_string_opt = function
     Hashtbl.clear t.subs
 
   (** Returns true if the quorum (threshold) exists and a majority of non-acks is reached.
-   TODO: this probably needs a check on the type of message. Check what the response is gonna be like for a permission granted.
+      TODO: this probably needs a check on the type of message. Check what the response is gonna be like for a permission granted.
          maybe we can just pass in a predicate function into this as a param.
   *)
-let is_quorum_reached (node: t) (inbox_entry: inbox_entry) ~(predicate: 'v Message.t -> bool) =
-  match !(node.config.simulation.cluster_size) with
-  | None -> false
-  | Some total ->
-    let quorum_threshold = (total / 2) + 1 in
-    let msgs_rcvd = inbox_entry.messages in
-    let num_ack = List.count msgs_rcvd ~f:predicate in
-    num_ack >= quorum_threshold
+  let is_quorum_reached (node: t) (inbox_entry: inbox_entry) ~(predicate: 'v Message.t -> bool) =
+    match !(node.config.simulation.cluster_size) with
+    | None -> false
+    | Some total ->
+      let quorum_threshold = (total / 2) + 1 in
+      let msgs_rcvd = inbox_entry.messages in
+      let num_ack = List.count msgs_rcvd ~f:predicate in
+      num_ack >= quorum_threshold
 
-let process_inboxes (node: t) : unit =
-  dump_inbox node;
-  Hashtbl.iteri node.inbox ~f:(fun ~key:proposal_id ~data:inbox_entry ->
-      let needs_quorum msg =
-        match msg with
-        | Message.Coordination coordination_msg -> (
-            match coordination_msg with
-            | Message.PermissionGranted _
-            | Message.Accepted _ -> true
-            | Message.PermissionRequest _
-            | Message.Suggestion _
-            | Message.Nack _ -> false )
-        | Message.Control _ -> false
-        | Message.Time _ -> false
-      in
-      let quorum_reached = is_quorum_reached node inbox_entry ~predicate:needs_quorum in
-      if quorum_reached then begin
-        Stdio.printf "Node %d quorum reached for proposal %s\n%!" node.id (Sexp.to_string (Types.sexp_of_proposal_id proposal_id));
-        (* Clear inbox or mark done for this proposal *)
-      end else begin
-        Stdio.printf "Node %d quorum NOT YET reached for proposal %s\n%!" node.id (Sexp.to_string (Types.sexp_of_proposal_id proposal_id));
-        ()
-      end
-    )
+  let process_inboxes (node: t) : unit =
+    dump_inbox node;
+    Hashtbl.iteri node.inbox ~f:(fun ~key:proposal_id ~data:inbox_entry ->
+        let needs_quorum msg =
+          match msg with
+          | Message.Coordination coordination_msg -> (
+              match coordination_msg with
+              | Message.PermissionGranted _
+              | Message.Accepted _ -> true
+              | Message.PermissionRequest _
+              | Message.Suggestion _
+              | Message.Nack _ -> false )
+          | Message.Control _ -> false
+          | Message.Time _ -> false
+        in
+        let quorum_reached = is_quorum_reached node inbox_entry ~predicate:needs_quorum in
+        if quorum_reached then begin
+          Stdio.printf "Node %d quorum reached for proposal %s\n%!" node.id (Sexp.to_string (Types.sexp_of_proposal_id proposal_id));
+          (* Clear inbox or mark done for this proposal *)
+        end else begin
+          Stdio.printf "Node %d quorum NOT YET reached for proposal %s\n%!" node.id (Sexp.to_string (Types.sexp_of_proposal_id proposal_id));
+          ()
+        end
+      )
 
-let handle_coordination (node: t) (msg: V.t Message.t) =
-  match node.state, Message.proposal_id_of msg with
-  | _, None -> ()
-  | State.{ proposer = Inactive; _ }, _ | State.{ acceptor = Inactive; _ }, _ ->
+  let handle_coordination (node: t) (msg: V.t Message.t) =
+    match node.state, Message.proposal_id_of msg with
+    | _, None -> ()
+    | State.{ proposer = Inactive; _ }, _ | State.{ acceptor = Inactive; _ }, _ ->
       Stdio.printf "XXXX attempted to coordinate with Node %d but that node is inactive\n%!" node.id
-  | _, Some key ->
+    | _, Some key ->
       let inbox_entry = get_or_create_inbox_entry node key in
       inbox_entry.messages <- msg :: inbox_entry.messages;
       process_inboxes node
