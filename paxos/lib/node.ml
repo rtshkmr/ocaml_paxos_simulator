@@ -361,10 +361,9 @@ module Make_node (V : Value.S)
     (* update proposer state or infer consensus *)
     ()
 
-  let handle_coordination_ node msg =
+  let handle_coordination node msg =
     match Message.proposal_id_of msg with
     | None -> ()
-
     | Some proposal_id -> begin
         match msg with
         | Message.Coordination (PermissionRequest _) -> handle_permission_request node msg
@@ -374,17 +373,6 @@ module Make_node (V : Value.S)
         | Message.Coordination (Accepted _) -> handle_accepted node msg
         | _ -> ()
       end
-
-  let handle_coordination node msg=
-    match node.state, Message.proposal_id_of msg with
-    | _, None -> ()
-    | State.{ proposer = Inactive; _ }, _ | State.{ acceptor = Inactive; _ }, _ ->
-      Stdio.printf "XXXX attempted to coordinate with Node %d but that node is inactive\n%!" node.id
-    | _, Some key ->
-      let inbox_entry = get_or_create_inbox_entry node key in
-      inbox_entry.messages <- msg :: inbox_entry.messages;
-      process_inboxes node
-
 
   let handle_simulation_control (node: t) (msg: V.t Message.t) =
     match msg with

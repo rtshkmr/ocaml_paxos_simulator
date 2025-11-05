@@ -38,6 +38,7 @@ module Message : sig
     | PermissionGranted of
         { meta: Meta.t
         ; from: Types.node_id
+        ; proposal: Types.proposal_id
         ; last_accepted: (Types.proposal_id * 'v) option }
     | Suggestion of
         { meta: Meta.t
@@ -49,7 +50,11 @@ module Message : sig
         ; from: Types.node_id
         ; proposal: Types.proposal_id
         ; value: 'v }
-    | Nack of {meta: Meta.t; from: Types.node_id; hint: Types.proposal_id option}
+    | Nack of
+        { meta: Meta.t
+        ; proposal: Types.proposal_id
+        ; from: Types.node_id
+        ; hint: Types.proposal_id option }
   [@@deriving sexp, compare, equal]
 
   and 'v time_message =
@@ -95,6 +100,7 @@ module Message : sig
   val make_permission_granted :
        msg_id:int
     -> topic:Types.topic
+    -> proposal:Types.proposal_id
     -> time:Time.t
     -> from:Types.node_id
     -> last_accepted:(Types.proposal_id * 'v) option
@@ -123,6 +129,7 @@ module Message : sig
     -> topic:Types.topic
     -> time:Time.t
     -> from:Types.node_id
+    -> proposal:Types.proposal_id
     -> hint:Types.proposal_id option
     -> 'v coordination_message
 

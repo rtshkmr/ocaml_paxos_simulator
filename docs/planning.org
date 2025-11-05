@@ -1971,7 +1971,13 @@ CLOSED: [2025-11-04 Tue 20:48]
  - [X] Improve Simulator ergonomics
    - allow a simulator to have a bunch of counters, just use the counters to generate new ids so that we don't get lost about it.
  - [X] Re-read paxos notes, some documentation touch ups on the nodes
-***** TODO Add explicit proposal field to response messages
+***** DONE Add explicit proposal field to response messages
+CLOSED: [2025-11-05 Wed 12:35]
+- CLOSING NOTE [2025-11-05 Wed 12:35] \\
+  Done, this was pretty fast to do, needed to do it because =handle_coordination= will ignore everythhing that doesn't have a =proposal_id=
+:LOGBOOK:
+CLOCK: [2025-11-05 Wed 12:28]--[2025-11-05 Wed 12:35] =>  0:07
+:END:
 
 Why: Correlating responses to proposals must be unambiguous.
 
@@ -2698,24 +2704,24 @@ let handle_coordination node msg =
    1. we shall soon add in another =Inactive= state for future connectivity simulations, but not for now.
 
 2. Reinstated the ability to do =Simulation_control= from the simulator. We can now make a node inactive.
-***** Layer the event handlers
+***** DONE Layer the event handlers
 :LOGBOOK:
-CLOCK: [2025-11-05 Wed 11:15]
+CLOCK: [2025-11-05 Wed 11:15]--[2025-11-05 Wed 12:28] =>  1:13
 :END:
 
 The pattern that emerges out of this is something like a demuxing-pattern -- something that feels like a Mediator / Command pattern of sorts. We are interested in the data-flow POV of this, so the exact canonical pattern is irrelevant for us here.
 
 Define clear event handlers for each Paxos message variant:
 
-- [ ] PermissionRequest
+- [X] PermissionRequest
 
-- [ ] PermissionGranted
+- [X] PermissionGranted
 
-- [ ] Nack
+- [X] Nack
 
-- [ ] Suggestion
+- [X] Suggestion
 
-- [ ] Accepted
+- [X] Accepted
 
 
 

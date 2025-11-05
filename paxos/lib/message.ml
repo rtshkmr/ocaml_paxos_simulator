@@ -17,6 +17,7 @@ module Message = struct
     | PermissionGranted of
         { meta: Meta.t
         ; from: Types.node_id
+        ; proposal: Types.proposal_id
         ; last_accepted: (Types.proposal_id * 'v) option }
     | Suggestion of
         { meta: Meta.t
@@ -28,7 +29,11 @@ module Message = struct
         ; from: Types.node_id
         ; proposal: Types.proposal_id
         ; value: 'v }
-    | Nack of {meta: Meta.t; from: Types.node_id; hint: Types.proposal_id option}
+    | Nack of
+        { meta: Meta.t
+        ; proposal: Types.proposal_id
+        ; from: Types.node_id
+        ; hint: Types.proposal_id option }
   [@@deriving sexp, compare, equal]
 
   and 'v time_message =
@@ -133,10 +138,11 @@ module Message = struct
     let meta = make_meta id time topic in
     PermissionRequest {meta; from; proposal; value}
 
-  let make_permission_granted ~msg_id ~topic ~time ~from ~last_accepted =
+  let make_permission_granted ~msg_id ~topic ~proposal ~time ~from
+      ~last_accepted =
     let id = msg_id in
     let meta = make_meta id time topic in
-    PermissionGranted {meta; from; last_accepted}
+    PermissionGranted {meta; from; proposal; last_accepted}
 
   let make_suggestion ~msg_id ~topic ~time ~from ~proposal ~value =
     let id = msg_id in
@@ -148,8 +154,8 @@ module Message = struct
     let meta = make_meta id time topic in
     Accepted {meta; from; proposal; value}
 
-  let make_nack ~msg_id ~topic ~time ~from ~hint =
+  let make_nack ~msg_id ~topic ~time ~from ~proposal ~hint =
     let id = msg_id in
     let meta = make_meta id time topic in
-    Nack {meta; from; hint}
+    Nack {meta; from; proposal; hint}
 end
