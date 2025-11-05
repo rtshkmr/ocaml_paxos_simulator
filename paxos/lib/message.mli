@@ -60,7 +60,7 @@ module Message : sig
 
   and 'v simulation_control_message =
     | MakeNodeIdle of {meta: Meta.t; node_id: Types.node_id}
-    | MakeNodeEcho of {meta: Meta.t; node_id: Types.node_id}
+    | MakeNodeInactive of {meta: Meta.t; node_id: Types.node_id}
     | Pause of {meta: Meta.t}
     | Resume of {meta: Meta.t}
     | AdvanceTick of {meta: Meta.t}
@@ -132,7 +132,7 @@ module Message : sig
     -> node_id:Types.node_id
     -> 'v simulation_control_message
 
-  val make_sim_control_echo_node :
+  val make_sim_control_inactive_node :
        msg_id:int
     -> time:Time.t
     -> node_id:Types.node_id

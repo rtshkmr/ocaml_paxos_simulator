@@ -2598,8 +2598,11 @@ If you’d like, I can diagram the **per-tick callgraph** (e.g., which functions
 :PROPERTIES:
 :EFFORT:   1h
 :END:
+:LOGBOOK:
+CLOCK: [2025-11-05 Wed 07:10]--[2025-11-05 Wed 09:38] =>  2:28
+:END:
 
-- [ ] Minor cleanups of tick event loop
+- [X] Minor cleanups of tick event loop
 
 - [ ] Clarifications
   - we should tie-down the definition of quorum, especially in the context of
@@ -2620,7 +2623,7 @@ A quorum is the minimum number of members required to be present at a meeting in
 
   - [ ] Inject =quorum_type= (message type) and do a lazy check if any of them are reached when judging if proposer node can stop collecting and respond.
 
-- [ ] should have a =last_seen= or something? or =last_accepted=
+- [X] should have a =last_seen= or something? or =last_accepted=
 
   not sure if the current design for node will be sufficient
 
@@ -2635,11 +2638,11 @@ A quorum is the minimum number of members required to be present at a meeting in
   end
   #+end_src
 
-  - [ ] Add helper functions:
+  - [X] Add helper functions:
     - =Storage.get_promised_id=
     - =Storage.get_accepted_value=
 
-- [ ] Ensure role-specific states can be defined
+- [X] Ensure role-specific states can be defined
 
   currently I only have a single state submodule. I'm not sure if this is sufficient, or if I should be using a record of states. This is be cause states should be role-specific and at the moment, we only have one state submodule.
 
@@ -2686,6 +2689,16 @@ let handle_coordination node msg =
   | Accepted _ -> handle_as_proposer node msg
   | Decided _ -> handle_as_learner node msg
 #+end_src
+
+****** Implementation notes
+1. change to the meaning of =Idle= in =role_state=:
+
+   the individual =Idle= states doesn't mean =Inactive=, it just means it's ready
+
+   1. we shall soon add in another =Inactive= state for future connectivity simulations, but not for now.
+
+2. Reinstated the ability to do =Simulation_control= from the simulator. We can now make a node inactive.
+
 **** TODO Stage 2: State Transitions
 :PROPERTIES:
 :EFFORT:   2.5h

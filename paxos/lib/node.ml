@@ -20,30 +20,40 @@ module type S = sig
 
   val role_of_string : string -> role
 
-  (* -- TODO: actually implement the FSM state changes for simple paxos. Refer to the notes in this response for a rough starting ground: https://www.perplexity.ai/search/i-m-writing-out-this-functor-i-yCdty5gmQjelAtQTW4J97g#15 *)
-  module State : sig
-    type t =
-      | Echo
-      | Idle
-          (** Node is inactive or waiting to initiate consensus or for messages *)
-      | Preparing of
-          {current_proposal: Types.proposal_id; awaiting: Types.node_id list}
-          (** Proposer has sent Prepare requests, awaiting promises *)
-      | WaitingForPromises of
-          { proposal: Types.proposal_id
-          ; promises_received:
-              (Types.node_id * (Types.proposal_id * V.t) option) list }
-          (** Proposer is collecting promises and evaluating highest accepted proposals *)
-      | Accepting of
-          {proposal: Types.proposal_id; value: V.t; acks: Types.node_id list}
-          (** Proposer sending Accept requests, waiting for acknowledgments *)
-      | AcceptedLocally of {proposal: Types.proposal_id; value: V.t}
-          (** Acceptor has accepted a proposal locally *)
-      | Decided of V.t  (** Consensus value is decided and learned *)
+ (** Acceptor_record module for local acceptor state snapshot *)
+  module Acceptor_record : sig
+    (** The value a local acceptor holds as part of the Paxos state.
+
+        - [promised] is the highest proposal id this acceptor has promised not to
+          accept proposals less than.
+        - [accepted] is the optional last accepted proposal id and value pair.
+    *)
+    type value =
+      { promised: Types.proposal_id option
+      ; accepted: (Types.proposal_id * V.t) option }
     [@@deriving sexp]
   end
 
-  val state_of_string_opt:string option -> State.t option
+  (* -- TODO: actually implement the FSM state changes for simple paxos. Refer to the notes in this response for a rough starting ground: https://www.perplexity.ai/search/i-m-writing-out-this-functor-i-yCdty5gmQjelAtQTW4J97g#15 *)
+  module State : sig
+    type proposer_state = Inactive | Idle | Preparing [@@deriving sexp]
+
+    type acceptor_state = Inactive | Idle | Accepting of Acceptor_record.value
+
+    type learner_state = Learned of V.t option [@@deriving sexp]
+
+    type role_state =
+      { proposer: proposer_state
+      ; acceptor: acceptor_state
+      ; learner: learner_state }
+    [@@deriving sexp]
+
+    val idle_of: unit -> role_state
+    val inactive_of: unit -> role_state
+
+  end
+
+  val state_of_string_opt:string option -> State.role_state option
 
   type simulation_config = {mutable cluster_size: int option ref}
 
@@ -52,20 +62,21 @@ module type S = sig
   type t
 
   val create :
-    ?state:State.t
+    ?state:State.role_state
     -> id:Types.node_id
     -> config:config
     -> bus:V.t Message.t Bus.t
     -> unit
     -> t
 
-  val set_node_state : t -> State.t -> unit
+  val set_node_state : t -> State.role_state -> unit
 
   val id : t -> Types.node_id
 
   val roles : t -> roles
 
-  val state : t -> State.t
+  val state : t -> State.role_state
+
 
   val handle_coordination : t -> V.t Message.t -> unit
 
@@ -118,26 +129,47 @@ module Make_node (V : Value.S)
     | "Learner" -> Learner
     | s -> failwith ("Unknown role: " ^ s)
 
-  module State = struct
-    type t =
-      | Echo
-      | Idle
-      | Preparing of { current_proposal : Types.proposal_id; awaiting : Types.node_id list }
-      | WaitingForPromises of {
-          proposal : Types.proposal_id;
-          promises_received : (Types.node_id * (Types.proposal_id * V.t) option) list;
-        }
+module Acceptor_record = struct
+  (** Local acceptor state snapshot for Paxos *)
 
-      | Accepting of { proposal : Types.proposal_id; value : V.t; acks : Types.node_id list }
-      | AcceptedLocally of { proposal : Types.proposal_id; value : V.t }
-      | Decided of V.t
-    [@@deriving sexp]
+  type value = {
+    promised : Types.proposal_id option;
+    accepted : (Types.proposal_id * V.t) option;
+  }
+  [@@deriving sexp]
+end
+
+
+module State = struct
+  type proposer_state =Inactive |  Idle | Preparing [@@deriving sexp]
+
+  type acceptor_state = Inactive | Idle | Accepting of Acceptor_record.value [@@deriving sexp]
+
+  type learner_state = Learned of V.t option [@@deriving sexp]
+
+  type role_state =
+    { proposer: proposer_state
+    ; acceptor: acceptor_state
+    ; learner: learner_state }
+  [@@deriving sexp]
+
+  (* Constructor for the idle state for all roles *)
+  let idle_of () = {
+    proposer = Idle;
+    acceptor = Idle;
+    learner = Learned None;
+  }
+
+  let inactive_of () = {
+    proposer = Inactive;
+    acceptor = Inactive;
+    learner = Learned None;
+  }
   end
 
 let state_of_string_opt = function
-  | Some "Idle" -> Some State.Idle
-  | Some "Echo" -> Some State.Echo
-  (* | Some "Preparing" -> Some NodeImpl.State.Preparing { current_proposal = ...; awaiting = [] }  (\* fill args *\) *)
+  | Some "Idle" -> Some (State.idle_of ())
+  | Some "Inactive" -> Some (State.inactive_of ())
   | _ -> failwith "Unsupported initial state string"
 
   type simulation_config = {
@@ -154,7 +186,7 @@ let state_of_string_opt = function
     id : Types.node_id;
     config: config;
     inbox : inbox;
-    mutable state : State.t;
+    mutable state : State.role_state;
     mutable subs : (Types.topic, (Bus.sub_handle, V.t Message.t Bus.t) Hashtbl.t) Hashtbl.t;
     transitions : string list ref;  (* light-weight history for debugging *)
   }
@@ -167,7 +199,7 @@ let state_of_string_opt = function
     | Some table -> Hashtbl.fold table ~init:[] ~f:(fun ~key:_ ~data:bus acc -> bus :: acc)
     | None -> []
 
-  let dump_state t = State.sexp_of_t t.state
+  let dump_state t = State.sexp_of_role_state t.state
 
   let get_or_create_inbox_entry (node: t) (key: proposal_key) =
     match Hashtbl.find node.inbox key with
@@ -188,19 +220,11 @@ let state_of_string_opt = function
     in
     Stdio.printf "Inbox for node %d:\n%s\n%!" node.id (Sexplib.Sexp.to_string_hum sexp)
 
-  (* helper to persist acceptor record *)
-  module Acceptor_record = struct
-    type value = {
-      promised : Types.proposal_id option;
-      accepted : (Types.proposal_id * V.t) option;
-    } [@@deriving sexp]
-  end
-
-  let set_node_state (node : t) (new_state : State.t) : unit =
+  let set_node_state (node : t) (new_state : State.role_state) : unit =
     Stdio.printf "Node %d changed state from %s to %s\n%!"
       node.id
-      (Sexplib.Sexp.to_string (State.sexp_of_t node.state))
-      (Sexplib.Sexp.to_string (State.sexp_of_t new_state));
+      (Sexplib.Sexp.to_string (State.sexp_of_role_state node.state))
+      (Sexplib.Sexp.to_string (State.sexp_of_role_state new_state));
     node.state <- new_state
 
   (* Node propose: create PermissionRequest and rely on simulator/bus to broadcast *)
@@ -270,21 +294,27 @@ let process_inboxes (node: t) : unit =
       end
     )
 
-  let handle_coordination (node: t) (msg: V.t Message.t) =
-    match node.state, Message.proposal_id_of msg with
-    | _ , None -> ()
-    | State.Idle, _ -> Stdio.printf "XXXX attempted to coordinate with Node %d but that node is idle\n%!" node.id
-    | _ , Some key -> let inbox_entry = get_or_create_inbox_entry node key
-      in
-      inbox_entry.messages <- msg::inbox_entry.messages;
+let handle_coordination (node: t) (msg: V.t Message.t) =
+  match node.state, Message.proposal_id_of msg with
+  | _, None -> ()
+  | State.{ proposer = Inactive; _ }, _ | State.{ acceptor = Inactive; _ }, _ ->
+      Stdio.printf "XXXX attempted to coordinate with Node %d but that node is inactive\n%!" node.id
+  | _, Some key ->
+      let inbox_entry = get_or_create_inbox_entry node key in
+      inbox_entry.messages <- msg :: inbox_entry.messages;
       process_inboxes node
 
 
   let handle_simulation_control (node: t) (msg: V.t Message.t) =
     match msg with
     | Message.Control (MakeNodeIdle {node_id; _}) when node_id = node.id ->
-      node.state <- State.Idle;
+      node.state <- State.idle_of ();
       Stdio.printf "---> Node %d was made idle\n%!" node.id
+
+    | Message.Control (MakeNodeInactive {node_id; _}) when node_id = node.id ->
+      node.state <- State.inactive_of ();
+      Stdio.printf "---> Node %d was made inactive\n%!" node.id
+
 
     | _ -> Stdio.printf "---> Node %d received simulation control but did nothing \n%!" node.id
 
@@ -313,7 +343,7 @@ let process_inboxes (node: t) : unit =
     | Types.Time -> handle_time node
     | _ -> handle_coordination node
 
-  let create ?(state=State.Idle) ~id ~config ~bus () =
+  let create ?(state=(State.idle_of ())) ~id ~config ~bus () =
     let topics = config.topics in
     let node = {
       id;

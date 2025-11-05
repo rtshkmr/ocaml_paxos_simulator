@@ -204,10 +204,11 @@ let publish_broadcast t ~topic payload =
     | None -> ()
     | Some ts ->
       Hashtbl.iteri ts.subs ~f:(fun ~key ~data ->
-          if key.node_id = node_id then
+          if key.node_id = node_id then begin
             data.callback payload;
-          let formatter = formatters.publish_unicast node_id in
-            maybe_log t.logger topic payload formatter
+            let formatter = formatters.publish_unicast node_id in
+              maybe_log t.logger topic payload formatter
+          end
         );
        ts.delivered <- ts.delivered + 1
 

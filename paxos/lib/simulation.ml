@@ -46,7 +46,7 @@ module Simulation = struct
 
   [@@@ocaml.warning "-27"] (* TODO fixme: remove this eventually @ cleanup *)
 
-  let permission_event_factory my_string : Simulator.msg_factory =
+  let permission_event_msg_factory my_string : Simulator.msg_factory =
    fun ~msg_id ~from ?to_node ~time () ->
     let proposal = Types.Types.make_proposal_id ~seq:0 ~node:1 in
     let from_id = Simulator.id_of_node from in
@@ -57,18 +57,33 @@ module Simulation = struct
     in
     Simulator.msg_of_message (Message.Coordination raw_msg)
 
+  let make_sim_control_event ~(sim : Simulator.t) ~(dispatch_time : Time.Time.t)
+      ~(to_node_id : Types.Types.node_id)
+      ~(make_msg :
+            msg_id:int
+         -> time:Time.Time.t
+         -> node_id:Types.Types.node_id
+         -> V.t Message.simulation_control_message ) =
+    let msg_id = Simulator.next_msg_id sim in
+    let raw_msg = make_msg ~msg_id ~time:dispatch_time ~node_id:to_node_id in
+    let msg = Simulator.msg_of_message (Message.Control raw_msg) in
+    let topic = Types.Types.Simulation_control in
+    let thunk = ((topic, Some to_node_id), msg) in
+    Simulator.enqueue_thunk sim ~time:dispatch_time thunk
+
   let permission_events =
     [ Simulator.create_message_event sim ~time:2 ~topic:Types.Types.Coordination
         ~from:n1 ~to_node:n2
-        ~msg_factory:(permission_event_factory "Let's go ritesh let's go")
+        ~msg_factory:(permission_event_msg_factory "Let's go ritesh let's go")
         ()
     ; Simulator.create_message_event sim ~time:4 ~topic:Types.Types.Coordination
         ~from:n2
-        ~msg_factory:(permission_event_factory "We are so close to our goal")
+        ~msg_factory:
+          (permission_event_msg_factory "We are so close to our goal")
         ()
-    ; Simulator.create_message_event sim ~time:4 ~topic:Types.Types.Coordination
+    ; Simulator.create_message_event sim ~time:6 ~topic:Types.Types.Coordination
         ~from:n2
-        ~msg_factory:(permission_event_factory "We must persist")
+        ~msg_factory:(permission_event_msg_factory "We must persist")
         () ]
 
   let print_events =
@@ -85,7 +100,13 @@ module Simulation = struct
         (fun () -> Simulator.print_bus_stats sim)
         () ]
 
-  let predetermined_events = permission_events @ print_events
+  let sim_ctrl_events =
+    [ make_sim_control_event ~sim ~dispatch_time:3 ~to_node_id:1
+        ~make_msg:Message.make_sim_control_inactive_node
+    ; make_sim_control_event ~sim ~dispatch_time:5 ~to_node_id:1
+        ~make_msg:Message.make_sim_control_idle_node ]
+
+  let predetermined_events = permission_events @ print_events @ sim_ctrl_events
 
   let seed_predetermined_events sim events =
     List.iter ~f:(fun e -> Simulator.schedule_event sim e) events

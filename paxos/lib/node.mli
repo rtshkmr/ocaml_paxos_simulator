@@ -46,33 +46,43 @@ module type S = sig
 
   val role_of_string : string -> role
 
+  (** Acceptor_record module for local acceptor state snapshot *)
+  module Acceptor_record : sig
+    (** The value a local acceptor holds as part of the Paxos state.
+
+        - [promised] is the highest proposal id this acceptor has promised not to
+          accept proposals less than.
+        - [accepted] is the optional last accepted proposal id and value pair.
+    *)
+    type value =
+      { promised: Types.proposal_id option
+      ; accepted: (Types.proposal_id * V.t) option }
+    [@@deriving sexp]
+  end
+
   (** Internal ADT representing the various states of a node during the Paxos
       consensus process. Each constructor optionally carries data typed using
       [V.t], ensuring the node's state is parametrically tied to the concrete
       value type chosen in [V]. *)
   module State : sig
-    type t =
-      | Echo
-      | Idle
-          (** Node is inactive or waiting to initiate consensus or for messages *)
-      | Preparing of
-          {current_proposal: Types.proposal_id; awaiting: Types.node_id list}
-          (** Proposer has sent Prepare requests, awaiting promises *)
-      | WaitingForPromises of
-          { proposal: Types.proposal_id
-          ; promises_received:
-              (Types.node_id * (Types.proposal_id * V.t) option) list }
-          (** Proposer is collecting promises and evaluating highest accepted proposals *)
-      | Accepting of
-          {proposal: Types.proposal_id; value: V.t; acks: Types.node_id list}
-          (** Proposer sending Accept requests, waiting for acknowledgments *)
-      | AcceptedLocally of {proposal: Types.proposal_id; value: V.t}
-          (** Acceptor has accepted a proposal locally *)
-      | Decided of V.t  (** Consensus value is decided and learned *)
+    type proposer_state = Inactive | Idle | Preparing [@@deriving sexp]
+
+    type acceptor_state = Inactive | Idle | Accepting of Acceptor_record.value
+
+    type learner_state = Learned of V.t option [@@deriving sexp]
+
+    type role_state =
+      { proposer: proposer_state
+      ; acceptor: acceptor_state
+      ; learner: learner_state }
     [@@deriving sexp]
+
+    val idle_of : unit -> role_state
+
+    val inactive_of : unit -> role_state
   end
 
-  val state_of_string_opt : string option -> State.t option
+  val state_of_string_opt : string option -> State.role_state option
 
   (** Configuration for simulation semantics, including mutable cluster_size tracking. *)
   type simulation_config = {mutable cluster_size: int option ref}
@@ -90,7 +100,7 @@ module type S = sig
   type t
 
   val create :
-       ?state:State.t
+       ?state:State.role_state
     -> id:Types.node_id
     -> config:config
     -> bus:V.t Message.t Bus.t
@@ -107,7 +117,7 @@ module type S = sig
       Note: The types of [bus] and messages depend on the injected [V] and [Bus]
       modules, ensuring tight coupling between node messaging and value representation. *)
 
-  val set_node_state : t -> State.t -> unit
+  val set_node_state : t -> State.role_state -> unit
   (** Update the internal state of a node. *)
 
   val id : t -> Types.node_id
@@ -116,7 +126,7 @@ module type S = sig
   val roles : t -> roles
   (** Return the roles assigned to a node. *)
 
-  val state : t -> State.t
+  val state : t -> State.role_state
   (** Return the current internal state of a node. *)
 
   val handle_coordination : t -> V.t Message.t -> unit

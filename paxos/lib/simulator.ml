@@ -42,6 +42,7 @@ module Simulator : Runtime = struct
         )
       ()
 
+
   type t =
     { mutable halted: bool
     ; mutable clock: Time.clock
@@ -57,17 +58,11 @@ module Simulator : Runtime = struct
 
   let make_event sim ?(id=next_event_id sim) ~time action () = EventScheduler.create_event id time action
 
-  (* DEPRECATED *)
-  let make_message_event sim ?(id=next_msg_id sim)  ~time ?to_node ~topic ~from:node ~msg () =
-    let action () =
-      (match to_node with
-       | None -> Event_bus.publish_broadcast bus ~topic msg
-       | Some target_node -> Event_bus.publish_unicast ~node_id:(NodeImpl.id target_node) bus ~topic msg)
-    in
-    let event = {id; EventScheduler.time = time; action} in
-    event
+  let enqueue_thunk sim ?(id=next_event_id sim) ~time (thunk:msg enqueuable_thunk) = let action = (fun () -> Event_bus.enqueue bus thunk) in
+    make_event sim ~id ~time action ()
 
   type msg_factory =  msg_id:int -> from:node -> ?to_node:node -> time:Time.t -> unit -> msg
+
 
   let create_message_event
       (sim : t)
@@ -101,7 +96,7 @@ module Simulator : Runtime = struct
     }
 
   (** can be coordinated, can be controlled by simulator*)
-  let base_state = NodeImpl.State.Echo
+  let base_state = NodeImpl.State.idle_of ()
   let add_node_to_sim sim ~node_config =
     let new_node_id = 1 + List.length !(sim.nodes) in
     let new_node =

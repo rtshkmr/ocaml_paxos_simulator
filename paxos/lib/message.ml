@@ -39,7 +39,7 @@ module Message = struct
 
   and 'v simulation_control_message =
     | MakeNodeIdle of {meta: Meta.t; node_id: Types.node_id}
-    | MakeNodeEcho of {meta: Meta.t; node_id: Types.node_id}
+    | MakeNodeInactive of {meta: Meta.t; node_id: Types.node_id}
     | Pause of {meta: Meta.t}
     | Resume of {meta: Meta.t}
     | AdvanceTick of {meta: Meta.t}
@@ -65,7 +65,7 @@ module Message = struct
           meta.topic )
     | Control msg -> (
       match msg with
-      | MakeNodeEcho {meta; _}
+      | MakeNodeInactive {meta; _}
       | MakeNodeIdle {meta; _}
       | Pause {meta}
       | Resume {meta}
@@ -122,11 +122,11 @@ module Message = struct
     let meta = make_meta id time topic in
     MakeNodeIdle {meta; node_id}
 
-  let make_sim_control_echo_node ~msg_id ~time ~node_id =
+  let make_sim_control_inactive_node ~msg_id ~time ~node_id =
     let topic = Types.Simulation_control in
     let id = msg_id in
     let meta = make_meta id time topic in
-    MakeNodeEcho {meta; node_id}
+    MakeNodeInactive {meta; node_id}
 
   let make_permission_request ~msg_id ~topic ~time ~from ~proposal ~value =
     let id = msg_id in
