@@ -59,7 +59,7 @@ module Message = struct
 
   let make_meta id timestamp topic : Meta.t = {id; timestamp; topic}
 
-  let topic_of = function
+  let meta_of = function
     | Coordination msg -> (
       match msg with
       | PermissionRequest {meta; _}
@@ -67,7 +67,7 @@ module Message = struct
       | Suggestion {meta; _}
       | Accepted {meta; _}
       | Nack {meta; _} ->
-          meta.topic )
+          meta )
     | Control msg -> (
       match msg with
       | MakeNodeInactive {meta; _}
@@ -76,11 +76,15 @@ module Message = struct
       | Resume {meta}
       | AdvanceTick {meta}
       | Inject {meta} ->
-          meta.topic )
+          meta )
     | Time msg -> (
       match msg with
       | Heartbeat {meta; _} | SyncTo {meta; _} | DiffOffset {meta; _} ->
-          meta.topic )
+          meta )
+
+  let topic_of msg =
+    let meta = meta_of msg in
+    meta.topic
 
   let sender_of = function
     | Coordination msg -> (

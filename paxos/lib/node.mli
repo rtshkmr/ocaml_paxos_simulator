@@ -65,7 +65,18 @@ module type S = sig
       [V.t], ensuring the node's state is parametrically tied to the concrete
       value type chosen in [V]. *)
   module State : sig
-    type proposer_state = Inactive | Idle | Preparing [@@deriving sexp]
+    type proposer_state =
+      | Inactive
+      | Idle
+      | Preparing
+      | WaitingForPromises of
+          { proposal: Types.proposal_id
+          ; promises_received:
+              (Types.node_id * (Types.proposal_id * V.t) option) list }
+      | Accepting of
+          {proposal: Types.proposal_id; value: V.t; acks: Types.node_id list}
+      | Decided of V.t
+    [@@deriving sexp]
 
     type acceptor_state = Inactive | Idle | Accepting of Acceptor_record.value
 

@@ -2328,10 +2328,13 @@ CLOCK: [2025-11-04 Tue 22:00]--[2025-11-04 Tue 23:00] =>  1:00
  - [X] verify if the outline written above makes sense, improve on that.
  - [X] Add some hhelper functions
 
-**** TODO Stage 1: Node Logic Skeleton
+**** DONE Stage 1: Node Logic Skeleton
+CLOSED: [2025-11-05 Wed 12:38]
 :PROPERTIES:
 :EFFORT:   2h
 :END:
+- CLOSING NOTE [2025-11-05 Wed 12:38] \\
+  Completed! this looks clear, FSM state transitioning function uses a GADT and it's cool how clean it looks
 - Goal:
 
   - Turn =Node.handle_coordination= and =process_inboxes= into a real FSM driver.
@@ -2610,7 +2613,7 @@ CLOCK: [2025-11-05 Wed 07:10]--[2025-11-05 Wed 09:38] =>  2:28
 
 - [X] Minor cleanups of tick event loop
 
-- [ ] Clarifications
+- [X] Clarifications
   - we should tie-down the definition of quorum, especially in the context of
 
     #+begin_quote
@@ -2627,7 +2630,7 @@ A quorum is the minimum number of members required to be present at a meeting in
 
     - in a way we have an inaccurate use of language where quorum within the config has been set to number of nodes and I make reference to =quorum_threshold= in addition. I think I shall continue with this inconsistency and just point it out.
 
-  - [ ] Inject =quorum_type= (message type) and do a lazy check if any of them are reached when judging if proposer node can stop collecting and respond.
+  - SKIP Inject =quorum_type= (message type) and do a lazy check if any of them are reached when judging if proposer node can stop collecting and respond.
 
 - [X] should have a =last_seen= or something? or =last_accepted=
 
@@ -2725,7 +2728,6 @@ Define clear event handlers for each Paxos message variant:
 
 
 
-
 **** TODO Stage 2: State Transitions
 :PROPERTIES:
 :EFFORT:   2.5h
@@ -2742,6 +2744,66 @@ Implementation outline:
 | Acceptor | receives Suggestion        | → accepts and replies Accepted                               |
 | Proposer | collects Accepted          | (quorum) → transitions to Decided                            |
 | Learners | learn via Accepted/Decided | → update local state                                         |
+
+***** DONE Extend state definitions
+:LOGBOOK:
+CLOCK: [2025-11-05 Wed 13:23]--[2025-11-05 Wed 13:42] =>  0:19
+:END:
+
+***** DONE Handle the proposer logic (=handle_permission_request=)
+CLOSED: [2025-11-05 Wed 16:26]
+- CLOSING NOTE [2025-11-05 Wed 16:26] \\
+  [ Implementation Notes ]
+
+  1. For the response =message_id=, I'm doing =1 + msg_id=. Same for the =time= since the response should be in the next time (assuming no network delay for now).
+
+  2. Some oddities:
+     1. this function be ugly. but we shall refactor at the end instead of now.
+
+     2. bus should be a singleton for v0, and not really a singleton thereafter.
+
+        I think i jumped the gun, @ node creation, I store the subscriptions per topic as a list. It should be safe for me to just take the first bus since it's a singleton, but it's still really odd.
+
+        #+begin_src ocaml
+       let create ?(state=(State.idle_of ())) ~id ~config ~bus () =
+         let topics = config.topics in
+         let node = {
+           id;
+           state;
+           config;
+           subs= Hashtbl.Poly.create ();
+           inbox= Hashtbl.Poly.create ();
+           transitions = ref [];
+         } in
+         List.iter topics ~f:(fun topic ->
+             let topic_table =
+               match Hashtbl.find node.subs topic with
+               | Some table -> table
+               | None ->
+                 let table = Hashtbl.Poly.create () in
+                 Hashtbl.add_exn node.subs ~key:topic ~data:table;
+                 table
+             in
+             let callback msg = get_handler_for_topic node topic msg in
+             let node_id = node.id in
+             let subscription_handle = Bus.subscribe bus ~topic ~node_id callback in
+             Hashtbl.add_exn topic_table ~key:subscription_handle ~data:bus
+           );
+
+         Stdio.eprintf "Node %d subscribed to topics %s\n%!" node.id (topics |> List.map ~f:(fun topic -> Sexp.to_string (Types.sexp_of_topic topic))
+         node
+        #+end_src
+
+     3. there's a fixme on how we create the =updated_record= I'll just leave the fixme there for now
+:LOGBOOK:
+CLOCK: [2025-11-05 Wed 15:20]--[2025-11-05 Wed 16:19] =>  0:59
+:END:
+
+***** TODO Handle the acceptor logic (=handle_permission_granted=)
+***** TODO Handle the suggestion logic (=handle_suggestion=)
+***** TODO Handle the accepted logic (=handle_accepted=)
+***** TODO Handle the nack logic (=handle_nack=)
+
 **** TODO Stage 3: Storage & Learning
 :PROPERTIES:
 :EFFORT:   1.5h

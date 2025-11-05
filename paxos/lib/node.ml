@@ -36,7 +36,21 @@ module type S = sig
 
   (* -- TODO: actually implement the FSM state changes for simple paxos. Refer to the notes in this response for a rough starting ground: https://www.perplexity.ai/search/i-m-writing-out-this-functor-i-yCdty5gmQjelAtQTW4J97g#15 *)
   module State : sig
-    type proposer_state = Inactive | Idle | Preparing [@@deriving sexp]
+    type proposer_state =
+      | Inactive
+      | Idle
+      | Preparing
+      | WaitingForPromises of {
+          proposal: Types.proposal_id; promises_received:
+            (Types.node_id * (Types.proposal_id * V.t) option) list;
+        }
+      | Accepting of {
+          proposal: Types.proposal_id;
+          value: V.t;
+          acks: Types.node_id list;
+        }
+      | Decided of V.t
+    [@@deriving sexp]
 
     type acceptor_state = Inactive | Idle | Accepting of Acceptor_record.value
 
@@ -141,7 +155,22 @@ module Make_node (V : Value.S)
 
 
   module State = struct
-    type proposer_state = Inactive | Idle | Preparing [@@deriving sexp]
+    type proposer_state =
+      | Inactive
+      | Idle
+      | Preparing
+      | WaitingForPromises of {
+          proposal: Types.proposal_id; promises_received:
+            (Types.node_id * (Types.proposal_id * V.t) option) list;
+        }
+      | Accepting of {
+          proposal: Types.proposal_id;
+          value: V.t;
+          acks: Types.node_id list;
+        }
+      | Decided of V.t
+    [@@deriving sexp]
+
     type acceptor_state = Inactive | Idle | Accepting of Acceptor_record.value [@@deriving sexp]
     type learner_state = Learned of V.t option [@@deriving sexp]
 
@@ -338,10 +367,94 @@ module Make_node (V : Value.S)
     node.state <- new_role_state
 
   let handle_permission_request node msg =
-    match node.state.acceptor with
-    | Inactive -> ()
-    | Idle -> () (* handle promise, transition to Preparing or Waiting *)
-    | Accepting record -> () (* ignore or handle preemption/updates *)
+    match msg with
+    | Message.Coordination (PermissionRequest pr) ->
+      let requestor_id = Message.sender_of msg in
+      let proposal = pr.proposal in
+      let topic = Message.topic_of msg in
+      let msg_meta = Message.meta_of msg in
+      let msg_id = 1 + msg_meta.id in
+      let time = 1 + msg_meta.timestamp in
+
+      let current_promised_opt =
+        match State.get_role node.state State.Acceptor with
+        | State.Inactive | State.Idle -> None
+        | State.Accepting record -> record.promised
+      in
+
+      let open Types in
+      let is_permissible =
+        Option.is_none current_promised_opt
+        || compare_proposal_id (Option.value_exn current_promised_opt) proposal < 0
+      in
+
+      let buses = buses_for_topic node topic in
+
+      let enqueue_reply reply_msg =
+        match buses with
+        | [] -> failwith "Impossible case, should always have at least one bus"
+        | bus :: _ -> Bus.enqueue bus ((topic, Some requestor_id), reply_msg)
+      in
+
+      if is_permissible then
+      let updated_record = { Acceptor_record.promised = Some proposal; accepted = None } in
+      node.state <-
+        State.set_role node.state State.Acceptor (State.Accepting updated_record);
+      let last_accepted = None in
+      let raw_reply_msg =
+        Message.make_permission_granted ~msg_id ~topic ~proposal ~time ~from:node.id ~last_accepted
+      in
+      enqueue_reply (Message.Coordination raw_reply_msg)
+    else
+      let nack_msg =
+        Message.make_nack ~msg_id ~topic ~time ~from:node.id ~proposal ~hint:current_promised_opt
+      in
+      enqueue_reply (Message.Coordination nack_msg)
+    | _ -> failwith "Met an impossible state when handling permission request."
+
+
+  let handle_permission_request_ node msg =
+    match msg with
+    | Message.Coordination (PermissionRequest pr) ->
+      let requestor_id = Message.sender_of msg in
+      let proposal = pr.proposal in
+      let topic = Message.topic_of msg in
+      let msg_meta = Message.meta_of msg in
+      let msg_id = 1 + msg_meta.id in
+      let time = 1 + msg_meta.timestamp in
+      let current_promised_opt = State.get_role node.state State.Acceptor |> function
+        | State.Inactive | State.Idle -> None
+        | State.Accepting record -> record.promised
+      in
+      let is_permissible = Option.is_none current_promised_opt || (Types.compare_proposal_id (Option.value_exn current_promised_opt) proposal) < 0 in
+      if is_permissible then begin
+        (* FIXME: instead of None, I'm wondering if it should be a copy over of the current_promised *)
+        let updated_record = {Acceptor_record.promised = Some proposal; accepted = None } in
+        let new_acceptor_state = State.Accepting updated_record in
+        node.state <- State.set_role node.state State.Acceptor new_acceptor_state;
+        let last_accepted = None in
+        let raw_reply_msg = Message.make_permission_granted ~msg_id ~topic ~proposal ~time ~from:node.id ~last_accepted:last_accepted in
+        let reply_msg = (Message.Coordination raw_reply_msg) in
+        let thunk = ((topic, Some requestor_id), reply_msg) in
+        (* FIXME: not sure why there's multiple busses registered, it was supposed to be a singleton, i'll just take first one *)
+        let buses = buses_for_topic node topic in
+        match buses with
+        | [] -> failwith "Impossible case, should always have at least one bus"
+        | bus :: _ ->
+          Bus.enqueue bus thunk;
+      end
+      else begin
+        let nack_msg = Message.make_nack ~msg_id ~topic ~time ~from:node.id ~proposal ~hint:current_promised_opt in
+        let reply_msg = (Message.Coordination nack_msg) in
+        let thunk =((topic, Some requestor_id), reply_msg) in
+        let buses = buses_for_topic node topic in
+        match buses with
+        | [] -> failwith "Impossible case, should always have at least one bus"
+        | bus :: _ ->
+          Bus.enqueue bus thunk;
+      end
+    | _ -> failwith "Met an impossible state when handling permission request."
+
 
   let handle_permission_granted node msg =
     match node.state.proposer with

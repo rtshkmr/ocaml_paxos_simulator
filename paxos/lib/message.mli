@@ -78,6 +78,8 @@ module Message : sig
     | Time of 'v time_message
   [@@deriving sexp, compare, equal]
 
+  val meta_of : _ t -> Meta.t
+
   val topic_of : _ t -> Types.topic
   (** [topic_of] extracts the topic from any message. *)
 
