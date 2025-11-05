@@ -2228,6 +2228,7 @@ All nodes with roles containing =Acceptor=.
    2. broadcast =Decided(value)= to all learners (including self)
    3. Transition state: =-> Decided(value)=
 
+
 ****** Some questions
 1. [X] A node will have multiple states at once, correct?
 
@@ -2279,8 +2280,6 @@ When A receives Prepare(7), it checks:
          - Nodes can absolutely receive permission requests while proposing their own value.
          - Each received Prepare (permission request) is evaluated independently using acceptor rules (based on local highest promised proposal).
          - The proposer logic should not assume “exclusive attention” from peers.
-
-
 2. [X] need to verify the correctness of the outline above and improve on the outline.
 
    - At the moment, this outline needs improvements in the following areas:
@@ -2324,7 +2323,7 @@ CLOCK: [2025-11-04 Tue 23:24]--[2025-11-04 Tue 23:55] =>  0:31
 CLOCK: [2025-11-04 Tue 22:00]--[2025-11-04 Tue 23:00] =>  1:00
 :END:
  - [X] Begin applying inbox stateful processing in nodes upon tick calls.
- - [ ] outline a test case of communication for one paxos process that we should be supporting.
+ - [X] outline a test case of communication for one paxos process that we should be supporting.
  - [X] verify if the outline written above makes sense, improve on that.
  - [X] Add some hhelper functions
 
@@ -2725,7 +2724,6 @@ Define clear event handlers for each Paxos message variant:
 - [X] Accepted
 
 
-
 **** TODO Stage 2: State Transitions
 :PROPERTIES:
 :EFFORT:   2.5h
@@ -2860,7 +2858,40 @@ I coupled this together with the quorum.
 
 best value is actually more of topmost proposal id then take the corresponding value there
 
-***** TODO Handle the suggestion logic (=handle_suggestion=)
+***** DONE Handle the suggestion logic (=handle_suggestion=)
+CLOSED: [2025-11-05 Wed 20:12]
+- CLOSING NOTE [2025-11-05 Wed 20:12] \\
+  Donezo
+:LOGBOOK:
+CLOCK: [2025-11-05 Wed 19:36]--[2025-11-05 Wed 20:09] =>  0:33
+:END:
+
+The style for this mimics =handle_permission_request=, the only change is in what the conditions are for acceptance:
+1. the previous phase must pass $\implies$ there should be a promised value $\implies$ the promise must exist
+2. incoming $proposal\_id \ge promised\_id$
+
+So our accepted logic is:
+#+begin_src ocaml
+      let open Types in
+      let is_acceptable = Option.is_some current_promised_opt && compare_proposal_id proposal (Option.value_exn current_promised_opt) >= 0 in
+      let buses = buses_for_topic node topic in
+
+      let enqueue_reply reply_msg =
+        match buses with
+        | [] -> failwith "Impossible case, should always have at least one bus"
+        | bus :: _ -> Bus.enqueue bus ((topic, Some sender_id), reply_msg)
+      in
+
+      if is_acceptable then
+        let updated_record = { Acceptor_record.promised = Some proposal; accepted = Some (proposal, sg.value) } in
+        node.state <- State.set_role node.state State.Acceptor (State.Accepting updated_record);
+        let accepted_msg = Message.make_accepted ~msg_id ~topic ~time ~from:node.id ~proposal ~value:sg.value in
+        enqueue_reply (Message.Coordination accepted_msg)
+      else
+        let nack_msg = Message.make_nack ~msg_id ~topic ~time ~from:node.id ~proposal ~hint:prev_accepted_opt in
+        enqueue_reply (Message.Coordination nack_msg)
+#+end_src
+
 ***** TODO Handle the accepted logic (=handle_accepted=)
 ***** TODO Handle the nack logic (=handle_nack=)
 
@@ -2890,7 +2921,7 @@ best value is actually more of topmost proposal id then take the corresponding v
     - Durable acceptor state per node
 
     - Simple learning logic integrated
-**** TODO Stage 4: Simulation Demo Case
+**** TODO Stage 4: Add logging and simulation Demo Case
 :PROPERTIES:
 :EFFORT:   1h
 :END:

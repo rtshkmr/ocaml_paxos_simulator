@@ -446,8 +446,8 @@ module Make_node (V : Value.S)
       in
       let open Types in
       let is_permissible =
-        Option.is_none current_promised_opt
-        || compare_proposal_id (Option.value_exn current_promised_opt) proposal < 0
+        Option.is_none current_promised_opt (* no promises made yet *)
+        || compare_proposal_id (Option.value_exn current_promised_opt) proposal < 0 (* our proposal is higher priority *)
       in
 
       let buses = buses_for_topic node topic in
@@ -459,16 +459,15 @@ module Make_node (V : Value.S)
       in
 
       if is_permissible then
-        let updated_record = { Acceptor_record.promised = Some proposal; accepted = None } in
+        let last_accepted = prev_accepted_opt in
+        let updated_record = { Acceptor_record.promised = Some proposal; accepted = last_accepted } in
         node.state <-
           State.set_role node.state State.Acceptor (State.Accepting updated_record);
-        let last_accepted = None in
-        let raw_reply_msg =
-          Message.make_permission_granted ~msg_id ~topic ~proposal ~time ~from:node.id ~last_accepted
+        let reply_msg =
+          Message.Coordination(Message.make_permission_granted ~msg_id ~topic ~proposal ~time ~from:node.id ~last_accepted)
         in
-        enqueue_reply (Message.Coordination raw_reply_msg)
+        enqueue_reply reply_msg
       else
-
         let hint = prev_accepted_opt in
         let nack_msg =
           Message.make_nack ~msg_id ~topic ~time ~from:node.id ~proposal ~hint
@@ -506,7 +505,7 @@ module Make_node (V : Value.S)
         let chosen_value =
           match best_value_opt with
           | Some (_, v) -> v
-            (* TODO: propose own value *)
+            (* TODO: propose the proposer's own value here *)
           | None -> V.t_of_sexp (Sexplib.Sexp.Atom "chosen placeholder value")
         in
         let proposal = pg.proposal in
@@ -527,16 +526,50 @@ module Make_node (V : Value.S)
 
   | _ -> failwith "Met an impossible case when handling permission granted."
 
-  let handle_nack node msg =
-    (* process rejection in proposer/acceptor logic *)
-    ()
-
+  (* acceptor may record proposal and value, proposer may prepare proposal, learner may learn *)
   let handle_suggestion node msg =
-    (* acceptor may record proposal and value, proposer may prepare proposal, learner may learn *)
-    ()
+    match msg with
+    | Message.Coordination (Suggestion sg) ->
+      let sender_id = Message.sender_of msg in
+      let proposal = sg.proposal in
+      let topic = Message.topic_of msg in
+      let msg_meta = Message.meta_of msg in
+      let msg_id = 1 + msg_meta.id in
+      let time = 1 + msg_meta.timestamp in
+
+      let (current_promised_opt, prev_accepted_opt) =
+        match State.get_role node.state State.Acceptor with
+        | State.Inactive | State.Idle -> (None, None)
+        | State.Accepting record -> (record.promised, record.accepted)
+      in
+
+      let open Types in
+      let is_acceptable = Option.is_some current_promised_opt && compare_proposal_id proposal (Option.value_exn current_promised_opt) >= 0 in
+      let buses = buses_for_topic node topic in
+
+      let enqueue_reply reply_msg =
+        match buses with
+        | [] -> failwith "Impossible case, should always have at least one bus"
+        | bus :: _ -> Bus.enqueue bus ((topic, Some sender_id), reply_msg)
+      in
+
+      if is_acceptable then
+        let updated_record = { Acceptor_record.promised = Some proposal; accepted = Some (proposal, sg.value) } in
+        node.state <- State.set_role node.state State.Acceptor (State.Accepting updated_record);
+        let accepted_msg = Message.make_accepted ~msg_id ~topic ~time ~from:node.id ~proposal ~value:sg.value in
+        enqueue_reply (Message.Coordination accepted_msg)
+      else
+        let nack_msg = Message.make_nack ~msg_id ~topic ~time ~from:node.id ~proposal ~hint:prev_accepted_opt in
+        enqueue_reply (Message.Coordination nack_msg)
+
+    | _ -> failwith "Met an impossible state when handling suggestion."
 
   let handle_accepted node msg =
     (* update proposer state or infer consensus *)
+    ()
+
+  let handle_nack node msg =
+    (* process rejection in proposer/acceptor logic *)
     ()
 
   let handle_coordination node msg =
