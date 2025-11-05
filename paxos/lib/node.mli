@@ -75,16 +75,25 @@ module type S = sig
       * Types.proposal_id option
     [@@deriving sexp]
 
+    type waiting_for_promise_state =
+      { proposal: Types.proposal_id
+      ; promises_received: promise list
+      ; nacks_received: nack list }
+    [@@deriving sexp]
+
+    type proposer_accepting_state =
+      { proposal: Types.proposal_id
+      ; value: V.t
+      ; acks: Types.node_id list
+      ; nacks_received: nack list }
+    [@@deriving sexp]
+
     type proposer_state =
       | Inactive
       | Idle
       | Preparing
-      | WaitingForPromises of
-          { proposal: Types.proposal_id
-          ; promises_received: promise list
-          ; nacks_received: nack list }
-      | Accepting of
-          {proposal: Types.proposal_id; value: V.t; acks: Types.node_id list}
+      | WaitingForPromises of waiting_for_promise_state
+      | ProposerAccepting of proposer_accepting_state
       | Decided of V.t
     [@@deriving sexp]
 

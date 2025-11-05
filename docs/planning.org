@@ -2229,6 +2229,8 @@ All nodes with roles containing =Acceptor=.
    3. Transition state: =-> Decided(value)=
 
 
+One thing to note is that we don't really reset the state. This is because simple paxos is about running one instance of the paxos process. So the final state is the decided sate.
+
 ****** Some questions
 1. [X] A node will have multiple states at once, correct?
 
@@ -2892,8 +2894,39 @@ So our accepted logic is:
         enqueue_reply (Message.Coordination nack_msg)
 #+end_src
 
-***** TODO Handle the accepted logic (=handle_accepted=)
+***** DONE Handle the accepted logic (=handle_accepted=)
+CLOSED: [2025-11-05 Wed 22:52]
+- CLOSING NOTE [2025-11-05 Wed 22:52] \\
+  Nack optimisation and the broadcasting of decided value have been skipped for now, I don't see the full picture yet and so I can't tell if they're important.
+:LOGBOOK:
+CLOCK: [2025-11-05 Wed 20:39]--[2025-11-05 Wed 21:45] =>  1:06
+CLOCK: [2025-11-05 Wed 20:20]--[2025-11-05 Wed 20:23] =>  0:03
+:END:
+****** Precursor Chores
+******* DONE =proposer_state::Accepting= needs to accumulate the nacks received
+
+- we need to update the =proposer_state::Accepting= add in the =nacks_received=
+
+
+******* DONE proposer state change to Accepting AFTER broadcasting a suggestion
+
+- the proposer is supposed to be in "accepting" state when receiving the acks for accepted?
+
+  - how does this state change happen? I'm guessing it's when we realise that we have the quorum for phase 1 and then we dispatch the suggestion, then we should change the proposer state to Accepting?
+
+- turns out i had a name clashing so i had to update the =propopser.Accepting= to =proposer.ProposerAccepting= instead
+****** DONE update the =is_quorum_reached= so that we can inject in the proposer state for quorum calc
+CLOSED: [2025-11-05 Wed 22:51]
+
+- CLOSING NOTE [2025-11-05 Wed 22:51] \\
+  this is done, it will delegate based on the proposer state at that point in time
+SO currently we only consider the =proposer.WaitingForPromises= only within that function, so the counting and everything happens from there
+
+We need to layer it and allow counting from =proposer.ProposerAccepting= as well
+
 ***** TODO Handle the nack logic (=handle_nack=)
+- the nack needs to be explicit about where to throw the nack into because both =proposer.WaitingForPromises= and =proposer.ProposerAccepting= will be accumulating nacks
+- Also, there's a chance that we can achieve quorum, so =handle_nack= should do the necessary stuff if quorum has been achieved.
 
 **** TODO Stage 3: Storage & Learning
 :PROPERTIES:

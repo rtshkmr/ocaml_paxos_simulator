@@ -40,20 +40,25 @@ module type S = sig
     (* nack = source * proposal_id * hint *)
     type nack = (Types.node_id * (Types.proposal_id * V.t) option * (Types.proposal_id option)) [@@deriving sexp]
 
+    type waiting_for_promise_state =
+      { proposal: Types.proposal_id
+      ; promises_received: promise list
+      ; nacks_received: nack list }
+    [@@deriving sexp]
+
+    type proposer_accepting_state =
+      { proposal: Types.proposal_id
+      ; value: V.t
+      ; acks: Types.node_id list
+      ; nacks_received: nack list }
+    [@@deriving sexp]
+
     type proposer_state =
       | Inactive
       | Idle
       | Preparing
-      | WaitingForPromises of {
-          proposal: Types.proposal_id; promises_received:
-            promise list;
-          nacks_received: nack list;
-        }
-      | Accepting of {
-          proposal: Types.proposal_id;
-          value: V.t;
-          acks: Types.node_id list;
-        }
+      | WaitingForPromises of waiting_for_promise_state
+      | ProposerAccepting of proposer_accepting_state
       | Decided of V.t
     [@@deriving sexp]
 
@@ -178,23 +183,34 @@ module Make_node (V : Value.S)
     (* promise = source node id * (proposal id  * val) option *)
     type promise = (Types.node_id * (Types.proposal_id * V.t) option) [@@deriving sexp]
     (* nack = source * proposal_id * hint *)
-    type nack = (Types.node_id * (Types.proposal_id * V.t) option * (Types.proposal_id option)) [@@deriving sexp]
+    type nack =
+      Types.node_id
+      * (Types.proposal_id * V.t) option
+      * Types.proposal_id option
+    [@@deriving sexp]
+
+    type waiting_for_promise_state =
+      { proposal: Types.proposal_id
+      ; promises_received: promise list
+      ; nacks_received: nack list }
+    [@@deriving sexp]
+
+    type proposer_accepting_state =
+      { proposal: Types.proposal_id
+      ; value: V.t
+      ; acks: Types.node_id list
+      ; nacks_received: nack list }
+    [@@deriving sexp]
+
     type proposer_state =
       | Inactive
       | Idle
       | Preparing
-      | WaitingForPromises of {
-          proposal: Types.proposal_id; promises_received:
-            promise list;
-          nacks_received: nack list;
-        }
-      | Accepting of {
-          proposal: Types.proposal_id;
-          value: V.t;
-          acks: Types.node_id list;
-        }
+      | WaitingForPromises of waiting_for_promise_state
+      | ProposerAccepting of proposer_accepting_state
       | Decided of V.t
     [@@deriving sexp]
+
 
     type acceptor_state = Inactive | Idle | Accepting of Acceptor_record.value [@@deriving sexp]
     type learner_state = Learned of V.t option [@@deriving sexp]
@@ -252,10 +268,7 @@ module Make_node (V : Value.S)
       | MajorityNacks of (Types.proposal_id * V.t) option
       | MajorityGrants of (Types.proposal_id * V.t) option
 
-    (** FIXME: this needs a refactor, it's hella ugly.*)
-    let is_quorum_reached (rs : role_state) (cluster_size : int) : quorum_result =
-      match get_role rs Proposer with
-      | WaitingForPromises wfp ->
+    let is_quorum_reached_on_promise_wait (wfp:waiting_for_promise_state) ( cluster_size:int ) : quorum_result =
         let promises = wfp.promises_received in
         let nacks = wfp.nacks_received in
         let promises_count = List.length promises in
@@ -288,10 +301,45 @@ module Make_node (V : Value.S)
               nacks
           in
           MajorityNacks best_value_opt
+
         else
           NotReached
+
+    let is_quorum_reached_on_proposer_accepting_wait (pa:proposer_accepting_state) ( cluster_size:int ) : quorum_result =
+        let num_acks = List.length pa.acks in
+        let nacks = pa.nacks_received in
+        let num_nacks = List.length nacks in
+        let threshold = (cluster_size / 2) + 1 in
+
+        if num_acks >= threshold then
+          let best_value_opt = Some (pa.proposal, pa.value) in
+          MajorityGrants best_value_opt;
+
+        else if num_nacks >= threshold then
+          let best_value_opt =
+            List.fold_left
+              ~f:(fun acc (_, hint_opt, _) ->
+                  match hint_opt, acc with
+                  | Some (proposal_id, value), None -> Some (proposal_id, value)
+                  | Some (proposal_id, value), Some (best_pid, best_val) ->
+                    if Types.compare_proposal_id proposal_id best_pid > 0 then Some (proposal_id, value) else acc
+                  | None, _ -> acc)
+              ~init:None
+              nacks in
+            MajorityNacks best_value_opt
+        else
+          NotReached
+
+
+
+    let is_quorum_reached (rs : role_state) (cluster_size : int) : quorum_result =
+      match get_role rs Proposer with
+      | WaitingForPromises wfp ->
+        is_quorum_reached_on_promise_wait wfp cluster_size
+      | ProposerAccepting pa ->
+        is_quorum_reached_on_proposer_accepting_wait pa cluster_size
       | _ ->
-        failwith "We can only check for quorum reached on a nodes if that nodes is in state [WaitingForPromises]"
+        failwith "We can only check for quorum reached on a nodes if that nodes is in states [WaitingForPromises, ProposerAccepting]"
   end
 
 
@@ -515,7 +563,14 @@ module Make_node (V : Value.S)
         let buses = buses_for_topic node topic in
         (match buses with
          | [] -> failwith "Impossible case, should always have at least one bus"
-         | bus :: _ -> suggest ~msg_id ~time ~bus node ~proposal ~value:chosen_value)
+         | bus :: _ -> suggest ~msg_id ~time ~bus node ~proposal ~value:chosen_value);
+        let proper_accepting_state = State.ProposerAccepting {
+            proposal = proposal;
+            value=chosen_value;
+            acks=[];
+            nacks_received=[];
+          } in
+        node.state <- State.set_role node.state State.Proposer proper_accepting_state
       | State.MajorityNacks _ ->
         (* TODO Handle majority nack quorum, maybe retry logic here *)
         ()
@@ -566,7 +621,23 @@ module Make_node (V : Value.S)
 
   let handle_accepted node msg =
     (* update proposer state or infer consensus *)
-    ()
+    match node.state.proposer, msg with
+    | State.ProposerAccepting a, Message.Coordination(Accepted ac) ->
+      let new_acks =
+        if List.mem a.acks ac.from ~equal:(=) then a.acks else ac.from :: a.acks
+      in
+      let cluster_size_opt = !(node.config.simulation.cluster_size) in
+      let cluster_size = if Option.is_none cluster_size_opt then 0 else Option.value_exn cluster_size_opt in
+      let new_state  = State.ProposerAccepting { a with acks = new_acks } in
+      node.state <- State.set_role node.state State.Proposer new_state;
+      let quorum_res = State.is_quorum_reached node.state cluster_size in
+      (match quorum_res with
+       | State.MajorityGrants (Some (_, decided_value)) -> let decided_state = State.Decided decided_value in
+         node.state <- State.set_role node.state State.Proposer decided_state;
+         (* TODO: determine if we should be broadcasting that the state is decided?? *)
+         (* TODO: handle NACK optimisation later*)
+       | _ -> ())
+    | _ -> ()
 
   let handle_nack node msg =
     (* process rejection in proposer/acceptor logic *)
