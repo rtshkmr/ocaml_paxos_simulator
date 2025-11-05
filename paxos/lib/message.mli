@@ -54,7 +54,7 @@ module Message : sig
         { meta: Meta.t
         ; proposal: Types.proposal_id
         ; from: Types.node_id
-        ; hint: Types.proposal_id option }
+        ; hint: (Types.proposal_id * 'v) option }
   [@@deriving sexp, compare, equal]
 
   and 'v time_message =
@@ -132,7 +132,7 @@ module Message : sig
     -> time:Time.t
     -> from:Types.node_id
     -> proposal:Types.proposal_id
-    -> hint:Types.proposal_id option
+    -> hint:(Types.proposal_id * 'v) option
     -> 'v coordination_message
 
   val make_sim_control_idle_node :

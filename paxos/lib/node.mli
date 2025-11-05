@@ -65,14 +65,24 @@ module type S = sig
       [V.t], ensuring the node's state is parametrically tied to the concrete
       value type chosen in [V]. *)
   module State : sig
+    type promise = Types.node_id * (Types.proposal_id * V.t) option
+    [@@deriving sexp]
+
+    (* nack = source * proposal_id * hint *)
+    type nack =
+      Types.node_id
+      * (Types.proposal_id * V.t) option
+      * Types.proposal_id option
+    [@@deriving sexp]
+
     type proposer_state =
       | Inactive
       | Idle
       | Preparing
       | WaitingForPromises of
           { proposal: Types.proposal_id
-          ; promises_received:
-              (Types.node_id * (Types.proposal_id * V.t) option) list }
+          ; promises_received: promise list
+          ; nacks_received: nack list }
       | Accepting of
           {proposal: Types.proposal_id; value: V.t; acks: Types.node_id list}
       | Decided of V.t
@@ -91,6 +101,13 @@ module type S = sig
     val idle_of : unit -> role_state
 
     val inactive_of : unit -> role_state
+
+    type quorum_result =
+      | NotReached
+      | MajorityNacks of (Types.proposal_id * V.t) option
+      | MajorityGrants of (Types.proposal_id * V.t) option
+
+    val is_quorum_reached : role_state -> int -> quorum_result
   end
 
   val state_of_string_opt : string option -> State.role_state option
@@ -148,7 +165,7 @@ module type S = sig
 
   val handle_time : t -> V.t Message.t -> unit
 
-  val propose :
+  val seek_permission :
        msg_id:int
     -> time:int
     -> bus:V.t Message.t Bus.t
@@ -162,6 +179,15 @@ module type S = sig
 
       Based on our design, this enqueues to the bus instead of synchronously dispatching (i.e. it will get added to the current buffer).
    *)
+
+  val suggest :
+       msg_id:int
+    -> time:int
+    -> bus:V.t Message.t Bus.t
+    -> t
+    -> proposal:Types.proposal_id
+    -> value:V.t
+    -> unit
 
   val dump_state : t -> Sexp.t
   (** Dump the current state of the node as an s-expression for debugging. *)

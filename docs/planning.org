@@ -2630,8 +2630,6 @@ A quorum is the minimum number of members required to be present at a meeting in
 
     - in a way we have an inaccurate use of language where quorum within the config has been set to number of nodes and I make reference to =quorum_threshold= in addition. I think I shall continue with this inconsistency and just point it out.
 
-  - SKIP Inject =quorum_type= (message type) and do a lazy check if any of them are reached when judging if proposer node can stop collecting and respond.
-
 - [X] should have a =last_seen= or something? or =last_accepted=
 
   not sure if the current design for node will be sufficient
@@ -2799,7 +2797,69 @@ CLOSED: [2025-11-05 Wed 16:26]
 CLOCK: [2025-11-05 Wed 15:20]--[2025-11-05 Wed 16:19] =>  0:59
 :END:
 
-***** TODO Handle the acceptor logic (=handle_permission_granted=)
+***** DONE Handle the acceptor logic (=handle_permission_granted=)
+CLOSED: [2025-11-05 Wed 18:56]
+- CLOSING NOTE [2025-11-05 Wed 18:56] \\
+  Finally finished!
+:LOGBOOK:
+CLOCK: [2025-11-05 Wed 16:39]--[2025-11-05 Wed 18:56] =>  2:17
+:END:
+- need to add in the quorum check
+- need to add in helpers to check the best value seen yet
+
+A while ago, I made a stateful inbox so that all the messages would go into it.
+Right now, the use of lists of responses within =role_states= actually removes the need for stateful inboxes.
+
+I think it's better to keep it within the role_states directly so that the lifecycle management for messages will automatically be part of the FSM transitions that happen.
+
+For debugging sake, I'll still commit incoming messages into the stateful inbox regardless.
+
+****** DONE add in quorum check while waiting for promises
+CLOSED: [2025-11-05 Wed 18:39]
+
+- CLOSING NOTE [2025-11-05 Wed 18:39] \\
+  This is done, need to wire up
+We need to check our accumulated state as we are waiting for promises and determine if the quorum has been reached.
+
+This one is a little special.
+    #+begin_quote
+A quorum is the minimum number of members required to be present at a meeting in order to conduct official business. This number is usually specified in an organization's bylaws or governing documents.
+    #+end_quote
+
+    - "quorum shifts elsewhere"
+
+      + this affects correctness and termination conditions
+
+      + for the subset of messages that we are tracking, =quorum_threshold= is reached when =let quorum_threshold_reached = total count count >== =(total / 2) + 1=.
+
+    - "nack quorum" vs "promises quorum"
+
+    - in a way we have an inaccurate use of language where quorum within the config has been set to number of nodes and I make reference to =quorum_threshold= in addition. I think I shall continue with this inconsistency and just point it out.
+
+  - [X] Inject =quorum_type= (message type) and do a lazy check if any of them are reached when judging if proposer node can stop collecting and respond.
+
+  - Different quorum results possible! See =type quorum_result=
+
+    It was my understanding that a quorum check has 3 cases:
+    1. no not reached yet
+
+    2. yes reached, we got majority nacks
+
+    3. yes reached, we got majority permission granteds
+
+    Given these 3 cases, I was expecting an optional output for is_quorum_reached, so that I can pattern match the 3 cases
+
+    ==> yes this is the case.
+
+****** DONE add in helper to check for best value seen yet
+CLOSED: [2025-11-05 Wed 18:39]
+
+- CLOSING NOTE [2025-11-05 Wed 18:39] \\
+  Coupled with =is_quorum_reached=
+I coupled this together with the quorum.
+
+best value is actually more of topmost proposal id then take the corresponding value there
+
 ***** TODO Handle the suggestion logic (=handle_suggestion=)
 ***** TODO Handle the accepted logic (=handle_accepted=)
 ***** TODO Handle the nack logic (=handle_nack=)

@@ -33,7 +33,7 @@ module Message = struct
         { meta: Meta.t
         ; proposal: Types.proposal_id
         ; from: Types.node_id
-        ; hint: Types.proposal_id option }
+        ; hint: (Types.proposal_id * 'v) option }
   [@@deriving sexp, compare, equal]
 
   and 'v time_message =
@@ -108,12 +108,10 @@ module Message = struct
       | Suggestion {proposal; _}
       | Accepted {proposal; _} ->
           Some proposal
-      | PermissionGranted {last_accepted= Some (proposal, _); _} ->
+      | PermissionGranted {proposal; _} ->
           Some proposal
-      | PermissionGranted {last_accepted= None; _} ->
-          None
-      | Nack {hint; _} ->
-          hint )
+      | Nack {proposal; _} ->
+          Some proposal )
     | Control _ ->
         None
     | Time _ ->
