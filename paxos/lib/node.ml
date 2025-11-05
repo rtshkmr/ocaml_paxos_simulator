@@ -1,4 +1,4 @@
-[@@@ocaml.warning "-32-33-27-69"] (** TODO: remove unused variable warnings*)
+[@@@ocaml.warning "-32-37-33-27-69"] (** TODO: remove unused variable warnings*)
 
 open Base
 open Event_bus
@@ -141,19 +141,16 @@ module Make_node (V : Value.S)
 
 
   module State = struct
-    type proposer_state =Inactive |  Idle | Preparing [@@deriving sexp]
-
+    type proposer_state = Inactive | Idle | Preparing [@@deriving sexp]
     type acceptor_state = Inactive | Idle | Accepting of Acceptor_record.value [@@deriving sexp]
-
     type learner_state = Learned of V.t option [@@deriving sexp]
 
-    type role_state =
-      { proposer: proposer_state
-      ; acceptor: acceptor_state
-      ; learner: learner_state }
-    [@@deriving sexp]
+    type role_state = {
+      proposer: proposer_state;
+      acceptor: acceptor_state;
+      learner: learner_state;
+    } [@@deriving sexp]
 
-    (* Constructor for the idle state for all roles *)
     let idle_of () = {
       proposer = Idle;
       acceptor = Idle;
@@ -165,7 +162,39 @@ module Make_node (V : Value.S)
       acceptor = Inactive;
       learner = Learned None;
     }
+
+    (* Getters and setters *)
+    let get_proposer rs = rs.proposer
+    let set_proposer rs p = { rs with proposer = p }
+    let get_acceptor rs = rs.acceptor
+    let set_acceptor rs a = { rs with acceptor = a }
+    let get_learner rs = rs.learner
+    let set_learner rs l = { rs with learner = l }
+
+    (** GADT to encode which role and its sub-state type
+        This encodes the association between a constructor (Proposer, Acceptor, Learner) and its precise sub-state type.
+    *)
+    type _ role_selector =
+      | Proposer : proposer_state role_selector
+      | Acceptor : acceptor_state role_selector
+      | Learner : learner_state role_selector
+
+    (** Polymorphic role_state accessor *)
+    let get_role : type a. role_state -> a role_selector -> a = fun rs sel ->
+      match sel with
+      | Proposer -> rs.proposer
+      | Acceptor -> rs.acceptor
+      | Learner -> rs.learner
+
+    (** Polymorphic role_state setter *)
+    let set_role : type a. role_state -> a role_selector -> a -> role_state = fun rs sel v ->
+      match sel with
+      | Proposer -> { rs with proposer = v }
+      | Acceptor -> { rs with acceptor = v }
+      | Learner -> { rs with learner = v }
+
   end
+
 
   let state_of_string_opt = function
     | Some "Idle" -> Some (State.idle_of ())
@@ -294,7 +323,59 @@ module Make_node (V : Value.S)
         end
       )
 
-  let handle_coordination (node: t) (msg: V.t Message.t) =
+  (** Polymorphic transition function for role state.
+
+    Learning NOTE:
+      1. Importance of locally abstract types for type safety
+         - [(type a)] introduces a locally abstract type [a] scoped within the function, tied by GADT patterns to a specific substate type ([proposer_state], [acceptor_state], or [learner_state]).
+         - Locally abstract types enable type-safe polymorphic dispatch: each constructor of the GADT carries different precise type information for ['a].
+         - The function can only accept or return values consistent with ['a] as determined by the GADT constructor.
+         - This is what makes GADT-based functions type-safe and flexible without unsafe casts or polymorphic variants.
+  *)
+  let transition_role_state node (type a) (sel : a State.role_selector) (new_substate : a) =
+    let curr = node.state in
+    let new_role_state = State.set_role curr sel new_substate in
+    node.state <- new_role_state
+
+  let handle_permission_request node msg =
+    match node.state.acceptor with
+    | Inactive -> ()
+    | Idle -> () (* handle promise, transition to Preparing or Waiting *)
+    | Accepting record -> () (* ignore or handle preemption/updates *)
+
+  let handle_permission_granted node msg =
+    match node.state.proposer with
+    | Idle -> () (* move to WaitingForPromises, update proposal, etc. *)
+    | Preparing -> () (* handle promise acceptance *)
+    | _ -> ()
+
+  let handle_nack node msg =
+    (* process rejection in proposer/acceptor logic *)
+    ()
+
+  let handle_suggestion node msg =
+    (* acceptor may record proposal and value, proposer may prepare proposal, learner may learn *)
+    ()
+
+  let handle_accepted node msg =
+    (* update proposer state or infer consensus *)
+    ()
+
+  let handle_coordination_ node msg =
+    match Message.proposal_id_of msg with
+    | None -> ()
+
+    | Some proposal_id -> begin
+        match msg with
+        | Message.Coordination (PermissionRequest _) -> handle_permission_request node msg
+        | Message.Coordination (PermissionGranted _) -> handle_permission_granted node msg
+        | Message.Coordination (Nack _) -> handle_nack node msg
+        | Message.Coordination (Suggestion _) -> handle_suggestion node msg
+        | Message.Coordination (Accepted _) -> handle_accepted node msg
+        | _ -> ()
+      end
+
+  let handle_coordination node msg=
     match node.state, Message.proposal_id_of msg with
     | _, None -> ()
     | State.{ proposer = Inactive; _ }, _ | State.{ acceptor = Inactive; _ }, _ ->

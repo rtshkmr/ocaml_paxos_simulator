@@ -2699,6 +2699,12 @@ let handle_coordination node msg =
 
 2. Reinstated the ability to do =Simulation_control= from the simulator. We can now make a node inactive.
 ***** Layer the event handlers
+:LOGBOOK:
+CLOCK: [2025-11-05 Wed 11:15]
+:END:
+
+The pattern that emerges out of this is something like a demuxing-pattern -- something that feels like a Mediator / Command pattern of sorts. We are interested in the data-flow POV of this, so the exact canonical pattern is irrelevant for us here.
+
 Define clear event handlers for each Paxos message variant:
 
 - [ ] PermissionRequest
