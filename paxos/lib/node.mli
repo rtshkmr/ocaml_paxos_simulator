@@ -69,6 +69,7 @@ module type S = sig
     [@@deriving sexp]
 
     (* nack = source * proposal_id * hint *)
+    (* FIXME: the Message.Nack and State.nack don't play well together, they should have similar shapes.*)
     type nack =
       Types.node_id
       * (Types.proposal_id * V.t) option

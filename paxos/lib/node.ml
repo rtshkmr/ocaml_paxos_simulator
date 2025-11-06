@@ -403,7 +403,6 @@ module Make_node (V : Value.S)
       (Sexplib.Sexp.to_string (State.sexp_of_role_state new_state));
     node.state <- new_state
 
-
   (* Node propose: create PermissionRequest and rely on simulator/bus to broadcast *)
   let seek_permission ~msg_id ~time ~bus t ~proposal ~value =
     (* Build PermissionRequest for this node *)
@@ -523,6 +522,14 @@ module Make_node (V : Value.S)
         enqueue_reply (Message.Coordination nack_msg)
     | _ -> failwith "Met an impossible state when handling permission request."
 
+  (** TODO: figure out how to abort.*)
+  let abort node =
+    let open Color in
+    let msg = "Should abort, or maybe retry...." in
+      msg
+    |> Color.red
+    |> Color.underline
+    |> Stdio.print_endline
 
   let handle_permission_granted node msg =
   match node.state.proposer, msg with
@@ -572,10 +579,8 @@ module Make_node (V : Value.S)
           } in
         node.state <- State.set_role node.state State.Proposer proper_accepting_state
       | State.MajorityNacks _ ->
-        (* TODO Handle majority nack quorum, maybe retry logic here *)
-        ()
+        abort node
       | State.NotReached ->
-        (* do nothing, just continue waiting *)
         ()
     end
 
@@ -640,8 +645,82 @@ module Make_node (V : Value.S)
     | _ -> ()
 
   let handle_nack node msg =
+    let cluster_size = Option.value !(node.config.simulation.cluster_size) ~default:0  in
     (* process rejection in proposer/acceptor logic *)
-    ()
+    match msg with
+    | Message.Coordination (Nack {meta; from;proposal;hint}) -> (
+        match node.state.proposer with
+        | State.WaitingForPromises wfp ->
+          let nack:State.nack = ( meta.id, hint, Some proposal) in
+          let updated_nacks = nack :: wfp.nacks_received in
+          let updated_state = State.WaitingForPromises {wfp with nacks_received = updated_nacks} in
+          node.state <- State.set_role node.state State.Proposer updated_state;
+
+          (     match State.is_quorum_reached node.state cluster_size with
+                | State.MajorityGrants best_value_opt -> (
+                    (* FIXME: duplicated from handle_permission_granted case 2 arm *)
+                    let topic = Message.topic_of msg in
+                    let chosen_value =
+                      match best_value_opt with
+                      | Some (_, v) -> v
+                      (* TODO: propose the proposer's own value here *)
+                      | None -> V.t_of_sexp (Sexplib.Sexp.Atom "chosen placeholder value")
+                    in
+                    let msg_id = 1 + meta.id in
+                    let time = 1 + meta.timestamp in
+                    let buses = buses_for_topic node topic in
+                    (match buses with
+                     | [] -> failwith "Impossible case, should always have at least one bus"
+                     | bus :: _ -> suggest ~msg_id ~time ~bus node ~proposal ~value:chosen_value);
+                    let proper_accepting_state = State.ProposerAccepting {
+                        proposal = proposal;
+                        value=chosen_value;
+                        acks=[];
+                        nacks_received=[];
+                      } in
+                    node.state <- State.set_role node.state State.Proposer proper_accepting_state
+                  )
+                | State.MajorityNacks _ -> abort node (* NOTE: need to add nack optimisation at this step *)
+                | State.NotReached -> ()
+          )
+        | State.ProposerAccepting pa -> (
+            let nack:State.nack = ( meta.id, hint, Some proposal) in
+            let updated_nacks = nack :: pa.nacks_received in
+            let updated_state = State.ProposerAccepting {pa with nacks_received = updated_nacks} in
+            node.state <- State.set_role node.state State.Proposer updated_state;
+            (
+              match State.is_quorum_reached node.state cluster_size with
+              | State.MajorityGrants best_value_opt -> (
+                  (* FIXME: duplicated from handle_permission_granted case 2 arm *)
+                  let topic = Message.topic_of msg in
+                  let chosen_value =
+                    match best_value_opt with
+                    | Some (_, v) -> v
+                    (* TODO: propose the proposer's own value here *)
+                    | None -> V.t_of_sexp (Sexplib.Sexp.Atom "chosen placeholder value")
+                  in
+                  let msg_id = 1 + meta.id in
+                  let time = 1 + meta.timestamp in
+                  let buses = buses_for_topic node topic in
+                  (match buses with
+                   | [] -> failwith "Impossible case, should always have at least one bus"
+                   | bus :: _ -> suggest ~msg_id ~time ~bus node ~proposal ~value:chosen_value);
+                  let proper_accepting_state = State.ProposerAccepting {
+                      proposal = proposal;
+                      value=chosen_value;
+                      acks=[];
+                      nacks_received=[];
+                    } in
+                  node.state <- State.set_role node.state State.Proposer proper_accepting_state
+                )
+
+              | State.MajorityNacks _ -> abort node (* NOTE: need to add nack optimisation at this step *)
+              | State.NotReached -> ()
+            )
+          )
+        | _ -> failwith "Met an impossible state when handling nacks -- can only be in states out of [State.WaitingForPromises, State.ProposerAccepting]."
+      )
+    | _ -> failwith "Handle_nack is being called with a msg other than a nack."
 
   let handle_coordination node msg =
     match Message.proposal_id_of msg with

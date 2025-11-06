@@ -83,61 +83,114 @@ module Event_bus : S = struct
   let formatters = {
     publish_broadcast = (fun logger topic payload ->
         let width = Color.get_terminal_width () in
-        let header = String.make width '-' in
-        let header_msg = Color.bg_white("\t\t\t\t[PUBLISH_BROADCAST]") in
+        let header_msg =
+          "\t\t\t\t[PUBLISH_BROADCAST]"
+          |> Color.bg_white
+          |> Color.red
+          |> Color.bold
+        in
+        let header =
+          String.make width '-'
+          |> Color.red
+          |> Color.bold
+        in
+        let topic_str =
+          topic
+          |> Types.sexp_of_topic
+          |> Sexp.to_string_hum ~indent:1
+          |> Color.bold
+          |> Color.red
+        in
         Printf.sprintf "%s\n%s via topic %s:\n%s\n%s"
-          (Color.bold (Color.red header))
-          (Color.bold (Color.red header_msg))
-          (Color.bold (Sexp.to_string_hum ~indent:1 (Types.sexp_of_topic topic)))
-          (logger topic payload)
-          (Color.bold (Color.red header)));
+          header header_msg topic_str (logger topic payload) header
+      );
 
     publish_unicast = (fun node_id logger topic payload ->
         let width = Color.get_terminal_width () in
-        let header = String.make width '-' in
-        let header_msg = Color.bg_white( Printf.sprintf "\t\t\t\t[PUBLISH_UNICAST] Target Node ID = %d" node_id ) in
+        let header_msg =
+          Printf.sprintf "\t\t\t\t[PUBLISH_UNICAST] Target Node ID = %d" node_id
+          |> Color.bg_white
+          |> Color.magenta
+          |> Color.bold
+        in
+        let header =
+          String.make width '-'
+          |> Color.magenta
+          |> Color.bold
+        in
+        let topic_str =
+          topic
+          |> Types.sexp_of_topic
+          |> Sexp.to_string_hum ~indent:1
+          |> Color.bold
+          |> Color.magenta
+        in
         Printf.sprintf "%s\n%s via topic %s:\n%s\n%s"
-          (Color.bold (Color.magenta header))
-          (Color.bold (Color.magenta header_msg))
-          (Color.bold (Sexp.to_string_hum ~indent:1 (Types.sexp_of_topic topic)))
-          (logger topic payload)
-          (Color.bold (Color.magenta header))
+          header header_msg topic_str (logger topic payload) header
       );
 
     subscribe = (fun sub_handle ->
-        Color.bold (Color.green (Printf.sprintf "< +++ Subscribed +++ >: \n\ttopic=%s, node_id=%d, subscription_id=%d"
-                                   (Sexp.to_string_hum ~indent:1 (Types.sexp_of_topic sub_handle.topic))
-                                   sub_handle.node_id
-                                   sub_handle.id))
-
+        sub_handle.topic
+        |> Types.sexp_of_topic
+        |> Sexp.to_string_hum ~indent:1
+        |> fun topic_str ->
+        Printf.sprintf "< +++ Subscribed +++ >: \n\ttopic=%s, node_id=%d, subscription_id=%d"
+          topic_str sub_handle.node_id sub_handle.id
+        |> Color.green
+        |> Color.bold
       );
 
     unsubscribe = (fun sub_handle ->
-        Color.bold (Color.red (Printf.sprintf "< --- Unsubscribed --- >: \n\ttopic=%s, node_id=%d, subscription_id=%d"
-                                 (Sexp.to_string_hum ~indent:1 (Types.sexp_of_topic sub_handle.topic))
-                                 sub_handle.node_id
-                                 sub_handle.id))
+        sub_handle.topic
+        |> Types.sexp_of_topic
+        |> Sexp.to_string_hum ~indent:1
+        |> fun topic_str ->
+        Printf.sprintf "< --- Unsubscribed --- >: \n\ttopic=%s, node_id=%d, subscription_id=%d"
+          topic_str sub_handle.node_id sub_handle.id
+        |> Color.red
+        |> Color.bold
       );
 
     enqueue = (fun topic queue_size ->
-        let topic_str = Color.bold (Color.cyan (Sexp.to_string_hum ~indent:1 (Types.sexp_of_topic topic))) in
-        Printf.sprintf "%s Enqueued message, queue size now %s"
-          (Color.bold(Color.underline(Color.yellow "[ENQUEUE]")) )
-          (Color.magenta (Int.to_string queue_size)) ^ " for topic " ^ topic_str
+        let topic_str =
+          topic
+          |> Types.sexp_of_topic
+          |> Sexp.to_string_hum ~indent:1
+          |> Color.cyan
+          |> Color.bold
+        in
+        "[ENQUEUE]"
+        |> Color.yellow
+        |> Color.underline
+        |> Color.bold
+        |> fun header ->
+        Printf.sprintf "%s Enqueued message, queue size now %s for topic %s"
+          header (queue_size |> Int.to_string |> Color.magenta) topic_str
       );
 
     drain_start = (fun batch_size ->
-        Color.underline(Printf.sprintf "%s Starting to drain queue of %s messages..."
-          (Color.bold (Color.bright_blue "[DRAIN_START]"))
-          (Color.bold (Color.magenta (Int.to_string batch_size))))
+        "[DRAIN_START]"
+        |> Color.bright_blue
+        |> Color.bold
+        |> fun header ->
+        Printf.sprintf "%s Starting to drain queue of %s messages..."
+          header (batch_size |> Int.to_string |> Color.magenta |> Color.bold)
+        |> Color.underline
       );
+
 
     drain_end = (fun () ->
-        Color.underline(Color.bold (Color.bright_blue "[DRAIN_END] Finished draining queue."))
+        "[DRAIN_END] Finished draining queue."
+        |> Color.bright_blue
+        |> Color.bold
+        |> Color.underline
       );
 
+
     print_stats = (fun () ->
-        Color.bold (Color.blue "[STATS] Printing statistics...")
+        "[STATS] Printing statistics..."
+        |> Color.blue
+        |> Color.bold
       );
 
   }

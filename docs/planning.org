@@ -2904,10 +2904,7 @@ CLOCK: [2025-11-05 Wed 20:20]--[2025-11-05 Wed 20:23] =>  0:03
 :END:
 ****** Precursor Chores
 ******* DONE =proposer_state::Accepting= needs to accumulate the nacks received
-
 - we need to update the =proposer_state::Accepting= add in the =nacks_received=
-
-
 ******* DONE proposer state change to Accepting AFTER broadcasting a suggestion
 
 - the proposer is supposed to be in "accepting" state when receiving the acks for accepted?
@@ -2924,10 +2921,22 @@ SO currently we only consider the =proposer.WaitingForPromises= only within that
 
 We need to layer it and allow counting from =proposer.ProposerAccepting= as well
 
-***** TODO Handle the nack logic (=handle_nack=)
+***** DONE Handle the nack logic (=handle_nack=)
+CLOSED: [2025-11-06 Thu 09:23]
 - the nack needs to be explicit about where to throw the nack into because both =proposer.WaitingForPromises= and =proposer.ProposerAccepting= will be accumulating nacks
 - Also, there's a chance that we can achieve quorum, so =handle_nack= should do the necessary stuff if quorum has been achieved.
 
+****** Implementation notes:
+1. the code is really ugly and we need to do a cleanup asap
+2. need to figure out the retrying stuff, I've put in a stubbed =abort= function for now.
+
+***** TODO cleanup refactors
+Things are really ugly, let's do some cleanups.
+- [ ] use destructures
+  too long let-binded chains -- use pattern-matched destructuring or just
+
+- [ ] extract duplicated code into helpers
+  duplicated code areas -- e.g. =handle_nack= and =handle_accepted=
 **** TODO Stage 3: Storage & Learning
 :PROPERTIES:
 :EFFORT:   1.5h
@@ -2950,10 +2959,8 @@ We need to layer it and allow counting from =proposer.ProposerAccepting= as well
 
 
 - Deliverables:
-
-    - Durable acceptor state per node
-
-    - Simple learning logic integrated
+  - Durable acceptor state per node
+  - Simple learning logic integrated
 **** TODO Stage 4: Add logging and simulation Demo Case
 :PROPERTIES:
 :EFFORT:   1h
@@ -2987,7 +2994,6 @@ We need to layer it and allow counting from =proposer.ProposerAccepting= as well
   3) Tighten signatures, remove unsafe partial matches.
 
   4) Final documentation pass.
-
 **** TODO Correctness check: Isolated areas in consideration
 
 These are mechanisms that we need to add in part by part. It would be greate to add a sort of pipelining capability to this though and to just add in policy elements direclty.

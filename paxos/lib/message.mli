@@ -50,6 +50,7 @@ module Message : sig
         ; from: Types.node_id
         ; proposal: Types.proposal_id
         ; value: 'v }
+    (* FIXME: the Message.Nack and State.nack don't play well together, they should have similar shapes.*)
     | Nack of
         { meta: Meta.t
         ; proposal: Types.proposal_id
