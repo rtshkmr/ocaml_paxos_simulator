@@ -86,6 +86,8 @@ module Message : sig
     | Time of 'v time_message
   [@@deriving sexp, compare, equal]
 
+  val payload_serialiser_of : ('v -> Sexp.t) -> 'v t -> string
+
   val meta_of : _ t -> Meta.t
 
   val topic_of : _ t -> Types.topic

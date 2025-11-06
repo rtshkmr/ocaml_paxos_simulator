@@ -20,28 +20,13 @@ module Simulator : Runtime = struct
   module NodeImpl = Node.Make_node (V) (S) (B)
 
   type msg = V.t Message.t (* shadow type *)
+  let payload_serialiser = Message.payload_serialiser_of V.sexp_of_t
   let msg_of_message (m: V.t Message.t): msg = m (* converts structurally equal type to shadow type *)
-
   type node = NodeImpl.t
-
   let id_of_node node = NodeImpl.id node
-
-
   type event = EventScheduler.event
 
-  let bus =
-    B.create
-      ~logger:(fun topic msg ->
-          let open Sexplib.Sexp in
-          let topic_sexp = Types.Types.sexp_of_topic topic in
-          let msg_sexp = Message.sexp_of_t V.sexp_of_t msg in
-          let formatted =
-            Sexp.to_string_hum (List [List [Atom "LOG"; topic_sexp]; msg_sexp])
-          in
-          formatted
-        )
-      ()
-
+  let bus = B.create ~payload_serialiser:payload_serialiser()
 
   type t =
     { mutable halted: bool
@@ -154,7 +139,6 @@ module Simulator : Runtime = struct
     let now = current_time sim in
     let sim_events_due = EventScheduler.pop_due_events !(sim.scheduler) now in
     List.iter ~f:(fun e -> e.action ()) sim_events_due;
-
 
     let msg = "..." in
     let formatted_tick_msg = Time.format_tick_msg sim.clock ~msg () in

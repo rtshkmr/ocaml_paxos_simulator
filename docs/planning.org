@@ -1869,7 +1869,6 @@ this is fixed now, the simulator's event scheduler keeps generic simulation even
 
 the =event_bus= keeps messages buffered. This is so that we can simulate async without doing async by draining deterministically.
 
-
 **** DONE Add better logging to simulation
 CLOSED: [2025-11-04 Tue 20:30]
 :PROPERTIES:
@@ -1910,6 +1909,7 @@ CLOSED: [2025-11-04 Tue 20:30]
 This is necessary for the completion of this project because without it, the simulation visuals won't be sexy.
 
 this part involves adding in the loops we were talking about.
+
 **** TODO Add storage pattern, in-mem -> persistent storage
 This is not as high priority but will be cool to demonstrate how crashing can still bring things back
 *** TODO Implement v0 (basic paxos algorithm -- main goal)
@@ -3086,6 +3086,105 @@ example of how formatters had been defined manually (crudely) within event_bus.m
   }
 #+end_src
 
+****** DONE Isolate our logging into it's special module
+CLOSED: [2025-11-06 Thu 19:36]
+:LOGBOOK:
+CLOCK: [2025-11-06 Thu 17:38]--[2025-11-06 Thu 19:38] =>  2:00
+:END:
+
+- CLOSING NOTE [2025-11-06 Thu 19:36] \\
+  Lovely, big learnings, time sink !
+
+  but it's okay i have a somewhat more intuitive understanding of the type system @ compile time and how the concretization happens.
+this is a custom module. It ended up being really painful to write for the following reasons:
+
+_Key Learning:_
+
+1. I'm keeping the =event_bus= polymorphic in its payload. This means that we need to be careful how the types get concretised eventually @ the point of usage. Only then can we bind things like serialisers and such (i.e. at =create()=).
+
+   at this point, the ='a= becomes concrete.
+
+   We can see this happen @ the =event_bus.create()= where we set the serialiser that we are going to use.
+
+****** TODO Add log statements to trace the decision-making flow
+:LOGBOOK:
+CLOCK: [2025-11-06 Thu 19:38]--[2025-11-06 Thu 19:41] =>  0:03
+:END:
+
+this should help us trace the logic of the simple paxos protocol that we've implemented.
+
+it's a happy path correctness check that we're interested in.
+
+
+***** Learning Points: Polymorphic Event Bus and Logging in OCaml
+****** Polymorphic Payloads in Event Bus
+- Event bus polymorphic over payload type ='a=.
+- Types concretize only at usage point (e.g., at =create= function).
+- Serializer and concrete type binding done at bus creation.
+
+****** Logger and Serialization Design
+- Logger only consumes string representations of payloads.
+- Serialization delegated to a serializer function ='a -> string=.
+- Serializer passed into event bus at creation as mandatory argument.
+
+****** Leveraging Ppx-Derived S-expression Serializers
+- Use automatically generated sexp_of_* functions ([@@deriving sexp]).
+- Compose message serializer by applying =sexp_of_t= to payload serializer.
+- Convert s-expression to hum-readable string with =Sexplib.Sexp.to_string_hum=.
+
+****** Example Serializer Function
+#+BEGIN_SRC ocaml
+let payload_serialiser_of (sexp_of_v : 'v -> Sexplib.Sexp.t) : 'v t -> string =
+  fun msg ->
+    let sexp = sexp_of_t sexp_of_v msg in
+    Sexplib.Sexp.to_string_hum sexp
+#+END_SRC
+
+****** Practical Usage
+- At event bus creation: =Event_bus.create ~serialiser:(payload_serialiser_of V.sexp_of_t) ()=.
+- Event bus stores the serializer function.
+- Logger calls serializer to get payload string for logging.
+
+****** Common Pitfalls
+- =sexp_of_t= is a module-level function, not a field; call directly.
+- Explicitly pass payload sexp serializer to =payload_serialiser_of=.
+- Avoid confusion between type names and function/values.
+
+****** Benefits
+- Polymorphic and type-safe serialization.
+- Decouples logging from serialization.
+- Uses OCaml idioms and ppx tooling effectively.
+- Clean, reusable, and minimal serialization code.
+***** Implementation notes
+1. Lmao i reached my first circular dependency issue :')
+   #+begin_src ocaml
+Error: dependency cycle between modules in _build/default/lib:
+   Simulator
+-> Event_bus
+-> Event_bus
+-> required by _build/default/lib/paxos.a
+-> required by alias lib/all
+-> required by alias default
+File "lib/event_bus.ml", lines 43-327, characters 23-3:
+ 43 | .......................struct
+ 44 |   (** sub_handle is the type for what a subscription handle looks like.
+ 45 |       -  [id] here refers to a subscription id (arbitrary for now)
+ 46 |   *)
+ 47 |   let logger = Logger.create ()
+...
+324 |         Stdio.printf " %s | %11d | %9d | %9d | %6d\n" topic_str subs published
+325 |           delivered queued ) ;
+326 |     Stdio.printf "%s\n" line
+Error: dependency cycle between modules in _build/default/lib:
+   Simulator
+-> Event_bus
+-> Event_bus
+-> required by _build/default/lib/paxos.a
+-> required by alias lib/all
+-> required by alias default
+Had 1 error, waiting for filesystem changes...
+   #+end_src
+
 
 
 **** TODO Stage 3: Storage & Learning
@@ -3246,3 +3345,4 @@ C. Async trap:
 D. Testing complexity:
 
    We will resist property testing or QuickCheck; we will just write hand-driven deterministic cases.
+

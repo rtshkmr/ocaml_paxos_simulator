@@ -70,6 +70,12 @@ module Message = struct
     | Time of 'v time_message
   [@@deriving sexp, compare, equal]
 
+  let payload_serialiser_of (sexp_of_v : 'v -> Sexplib.Sexp.t) : 'v t -> string
+      =
+   fun msg ->
+    let sexp = sexp_of_t sexp_of_v msg in
+    Sexplib.Sexp.to_string_hum sexp
+
   let make_meta id timestamp topic : Meta.t = {id; timestamp; topic}
 
   let meta_of = function
