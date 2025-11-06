@@ -2894,6 +2894,15 @@ So our accepted logic is:
         enqueue_reply (Message.Coordination nack_msg)
 #+end_src
 
+***** DONE Handle the nack logic (=handle_nack=)
+CLOSED: [2025-11-06 Thu 09:23]
+- the nack needs to be explicit about where to throw the nack into because both =proposer.WaitingForPromises= and =proposer.ProposerAccepting= will be accumulating nacks
+- Also, there's a chance that we can achieve quorum, so =handle_nack= should do the necessary stuff if quorum has been achieved.
+
+****** Implementation notes:
+1. the code is really ugly and we need to do a cleanup asap
+2. need to figure out the retrying stuff, I've put in a stubbed =abort= function for now.
+
 ***** DONE Handle the accepted logic (=handle_accepted=)
 CLOSED: [2025-11-05 Wed 22:52]
 - CLOSING NOTE [2025-11-05 Wed 22:52] \\
@@ -2921,22 +2930,164 @@ SO currently we only consider the =proposer.WaitingForPromises= only within that
 
 We need to layer it and allow counting from =proposer.ProposerAccepting= as well
 
-***** DONE Handle the nack logic (=handle_nack=)
-CLOSED: [2025-11-06 Thu 09:23]
-- the nack needs to be explicit about where to throw the nack into because both =proposer.WaitingForPromises= and =proposer.ProposerAccepting= will be accumulating nacks
-- Also, there's a chance that we can achieve quorum, so =handle_nack= should do the necessary stuff if quorum has been achieved.
-
-****** Implementation notes:
-1. the code is really ugly and we need to do a cleanup asap
-2. need to figure out the retrying stuff, I've put in a stubbed =abort= function for now.
-
-***** TODO cleanup refactors
+***** DONE cleanup refactors
+CLOSED: [2025-11-06 Thu 13:46]
+- CLOSING NOTE [2025-11-06 Thu 13:46] \\
+  Done, this took a while but it feels easier to read because:
+  1. pipes are easier to follow dataflow ideas
+  2. there are nested helper functions that allow consolidation of data extractions and side-effects and so on. Basicall similar logic is grouped together better.
+:LOGBOOK:
+CLOCK: [2025-11-06 Thu 10:50]--[2025-11-06 Thu 13:46] =>  2:56
+:END:
 Things are really ugly, let's do some cleanups.
-- [ ] use destructures
+- [X] use destructures
   too long let-binded chains -- use pattern-matched destructuring or just
 
-- [ ] extract duplicated code into helpers
+- [X] extract duplicated code into helpers
   duplicated code areas -- e.g. =handle_nack= and =handle_accepted=
+
+
+****** things learnt:
+1. records, to be referenced for their types can't be inline. So we have to extract out the types if we wish to pattern match or something later.
+2. intuition:
+   - side-effects can be pipelined out via fns but looks ugly
+   - transformation of shapes (like in elixir) can be done via pipes
+3. destructuring works on function params, it's so much cleaner than doing let bindings unnecessarily
+
+***** TODO Add logging to trace current code
+We have our colors that helps us format.
+We need to define some formatters again.
+
+Let's define some wishlists:
+1. all the reaction logic needs to have a similar style -- i'm thinking of just italicising it
+2. handlers are for events that can be split into 2 categories:
+   - events that the node needs to respond to as a Acceptor Role --> so this needs to be a role tag like "[Acceptor]" Bolded  coloured blue maybe
+   - events that the node needs to respond to as a Proposer Role --> this needs to be a role tag like "[Proposer]" Bolded and coloured Blue maybe
+3. i want to add a formatter for "decisions" which are just info logs really but i'm anthropomorphosing it. I think just a gray / dim blue italics works for this
+
+I want to keep v0 dependency free, that's why i'm manually writing it out.
+
+example of how formatters had been defined manually (crudely) within event_bus.ml
+
+#+begin_src ocaml
+  let formatters = {
+    publish_broadcast = (fun logger topic payload ->
+        let width = Color.get_terminal_width () in
+        let header_msg =
+          "\t\t\t\t[PUBLISH_BROADCAST]"
+          |> Color.bg_white
+          |> Color.red
+          |> Color.bold
+        in
+        let header =
+          String.make width '-'
+          |> Color.red
+          |> Color.bold
+        in
+        let topic_str =
+          topic
+          |> Types.sexp_of_topic
+          |> Sexp.to_string_hum ~indent:1
+          |> Color.bold
+          |> Color.red
+        in
+        Printf.sprintf "%s\n%s via topic %s:\n%s\n%s"
+          header header_msg topic_str (logger topic payload) header
+      );
+
+    publish_unicast = (fun node_id logger topic payload ->
+        let width = Color.get_terminal_width () in
+        let header_msg =
+          Printf.sprintf "\t\t\t\t[PUBLISH_UNICAST] Target Node ID = %d" node_id
+          |> Color.bg_white
+          |> Color.magenta
+          |> Color.bold
+        in
+        let header =
+          String.make width '-'
+          |> Color.magenta
+          |> Color.bold
+        in
+        let topic_str =
+          topic
+          |> Types.sexp_of_topic
+          |> Sexp.to_string_hum ~indent:1
+          |> Color.bold
+          |> Color.magenta
+        in
+        Printf.sprintf "%s\n%s via topic %s:\n%s\n%s"
+          header header_msg topic_str (logger topic payload) header
+      );
+
+    subscribe = (fun sub_handle ->
+        sub_handle.topic
+        |> Types.sexp_of_topic
+        |> Sexp.to_string_hum ~indent:1
+        |> fun topic_str ->
+        Printf.sprintf "< +++ Subscribed +++ >: \n\ttopic=%s, node_id=%d, subscription_id=%d"
+          topic_str sub_handle.node_id sub_handle.id
+        |> Color.green
+        |> Color.bold
+      );
+
+    unsubscribe = (fun sub_handle ->
+        sub_handle.topic
+        |> Types.sexp_of_topic
+        |> Sexp.to_string_hum ~indent:1
+        |> fun topic_str ->
+        Printf.sprintf "< --- Unsubscribed --- >: \n\ttopic=%s, node_id=%d, subscription_id=%d"
+          topic_str sub_handle.node_id sub_handle.id
+        |> Color.red
+        |> Color.bold
+      );
+
+    enqueue = (fun topic queue_size ->
+        let topic_str =
+          topic
+          |> Types.sexp_of_topic
+          |> Sexp.to_string_hum ~indent:1
+          |> Color.cyan
+          |> Color.bold
+        in
+        "[ENQUEUE]"
+        |> Color.yellow
+        |> Color.underline
+        |> Color.bold
+        |> fun header ->
+        Printf.sprintf "%s Enqueued message, queue size now %s for topic %s"
+          header (queue_size |> Int.to_string |> Color.magenta) topic_str
+      );
+
+    drain_start = (fun batch_size ->
+        "[DRAIN_START]"
+        |> Color.bright_blue
+        |> Color.bold
+        |> fun header ->
+        Printf.sprintf "%s Starting to drain queue of %s messages..."
+          header (batch_size |> Int.to_string |> Color.magenta |> Color.bold)
+        |> Color.underline
+      );
+
+
+    drain_end = (fun () ->
+        "[DRAIN_END] Finished draining queue."
+        |> Color.bright_blue
+        |> Color.bold
+        |> Color.underline
+      );
+
+
+    print_stats = (fun () ->
+        "[STATS] Printing statistics..."
+        |> Color.blue
+        |> Color.bold
+      );
+
+  }
+#+end_src
+
+
+
 **** TODO Stage 3: Storage & Learning
 :PROPERTIES:
 :EFFORT:   1.5h

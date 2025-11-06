@@ -24,38 +24,45 @@ module Message : sig
     [@@deriving sexp, compare, equal]
   end
 
+  type 'v permission_request_msg =
+    {meta: Meta.t; from: Types.node_id; proposal: Types.proposal_id; value: 'v}
+  [@@deriving sexp, compare, equal]
+
+  type 'v permission_granted_msg =
+    { meta: Meta.t
+    ; from: Types.node_id
+    ; proposal: Types.proposal_id
+    ; last_accepted: (Types.proposal_id * 'v) option }
+  [@@deriving sexp, compare, equal]
+
+  type 'v suggestion_msg =
+    {meta: Meta.t; from: Types.node_id; proposal: Types.proposal_id; value: 'v}
+  [@@deriving sexp, compare, equal]
+
+  type 'v accepted_msg =
+    {meta: Meta.t; from: Types.node_id; proposal: Types.proposal_id; value: 'v}
+  [@@deriving sexp, compare, equal]
+
+  (**  [Nack] variant ([nack_msg] has an optional [hint] which helps to inform about the highest promise seen.
+       this is intended for future use for nack optimisations @ the accepting stage.
+
+       FIXME: the Message.Nack and State.nack don't play well together, they should have similar shapes.*)
+  type 'v nack_msg =
+    { meta: Meta.t
+    ; proposal: Types.proposal_id
+    ; from: Types.node_id
+    ; hint: (Types.proposal_id * 'v) option }
+  [@@deriving sexp, compare, equal]
+
   (** Messages are parameterized by payload type ['v].
       The Paxos algo defines these 5 variants in its spec for Coordination
-      Notes:
-      1. [Nack] variant has an optional [hint] which helps to inform about the highest promise seen.
   *)
   type 'v coordination_message =
-    | PermissionRequest of
-        { meta: Meta.t
-        ; from: Types.node_id
-        ; proposal: Types.proposal_id
-        ; value: 'v }
-    | PermissionGranted of
-        { meta: Meta.t
-        ; from: Types.node_id
-        ; proposal: Types.proposal_id
-        ; last_accepted: (Types.proposal_id * 'v) option }
-    | Suggestion of
-        { meta: Meta.t
-        ; from: Types.node_id
-        ; proposal: Types.proposal_id
-        ; value: 'v }
-    | Accepted of
-        { meta: Meta.t
-        ; from: Types.node_id
-        ; proposal: Types.proposal_id
-        ; value: 'v }
-    (* FIXME: the Message.Nack and State.nack don't play well together, they should have similar shapes.*)
-    | Nack of
-        { meta: Meta.t
-        ; proposal: Types.proposal_id
-        ; from: Types.node_id
-        ; hint: (Types.proposal_id * 'v) option }
+    | PermissionRequest of 'v permission_request_msg
+    | PermissionGranted of 'v permission_granted_msg
+    | Suggestion of 'v suggestion_msg
+    | Accepted of 'v accepted_msg
+    | Nack of 'v nack_msg
   [@@deriving sexp, compare, equal]
 
   and 'v time_message =

@@ -221,6 +221,9 @@ module type S = sig
     -> node_id:int
     -> unit
   (** Convenience function to make a node idle in simulation control. *)
+
+  val get_cluster_size : t -> int
+  (** convenience cluster size getter *)
 end
 
 (** The functor for constructing node implementations parameterized by:

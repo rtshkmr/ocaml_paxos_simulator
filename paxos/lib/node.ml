@@ -144,6 +144,8 @@ module type S = sig
     -> 'b
     -> node_id:int
     -> unit
+
+  val get_cluster_size: t -> int
 end
 
 module Make_node (V : Value.S)
@@ -375,6 +377,8 @@ module Make_node (V : Value.S)
     | Some table -> Hashtbl.fold table ~init:[] ~f:(fun ~key:_ ~data:bus acc -> bus :: acc)
     | None -> []
 
+  let get_cluster_size t = Option.value !(t.config.simulation.cluster_size) ~default:0
+
   let dump_state t = State.sexp_of_role_state t.state
 
   let get_or_create_inbox_entry (node: t) (key: proposal_key) =
@@ -476,51 +480,31 @@ module Make_node (V : Value.S)
     let new_role_state = State.set_role curr sel new_substate in
     node.state <- new_role_state
 
-  let handle_permission_request node msg =
-    match msg with
-    | Message.Coordination (PermissionRequest pr) ->
-      let requestor_id = Message.sender_of msg in
-      let proposal = pr.proposal in
-      let topic = Message.topic_of msg in
-      let msg_meta = Message.meta_of msg in
-      let msg_id = 1 + msg_meta.id in
-      let time = 1 + msg_meta.timestamp in
+  let is_permissible ~current_promised_opt proposal =
+    match current_promised_opt with
+    | None -> true
+    | Some promised -> Types.compare_proposal_id promised proposal < 0
 
-      let (current_promised_opt, prev_accepted_opt) =
-        match State.get_role node.state State.Acceptor with
-        | State.Inactive | State.Idle -> (None, None)
-        | State.Accepting record -> (record.promised, record.accepted)
-      in
-      let open Types in
-      let is_permissible =
-        Option.is_none current_promised_opt (* no promises made yet *)
-        || compare_proposal_id (Option.value_exn current_promised_opt) proposal < 0 (* our proposal is higher priority *)
-      in
-
-      let buses = buses_for_topic node topic in
-
-      let enqueue_reply reply_msg =
-        match buses with
-        | [] -> failwith "Impossible case, should always have at least one bus"
-        | bus :: _ -> Bus.enqueue bus ((topic, Some requestor_id), reply_msg)
-      in
-
-      if is_permissible then
-        let last_accepted = prev_accepted_opt in
-        let updated_record = { Acceptor_record.promised = Some proposal; accepted = last_accepted } in
-        node.state <-
-          State.set_role node.state State.Acceptor (State.Accepting updated_record);
-        let reply_msg =
-          Message.Coordination(Message.make_permission_granted ~msg_id ~topic ~proposal ~time ~from:node.id ~last_accepted)
-        in
-        enqueue_reply reply_msg
-      else
-        let hint = prev_accepted_opt in
-        let nack_msg =
-          Message.make_nack ~msg_id ~topic ~time ~from:node.id ~proposal ~hint
-        in
-        enqueue_reply (Message.Coordination nack_msg)
-    | _ -> failwith "Met an impossible state when handling permission request."
+  let handle_permission_request node ({meta={topic; id; timestamp}; from; proposal; value}: V.t Message.permission_request_msg) =
+    let msg_id = 1 + id in
+    let time = 1 + timestamp in
+    let (current_promised_opt, prev_accepted_opt) =
+      match State.get_role node.state State.Acceptor with
+      | State.Inactive | State.Idle -> (None, None)
+      | State.Accepting record -> (record.promised, record.accepted)
+    in
+    let reply_msg =
+      if is_permissible ~current_promised_opt proposal then (
+        let updated_record = { Acceptor_record.promised = Some proposal; accepted = prev_accepted_opt } in
+        node.state <- State.set_role node.state State.Acceptor (State.Accepting updated_record);
+        Message.Coordination (Message.make_permission_granted ~msg_id ~topic ~proposal ~time ~from:node.id ~last_accepted:prev_accepted_opt)
+      ) else
+        Message.Coordination (Message.make_nack ~msg_id ~topic ~time ~from:node.id ~proposal ~hint:prev_accepted_opt)
+    in
+    buses_for_topic node topic
+    |> function
+    | [] -> failwith "Impossible case, should always have at least one bus"
+    | bus :: _ -> Bus.enqueue bus ((topic, Some from), reply_msg)
 
   (** TODO: figure out how to abort.*)
   let abort node =
@@ -531,209 +515,145 @@ module Make_node (V : Value.S)
     |> Color.underline
     |> Stdio.print_endline
 
-  let handle_permission_granted node msg =
-  match node.state.proposer, msg with
-  (* Case 1: first response on permission request, so proposer is idle now.  *)
-  | State.Idle, Message.Coordination(PermissionGranted pg) ->
-    let new_state = State.WaitingForPromises {
-        proposal = pg.proposal;
-        promises_received = [(pg.from, pg.last_accepted)];
-        nacks_received = []
-      } in
-    node.state <- State.set_role node.state State.Proposer new_state
-
-  (* Case 2: non-first response on permission request, so proposer has already been waiting for promises.  *)
-  | State.WaitingForPromises wfp, Message.Coordination (PermissionGranted pg) ->
-    let updated_promises = (pg.from, pg.last_accepted) :: wfp.promises_received in
-    let updated_state =
-      State.WaitingForPromises { wfp with promises_received = updated_promises }
+  let handle_permission_granted node ({meta={topic;id;timestamp}; from; proposal; last_accepted} : V.t Message.permission_granted_msg) =
+    let msg_id = 1 + id in
+    let time = 1 + timestamp in
+    let handle_on_quorum_reached best_value_opt =
+      let chosen_value =
+        match best_value_opt with
+        | Some (_, v) -> v
+        (* TODO: proposer should be proposing his own value here *)
+        | None -> V.t_of_sexp (Sexplib.Sexp.Atom "chosen placeholder value")
+      in
+      match buses_for_topic node topic with
+      | [] -> failwith "Impossible case, should always have at least one bus"
+      | bus :: _ ->
+        suggest ~msg_id ~time ~bus node ~proposal ~value:chosen_value;
+        State.ProposerAccepting { proposal; value = chosen_value; acks = []; nacks_received = [] }
+        |> State.set_role node.state State.Proposer
+        |> fun st -> node.state <- st
     in
-    node.state <- State.set_role node.state State.Proposer updated_state;
+    match node.state.proposer with
+    | State.Idle ->
+      node.state <-
+        { proposal; promises_received = [(from, last_accepted)]; nacks_received = [] }
+        |> State.WaitingForPromises
+        |> State.set_role node.state State.Proposer
+    | State.WaitingForPromises wfp ->
+      node.state <-
+        { wfp with promises_received = (from, last_accepted) :: wfp.promises_received }
+        |> State.WaitingForPromises
+        |> State.set_role node.state State.Proposer;
+      begin match State.is_quorum_reached node.state (get_cluster_size node) with
+        | State.MajorityGrants best_value_opt -> handle_on_quorum_reached best_value_opt
+        | State.MajorityNacks _ -> abort node
+        | State.NotReached -> ()
+      end
+    | _ -> failwith "Met an impossible case when handling permission granted."
 
-    let cluster_size_opt = !(node.config.simulation.cluster_size) in
-    let cluster_size = if Option.is_none cluster_size_opt then 0 else Option.value_exn cluster_size_opt in
-    let quorum_res = State.is_quorum_reached node.state cluster_size in
-    begin
-      match quorum_res with
-      | State.MajorityGrants best_value_opt ->
-        let topic = Message.topic_of msg in
-        let chosen_value =
-          match best_value_opt with
-          | Some (_, v) -> v
-            (* TODO: propose the proposer's own value here *)
-          | None -> V.t_of_sexp (Sexplib.Sexp.Atom "chosen placeholder value")
-        in
-        let proposal = pg.proposal in
-        let msg_meta = Message.meta_of msg in
-        let msg_id = 1 + msg_meta.id in
-        let time = 1 + msg_meta.timestamp in
-        let buses = buses_for_topic node topic in
-        (match buses with
-         | [] -> failwith "Impossible case, should always have at least one bus"
-         | bus :: _ -> suggest ~msg_id ~time ~bus node ~proposal ~value:chosen_value);
-        let proper_accepting_state = State.ProposerAccepting {
-            proposal = proposal;
-            value=chosen_value;
-            acks=[];
-            nacks_received=[];
-          } in
-        node.state <- State.set_role node.state State.Proposer proper_accepting_state
-      | State.MajorityNacks _ ->
-        abort node
-      | State.NotReached ->
-        ()
-    end
 
-  | _ -> failwith "Met an impossible case when handling permission granted."
-
-  (* acceptor may record proposal and value, proposer may prepare proposal, learner may learn *)
-  let handle_suggestion node msg =
-    match msg with
-    | Message.Coordination (Suggestion sg) ->
-      let sender_id = Message.sender_of msg in
-      let proposal = sg.proposal in
-      let topic = Message.topic_of msg in
-      let msg_meta = Message.meta_of msg in
-      let msg_id = 1 + msg_meta.id in
-      let time = 1 + msg_meta.timestamp in
-
-      let (current_promised_opt, prev_accepted_opt) =
-        match State.get_role node.state State.Acceptor with
-        | State.Inactive | State.Idle -> (None, None)
-        | State.Accepting record -> (record.promised, record.accepted)
-      in
-
-      let open Types in
-      let is_acceptable = Option.is_some current_promised_opt && compare_proposal_id proposal (Option.value_exn current_promised_opt) >= 0 in
-      let buses = buses_for_topic node topic in
-
-      let enqueue_reply reply_msg =
-        match buses with
-        | [] -> failwith "Impossible case, should always have at least one bus"
-        | bus :: _ -> Bus.enqueue bus ((topic, Some sender_id), reply_msg)
-      in
-
-      if is_acceptable then
-        let updated_record = { Acceptor_record.promised = Some proposal; accepted = Some (proposal, sg.value) } in
+  let is_acceptable proposal current_promised_opt = Option.is_some current_promised_opt && Types.compare_proposal_id proposal (Option.value_exn current_promised_opt) >= 0
+  let handle_suggestion node ({meta={topic; id; timestamp}; from; proposal; value}: V.t Message.suggestion_msg) =
+    let msg_id = 1 + id in
+    let time = 1 + timestamp in
+    let (current_promised_opt, prev_accepted_opt) =
+      match State.get_role node.state State.Acceptor with
+      | State.Inactive | State.Idle -> (None, None)
+      | State.Accepting record -> (record.promised, record.accepted)
+    in
+    let reply_msg =
+      if is_acceptable proposal current_promised_opt then
+        let updated_record = { Acceptor_record.promised = Some proposal; accepted = Some (proposal, value) } in
         node.state <- State.set_role node.state State.Acceptor (State.Accepting updated_record);
-        let accepted_msg = Message.make_accepted ~msg_id ~topic ~time ~from:node.id ~proposal ~value:sg.value in
-        enqueue_reply (Message.Coordination accepted_msg)
+        Message.Coordination(Message.make_accepted ~msg_id ~topic ~time ~from:node.id ~proposal ~value)
       else
-        let nack_msg = Message.make_nack ~msg_id ~topic ~time ~from:node.id ~proposal ~hint:prev_accepted_opt in
-        enqueue_reply (Message.Coordination nack_msg)
+        Message.Coordination(Message.make_nack ~msg_id ~topic ~time ~from:node.id ~proposal ~hint:prev_accepted_opt)
+    in
+    buses_for_topic node topic
+    |> function
+    | [] -> failwith "Impossible case, should always have at least one bus"
+    | bus :: _ -> Bus.enqueue bus ((topic, Some from), reply_msg)
 
-    | _ -> failwith "Met an impossible state when handling suggestion."
 
-  let handle_accepted node msg =
+  let handle_accepted node ({meta={topic;id;timestamp}; from; proposal; value} : V.t Message.accepted_msg) =
     (* update proposer state or infer consensus *)
-    match node.state.proposer, msg with
-    | State.ProposerAccepting a, Message.Coordination(Accepted ac) ->
+    match node.state.proposer with
+    | State.ProposerAccepting a ->
       let new_acks =
-        if List.mem a.acks ac.from ~equal:(=) then a.acks else ac.from :: a.acks
+        if List.mem a.acks from ~equal:(=) then a.acks else from :: a.acks
       in
-      let cluster_size_opt = !(node.config.simulation.cluster_size) in
-      let cluster_size = if Option.is_none cluster_size_opt then 0 else Option.value_exn cluster_size_opt in
-      let new_state  = State.ProposerAccepting { a with acks = new_acks } in
-      node.state <- State.set_role node.state State.Proposer new_state;
-      let quorum_res = State.is_quorum_reached node.state cluster_size in
-      (match quorum_res with
+      node.state <- {a with acks = new_acks}
+        |> State.ProposerAccepting
+        |> State.set_role node.state State.Proposer;
+      (match State.is_quorum_reached node.state (get_cluster_size node) with
        | State.MajorityGrants (Some (_, decided_value)) -> let decided_state = State.Decided decided_value in
          node.state <- State.set_role node.state State.Proposer decided_state;
          (* TODO: determine if we should be broadcasting that the state is decided?? *)
          (* TODO: handle NACK optimisation later*)
        | _ -> ())
-    | _ -> ()
+    | _ -> failwith "Met an impossible case when handling accepted."
 
-  let handle_nack node msg =
-    let cluster_size = Option.value !(node.config.simulation.cluster_size) ~default:0  in
-    (* process rejection in proposer/acceptor logic *)
-    match msg with
-    | Message.Coordination (Nack {meta; from;proposal;hint}) -> (
-        match node.state.proposer with
-        | State.WaitingForPromises wfp ->
-          let nack:State.nack = ( meta.id, hint, Some proposal) in
-          let updated_nacks = nack :: wfp.nacks_received in
-          let updated_state = State.WaitingForPromises {wfp with nacks_received = updated_nacks} in
-          node.state <- State.set_role node.state State.Proposer updated_state;
-
-          (     match State.is_quorum_reached node.state cluster_size with
-                | State.MajorityGrants best_value_opt -> (
-                    (* FIXME: duplicated from handle_permission_granted case 2 arm *)
-                    let topic = Message.topic_of msg in
-                    let chosen_value =
-                      match best_value_opt with
-                      | Some (_, v) -> v
-                      (* TODO: propose the proposer's own value here *)
-                      | None -> V.t_of_sexp (Sexplib.Sexp.Atom "chosen placeholder value")
-                    in
-                    let msg_id = 1 + meta.id in
-                    let time = 1 + meta.timestamp in
-                    let buses = buses_for_topic node topic in
-                    (match buses with
-                     | [] -> failwith "Impossible case, should always have at least one bus"
-                     | bus :: _ -> suggest ~msg_id ~time ~bus node ~proposal ~value:chosen_value);
-                    let proper_accepting_state = State.ProposerAccepting {
-                        proposal = proposal;
-                        value=chosen_value;
-                        acks=[];
-                        nacks_received=[];
-                      } in
-                    node.state <- State.set_role node.state State.Proposer proper_accepting_state
-                  )
-                | State.MajorityNacks _ -> abort node (* NOTE: need to add nack optimisation at this step *)
-                | State.NotReached -> ()
-          )
-        | State.ProposerAccepting pa -> (
-            let nack:State.nack = ( meta.id, hint, Some proposal) in
-            let updated_nacks = nack :: pa.nacks_received in
-            let updated_state = State.ProposerAccepting {pa with nacks_received = updated_nacks} in
-            node.state <- State.set_role node.state State.Proposer updated_state;
-            (
-              match State.is_quorum_reached node.state cluster_size with
-              | State.MajorityGrants best_value_opt -> (
-                  (* FIXME: duplicated from handle_permission_granted case 2 arm *)
-                  let topic = Message.topic_of msg in
-                  let chosen_value =
-                    match best_value_opt with
-                    | Some (_, v) -> v
-                    (* TODO: propose the proposer's own value here *)
-                    | None -> V.t_of_sexp (Sexplib.Sexp.Atom "chosen placeholder value")
-                  in
-                  let msg_id = 1 + meta.id in
-                  let time = 1 + meta.timestamp in
-                  let buses = buses_for_topic node topic in
-                  (match buses with
-                   | [] -> failwith "Impossible case, should always have at least one bus"
-                   | bus :: _ -> suggest ~msg_id ~time ~bus node ~proposal ~value:chosen_value);
-                  let proper_accepting_state = State.ProposerAccepting {
-                      proposal = proposal;
-                      value=chosen_value;
-                      acks=[];
-                      nacks_received=[];
-                    } in
-                  node.state <- State.set_role node.state State.Proposer proper_accepting_state
-                )
-
-              | State.MajorityNacks _ -> abort node (* NOTE: need to add nack optimisation at this step *)
-              | State.NotReached -> ()
-            )
-          )
-        | _ -> failwith "Met an impossible state when handling nacks -- can only be in states out of [State.WaitingForPromises, State.ProposerAccepting]."
-      )
-    | _ -> failwith "Handle_nack is being called with a msg other than a nack."
+  let handle_nack node ( { meta={topic;id;timestamp}
+                          ; proposal
+                          ; from
+                          ; hint}: V.t Message.nack_msg)
+    =
+    (* we update the node state first, accumulating the nack value: *)
+    let cluster_size = get_cluster_size node in
+    let nack = ((id, hint, Some proposal):State.nack)  in
+    let update_proposer_state updated_state =
+      node.state <- State.set_role node.state State.Proposer updated_state
+    in
+    (* Handle majority quorum grants by suggesting the best value*)
+    let handle_majority_grants best_value_opt =
+      let chosen_value =
+        Option.value_map best_value_opt
+          ~default:(V.t_of_sexp (Sexplib.Sexp.Atom "chosen placeholder value"))
+          ~f:snd
+      in
+      let msg_id = 1 + id in
+      let time = 1 + timestamp in
+      match buses_for_topic node topic with
+      | [] -> failwith "Impossible case, should always have at least one bus"
+      | bus :: _ ->
+        suggest ~msg_id ~time ~bus node ~proposal ~value:chosen_value;
+        node.state <- {
+          proposal;
+          value = chosen_value;
+          acks = [];
+          nacks_received = [];
+        } |> State.ProposerAccepting |> State.set_role node.state State.Proposer
+    in
+    (* main dispatching: *)
+    match node.state.proposer with
+    | State.WaitingForPromises wfp ->
+      let updated_state = {wfp with nacks_received=( nack :: wfp.nacks_received )} |> State.WaitingForPromises in
+      update_proposer_state updated_state;
+      (match State.is_quorum_reached node.state cluster_size with
+       | State.MajorityGrants best -> best |> handle_majority_grants
+       | State.MajorityNacks _ -> abort node
+       | State.NotReached -> ())
+    | State.ProposerAccepting pa ->
+      let updated_state = {pa with nacks_received=( nack :: pa.nacks_received )} |> State.ProposerAccepting  in
+      update_proposer_state updated_state ;
+      (match State.is_quorum_reached node.state cluster_size with
+       | State.MajorityGrants best -> best |> handle_majority_grants
+       | State.MajorityNacks _ -> abort node
+       | State.NotReached -> ())
+    | _ ->
+      failwith "Met an impossible state when handling nacks -- only valid in WaitingForPromises or ProposerAccepting."
 
   let handle_coordination node msg =
     match Message.proposal_id_of msg with
     | None -> ()
-    | Some proposal_id -> begin
+    | Some proposal_id ->
         match msg with
-        | Message.Coordination (PermissionRequest _) -> handle_permission_request node msg
-        | Message.Coordination (PermissionGranted _) -> handle_permission_granted node msg
-        | Message.Coordination (Nack _) -> handle_nack node msg
-        | Message.Coordination (Suggestion _) -> handle_suggestion node msg
-        | Message.Coordination (Accepted _) -> handle_accepted node msg
+        | Message.Coordination (PermissionRequest pr) -> handle_permission_request node pr
+        | Message.Coordination (PermissionGranted pg) -> handle_permission_granted node pg
+        | Message.Coordination (Suggestion s) -> handle_suggestion node s
+        | Message.Coordination (Accepted a) -> handle_accepted node a
+        | Message.Coordination (Nack n) -> handle_nack node n
         | _ -> ()
-      end
 
   let handle_simulation_control (node: t) (msg: V.t Message.t) =
     match msg with
