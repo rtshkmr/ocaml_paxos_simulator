@@ -4,6 +4,7 @@ open Base
 open Event_bus
 open Types
 open Message
+open Log
 
 module type S = sig
   module V : Value.S
@@ -207,7 +208,7 @@ module Make_node (V : Value.S)
     type proposer_state =
       | Inactive
       | Idle
-      | Preparing
+      | Preparing (* TODO [FSM] we ended up using Idle instead of preparing. I think propose subroutine should do Idle -> proposing -> WFP instead*)
       | WaitingForPromises of waiting_for_promise_state
       | ProposerAccepting of proposer_accepting_state
       | Decided of V.t
@@ -366,6 +367,7 @@ module Make_node (V : Value.S)
     inbox : inbox;
     mutable state : State.role_state;
     mutable subs : (Types.topic, (Bus.sub_handle, V.t Message.t Bus.t) Hashtbl.t) Hashtbl.t;
+    logger: string Logger.t;
     transitions : string list ref;  (* light-weight history for debugging *)
   }
 
@@ -486,19 +488,27 @@ module Make_node (V : Value.S)
     | Some promised -> Types.compare_proposal_id promised proposal < 0
 
   let handle_permission_request node ({meta={topic; id; timestamp}; from; proposal; value}: V.t Message.permission_request_msg) =
+    let msg = Printf.sprintf "... node %d received permission request from %d with proposal=%s for value=(%s)"  node.id from (Sexp.to_string_hum(Types.sexp_of_proposal_id proposal)) (V.to_string(value) ) in
+    Logger.log_subroutine_flow node.logger Stdlib.__FUNCTION__ ~msg ();
     let msg_id = 1 + id in
     let time = 1 + timestamp in
     let (current_promised_opt, prev_accepted_opt) =
       match State.get_role node.state State.Acceptor with
-      | State.Inactive | State.Idle -> (None, None)
+      (* TODO [FSM]: when will it be inactive? do we transition out to inactive after? *)
+      | State.Inactive | State.Idle -> Logger.log_decision node.logger ( Printf.sprintf "Node %d Acceptor was idle/inactive; no current promised / previously accepted to report. Carrying on..." node.id); (None, None)
       | State.Accepting record -> (record.promised, record.accepted)
     in
     let reply_msg =
       if is_permissible ~current_promised_opt proposal then (
         let updated_record = { Acceptor_record.promised = Some proposal; accepted = prev_accepted_opt } in
         node.state <- State.set_role node.state State.Acceptor (State.Accepting updated_record);
+
+        let log_msg = Printf.sprintf "the permission request is permissible. new_state: ( %s )" (Sexp.to_string_hum(Acceptor_record.sexp_of_value(updated_record))) in
+        Logger.log_decision node.logger log_msg ;
         Message.Coordination (Message.make_permission_granted ~msg_id ~topic ~proposal ~time ~from:node.id ~last_accepted:prev_accepted_opt)
       ) else
+        let log_msg = "the permission request is NOT permissible. we shall send a NACK with hint" in
+        Logger.log_decision node.logger log_msg ;
         Message.Coordination (Message.make_nack ~msg_id ~topic ~time ~from:node.id ~proposal ~hint:prev_accepted_opt)
     in
     buses_for_topic node topic
@@ -509,51 +519,70 @@ module Make_node (V : Value.S)
   (** TODO: figure out how to abort.*)
   let abort node =
     let open Color in
-    let msg = "Should abort, or maybe retry...." in
-      msg
-    |> Color.red
-    |> Color.underline
-    |> Stdio.print_endline
+    (* TODO [FSM] Figuring out what aborting a paxos process means *)
+    let log_msg = ( "the permission request is NOT permissible. we shall send a NACK with hint" |> Color.red ) in
+    Logger.log_decision node.logger log_msg
 
   let handle_permission_granted node ({meta={topic;id;timestamp}; from; proposal; last_accepted} : V.t Message.permission_granted_msg) =
+   let last_accepted_str = match last_accepted with
+      | None -> "None"
+      | Some (proposal_key, v) ->
+        let sexp = Sexplib.Sexp.List [
+          Types.sexp_of_proposal_id proposal_key;
+          V.sexp_of_t v
+        ] in
+        Sexplib.Sexp.to_string_hum sexp in
+    let msg = Printf.sprintf "... node %d received permission granted from %d with proposal=%s for last_accepted=(%s)"  node.id from (Sexp.to_string_hum(Types.sexp_of_proposal_id proposal)) last_accepted_str in
+    Logger.log_subroutine_flow node.logger Stdlib.__FUNCTION__ ~msg ();
     let msg_id = 1 + id in
     let time = 1 + timestamp in
     let handle_on_quorum_reached best_value_opt =
       let chosen_value =
         match best_value_opt with
         | Some (_, v) -> v
-        (* TODO: proposer should be proposing his own value here *)
+        (* TODO [FSM BUG 1]: proposer should be proposing his own value here *)
         | None -> V.t_of_sexp (Sexplib.Sexp.Atom "chosen placeholder value")
       in
       match buses_for_topic node topic with
       | [] -> failwith "Impossible case, should always have at least one bus"
       | bus :: _ ->
+        let log_msg = Printf.sprintf "Node %i realises that quorum has been reached, will suggest the chosen value=(%s) with proposal=(%s)" node.id  (V.to_string(chosen_value)) (Sexp.to_string_hum(Types.sexp_of_proposal_id proposal)) in
+        Logger.log_decision node.logger log_msg;
         suggest ~msg_id ~time ~bus node ~proposal ~value:chosen_value;
-        State.ProposerAccepting { proposal; value = chosen_value; acks = []; nacks_received = [] }
+        let new_state =
+        State.ProposerAccepting { proposal; value = chosen_value; acks = []; nacks_received = [] } in
+        let log_msg = Printf.sprintf "node %d set it's state to %s" node.id (Sexp.to_string(State.sexp_of_proposer_state new_state)) in
+        Logger.log_decision node.logger log_msg;
+        new_state
         |> State.set_role node.state State.Proposer
         |> fun st -> node.state <- st
     in
     match node.state.proposer with
     | State.Idle ->
+      let log_msg = Printf.sprintf "node %d's proposer state was still idle. this is the first permission granted it has received so it will start to accumulate more in its WaitingForPromises state until a quorum is achieved!" node.id in
+      Logger.log_decision node.logger log_msg;
       node.state <-
         { proposal; promises_received = [(from, last_accepted)]; nacks_received = [] }
         |> State.WaitingForPromises
         |> State.set_role node.state State.Proposer
     | State.WaitingForPromises wfp ->
+      let log_msg = Printf.sprintf "node %d's proposer state has been waiting for promises. it will accumulate this then check if a quorum is achieved!" node.id in
+      Logger.log_decision node.logger log_msg;
       node.state <-
         { wfp with promises_received = (from, last_accepted) :: wfp.promises_received }
         |> State.WaitingForPromises
         |> State.set_role node.state State.Proposer;
       begin match State.is_quorum_reached node.state (get_cluster_size node) with
         | State.MajorityGrants best_value_opt -> handle_on_quorum_reached best_value_opt
-        | State.MajorityNacks _ -> abort node
+        | State.MajorityNacks _ -> Logger.log_decision node.logger "We reached a quorum and got majority nacks... time to abort" ; abort node
         | State.NotReached -> ()
       end
     | _ -> failwith "Met an impossible case when handling permission granted."
 
-
   let is_acceptable proposal current_promised_opt = Option.is_some current_promised_opt && Types.compare_proposal_id proposal (Option.value_exn current_promised_opt) >= 0
   let handle_suggestion node ({meta={topic; id; timestamp}; from; proposal; value}: V.t Message.suggestion_msg) =
+    let msg = Printf.sprintf "... node %d received suggestion from %d with proposal=%s for value=(%s)"  node.id from (Sexp.to_string_hum(Types.sexp_of_proposal_id proposal)) (V.to_string value)in
+    Logger.log_subroutine_flow node.logger Stdlib.__FUNCTION__ ~msg ();
     let msg_id = 1 + id in
     let time = 1 + timestamp in
     let (current_promised_opt, prev_accepted_opt) =
@@ -577,6 +606,8 @@ module Make_node (V : Value.S)
 
   let handle_accepted node ({meta={topic;id;timestamp}; from; proposal; value} : V.t Message.accepted_msg) =
     (* update proposer state or infer consensus *)
+    let msg = Printf.sprintf "... node %d received accepted from %d for proposal=%s for value=(%s)"  node.id from (Sexp.to_string_hum(Types.sexp_of_proposal_id proposal)) (V.to_string value)in
+    Logger.log_subroutine_flow node.logger Stdlib.__FUNCTION__ ~msg ();
     match node.state.proposer with
     | State.ProposerAccepting a ->
       let new_acks =
@@ -598,6 +629,9 @@ module Make_node (V : Value.S)
                           ; from
                           ; hint}: V.t Message.nack_msg)
     =
+    let hint_str = "TODO HINT STRING" in
+    let msg = Printf.sprintf "... node %d received NACK from %d for proposal=%s for hint=(%s)"  node.id from (Sexp.to_string_hum(Types.sexp_of_proposal_id proposal)) hint_str in
+    Logger.log_subroutine_flow node.logger Stdlib.__FUNCTION__ ~msg ();
     (* we update the node state first, accumulating the nack value: *)
     let cluster_size = get_cluster_size node in
     let nack = ((id, hint, Some proposal):State.nack)  in
@@ -644,6 +678,7 @@ module Make_node (V : Value.S)
       failwith "Met an impossible state when handling nacks -- only valid in WaitingForPromises or ProposerAccepting."
 
   let handle_coordination node msg =
+    Logger.log_subroutine_flow node.logger Stdlib.__FUNCTION__ ~msg:"...coordination is happening" ();
     match Message.proposal_id_of msg with
     | None -> ()
     | Some proposal_id ->
@@ -656,6 +691,9 @@ module Make_node (V : Value.S)
         | _ -> ()
 
   let handle_simulation_control (node: t) (msg: V.t Message.t) =
+    let log_msg = Printf.sprintf "node %d received a control command from the simulation. msg=(%s)" node.id (Sexp.to_string(Message.sexp_of_t V.sexp_of_t msg))  in
+    Logger.log_subroutine_flow node.logger Stdlib.__FUNCTION__ ~msg:log_msg ();
+
     match msg with
     | Message.Control (MakeNodeIdle {node_id; _}) when node_id = node.id ->
       node.state <- State.idle_of ();
@@ -668,11 +706,13 @@ module Make_node (V : Value.S)
 
     | _ -> Stdio.printf "---> Node %d received simulation control but did nothing \n%!" node.id
 
+  (* TODO: [extension-v1] wire this up to internal clock support *)
   let handle_time (node: t) (msg: V.t Message.t) =
     match msg with
-    | Message.Time (Heartbeat {time; _}) -> Stdio.printf "---> Node %d received time msg time = %d! \n%!" node.id time;
-    | _ -> Stdio.printf "---> Node %d received time msg! \n%!" node.id
-
+    | Message.Time (Heartbeat {time; _}) ->
+      let msg = Printf.sprintf "node %d felt simulation heartbeat for time=(%d)" node.id time in
+    Logger.log_subroutine_flow node.logger Stdlib.__FUNCTION__ ~msg ();
+    | _ -> ()
 
   let default_config ~roles ~storage = {
     roles;
@@ -687,11 +727,13 @@ module Make_node (V : Value.S)
   type bus_registrable_callback = V.t Message.t -> unit
   (** this allows us to choose handlers based on the topic *)
   let get_handler_for_topic (node: t) (topic: Types.topic) : bus_registrable_callback =
+    let msg = Printf.sprintf "by node %d for topic=(%s)" node.id (Sexp.to_string_hum (Types.sexp_of_topic topic)) in
+    Logger.log_subroutine_flow node.logger Stdlib.__FUNCTION__ ~msg ();
     match topic with
     | Types.Coordination -> handle_coordination node
     | Types.Simulation_control -> handle_simulation_control node
     | Types.Time -> handle_time node
-    | _ -> handle_coordination node
+    | _ -> failwith "Unsupported topic for message passing"
 
   let create ?(state=(State.idle_of ())) ~id ~config ~bus () =
     let topics = config.topics in
@@ -702,6 +744,7 @@ module Make_node (V : Value.S)
       subs= Hashtbl.Poly.create ();
       inbox= Hashtbl.Poly.create ();
       transitions = ref [];
+      logger=Logger.create ();
     } in
     List.iter topics ~f:(fun topic ->
         let topic_table =

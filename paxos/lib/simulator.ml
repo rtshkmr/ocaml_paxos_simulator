@@ -139,14 +139,7 @@ module Simulator : Runtime = struct
     let now = current_time sim in
     let sim_events_due = EventScheduler.pop_due_events !(sim.scheduler) now in
     List.iter ~f:(fun e -> e.action ()) sim_events_due;
-
-    let msg = "..." in
-    let formatted_tick_msg = Time.format_tick_msg sim.clock ~msg () in
-    Stdio.print_endline  formatted_tick_msg;
-
     Event_bus.drain bus;
-
-
     Time.tick sim.clock;
     broadcast_heartbeat sim ~msg_id:(next_msg_id sim)
 

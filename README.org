@@ -16,6 +16,7 @@ From a learning perspective, this project is *both*:
 
  1. a *learning exercise* in applying OCaml’s language primitives into a classic, distributed algorithm and,
 
+
  2. an *attempt to be able to showcase* of what the language enables when you design for correctness and composability from the ground up.
 
 The idea is simple: instead of reading yet another paper about distributed consensus, I wanted to see how it behaves — how proposers, acceptors, and learners coordinate to agree on a single value even when messages fail or nodes “go bad.”

@@ -128,7 +128,6 @@ Mixin class with logic for:
 1. forward progress towards resolution
 2. anti inter-peer interference is handled here
 
-
 ** Designing
 *** DONE Design Messages & State Types
 CLOSED: [2025-10-28 Tue 20:52]
@@ -2725,11 +2724,13 @@ Define clear event handlers for each Paxos message variant:
 
 - [X] Accepted
 
-
-**** TODO Stage 2: State Transitions
+**** DONE Stage 2: State Transitions
+CLOSED: [2025-11-07 Fri 20:28]
 :PROPERTIES:
 :EFFORT:   2.5h
 :END:
+- CLOSING NOTE [2025-11-07 Fri 20:28] \\
+  Transitions exist but not guaranteed to be correct yet. We shall move on
 Goal: Make a single round of Paxos succeed.
 
 Implementation outline:
@@ -2798,7 +2799,7 @@ CLOCK: [2025-11-05 Wed 15:20]--[2025-11-05 Wed 16:19] =>  0:59
 :END:
 
 ***** DONE Handle the acceptor logic (=handle_permission_granted=)
-CLOSED: [2025-11-05 Wed 18:56]
+CLOSED-FORM: [2025-11-05 Wed 18:56]
 - CLOSING NOTE [2025-11-05 Wed 18:56] \\
   Finally finished!
 :LOGBOOK:
@@ -2954,7 +2955,13 @@ Things are really ugly, let's do some cleanups.
    - transformation of shapes (like in elixir) can be done via pipes
 3. destructuring works on function params, it's so much cleaner than doing let bindings unnecessarily
 
-***** TODO Add logging to trace current code
+***** DONE Add logging to trace current code
+CLOSED: [2025-11-07 Fri 20:25]
+- CLOSING NOTE [2025-11-07 Fri 20:25] \\
+  This works, we have to make sure we fix the happy path out using these traces
+
+
+  The ergonomics around the logger is bad, so I will eventually reduce it and will prioritise adding some basic level of tests around this.
 We have our colors that helps us format.
 We need to define some formatters again.
 
@@ -3106,8 +3113,19 @@ _Key Learning:_
 
    We can see this happen @ the =event_bus.create()= where we set the serialiser that we are going to use.
 
-****** TODO Add log statements to trace the decision-making flow
+****** DONE Add log statements to trace the decision-making flow
+CLOSED: [2025-11-07 Fri 20:22]
+:PROPERTIES:
+:EFFORT:   1.45h
+:END:
+- CLOSING NOTE [2025-11-07 Fri 20:22] \\
+  Technically did this a while ago, was busy tracing out the code.
+
+  I think I will rely on my log statements for the happy path testing then i will prioritise adding some basic tests. It's important to demonstrate some basic tests.
 :LOGBOOK:
+CLOCK: [2025-11-07 Fri 18:42]--[2025-11-07 Fri 20:22] =>  1:40
+CLOCK: [2025-11-07 Fri 08:02]--[2025-11-07 Fri 08:27] =>  0:25
+CLOCK: [2025-11-06 Thu 20:49]--[2025-11-06 Thu 21:48] =>  0:59
 CLOCK: [2025-11-06 Thu 19:38]--[2025-11-06 Thu 19:41] =>  0:03
 :END:
 
@@ -3115,6 +3133,9 @@ this should help us trace the logic of the simple paxos protocol that we've impl
 
 it's a happy path correctness check that we're interested in.
 
+
+******* BUG fixes:
+1. subtle snapshotting bug in how we were doing the drain
 
 ***** Learning Points: Polymorphic Event Bus and Logging in OCaml
 ****** Polymorphic Payloads in Event Bus
@@ -3185,8 +3206,6 @@ Error: dependency cycle between modules in _build/default/lib:
 Had 1 error, waiting for filesystem changes...
    #+end_src
 
-
-
 **** TODO Stage 3: Storage & Learning
 :PROPERTIES:
 :EFFORT:   1.5h
@@ -3211,7 +3230,8 @@ Had 1 error, waiting for filesystem changes...
 - Deliverables:
   - Durable acceptor state per node
   - Simple learning logic integrated
-**** TODO Stage 4: Add logging and simulation Demo Case
+**** TODO Stage 3.5: Ensure happy path works, add basic tests
+**** TODO Stage 4: Add predefined simulation Demo Case
 :PROPERTIES:
 :EFFORT:   1h
 :END:
@@ -3300,13 +3320,89 @@ That being said, I'll likely come back to this real soon after I do some explain
 - Single proposer, no faults $\rightarrow$ must converge in 1 round
 - Competing proposers $\rightarrow$ should eventually converge
 - Node failure mid-round $\rightarrow$ safety must hold
-** Write-up
+
+** Evolution (stretch goal)
+*** TODO Extend basic paxos to multi-paxos
+
+* TODO Add Meaningful Write-ups
 :PROPERTIES:
-:EFFORT:   2h
+:EFFORT:   10h
 :END:
-*** TODO Write-ups
+
+As with any piece of work, there's a need to communicate it to other people effectively especially if we wish to make it better. This project needs feedback loops as well because of the goals that it aims to achieve.
+
+The following points are just some general, nebulous thoughts that will eventually get distilled into proper writing outcomes and be published as blog posts.
+
+I want to be able to communicate some aspects of the following things:
+
+1. what this project was about and my motivation for doing this
+
+   - goals:
+
+     What did I set out to achieve by doing this project
+
+     1) I wanted to challenge myself and see how I have grown as a learner now that I'm a little older and have my opinion on things:
+
+        * what do I focus on when learning a language $\implies$ OCaml
+
+          - matching desires for expression with features of a language. Language choice should be seen as
+
+        * I wanted to try get an experience of the language and to do so by choosing a domain that would give me good guardrails
+
+     2) I wanted to demonstrate who I am as an engineer
+
+        I'm strongly opinionated about everything that has to do with processes of creativity and creation but I am not evangelistic about it. I would like to demonstrate it to others as a reference, a bit like style share of sorts.
+
+        I respect the process that people have for themselves and I wanted to share how I do things
+
+        (NOTE: i really like the idea of writing out the blog post with a version of the rifleman's creed --- "this is my style of work, there's many others like it but this one is mine"...)
+
+        this involves outlining some artefacts:
+
+        a) my style of working over an entire "lifecycle" of a typical project.
+
+           - how I design my code
+
+           - the benefits that my workflows give
+
+           - the problems that my workflows create
+
+           - my tooling and why emacs changed my life
+
+        b) purpose of having this artefact:
+
+           - I think modern day social media platforms have exacerbated signal-to-noise ratio problems. Hot-takes are aplenty.
+
+             I realised that if I were to go back to school and were to do computer science as a learner, I would likely drop out by year 1 or year 2. -- why and why I hope this offers a proof
+
+           - A few friends have described how when they hire, the rigour that the talent pool seems to show is now more bimodal and we've had conversations about the role of AI products and their impact on learners....
+
+        c) I'm really want to work on problems where ocaml is a natural fit for the problem and solution space and how engineers are well-organised to solve problems at scale better, as a by-product of the language's design primitives and its ecosystem.
+   - proof of competence goals and artefacts
+     a) what I managed to achieve in a "short" period of time
+        - what systems have been designed
+        - why zero-deps:
+          - so that it's a well-boundaried sandbox to play around with. The boundaries of the problem are well-understood and that makes me decide what I want to put into scope for this. If I'm stuck on something for too long, and it's something that I can't cut from scope
+
+     b) what I wanted to show:
+        - how I work:
+          - the importance of writing within my workflow and the reason why emacs and org mode changed my life.
+          - my strengths and weaknesses, as demonstrated within this project, with appropraite callouts
+          - where my intuition on design has led me to and how it has been useful or not: how good is my nose.
+
+        - what makes me feel good at work, the kind of problems I like to solve and how this is a window of that.
+
+** TODO Write-ups
 DEADLINE: <2025-11-01 Sat 22:00>
 — produce blog-style REDEEM + literate trace
+
+From a reader's perspective, I'd like them to first-land on the unabridged versions and then choose whether they want depth or they want abgridged parts.
+
+The blog posts will be living posts that will be continually updated as I get feedback from others, this should give me the freedom to iterate on its quality before I actually do some marketing on it and publish it on more public forums for even more feedback and test out the usefulness of the project as a teaching tool.
+
+In fact many of the things that I wish to talk about should be blog posts of their own e.g. "why emacs changed my life" but I can see some of these write ups I'll do as a jump-gate into those blog posts in the future.
+
+*** Possible Writeups
 **** Write up 1: Retro: Beauty of OCaml -- Problem Scope Of Distributed Computing
 ***** Ergonomics of the OCaml Language
 - special things I could do
@@ -3320,8 +3416,472 @@ DEADLINE: <2025-11-01 Sat 22:00>
 ****** What theses to validate w.r.t working styles?
 ****** Areas of Improvement
 **** Write up 3: Using this as a tutorial
-** Evolution (stretch goal)
-*** TODO Extend basic paxos to multi-paxos
+
+
+** Temporary dump from scratch notes
+
+The following are from my org scratch notes. It's a dump that I will be continually adding things to as I keep working on the code for v0.
+
+The writeups process will draw inspiration from these points
+
+*** [1] Language Learning: what classic problems as a first-time learner can teach us
+
+here's all the nitty-gritty things that helped me improve my understanding of this language.
+
+**** [ ] Type-parameter mismatches
+**** [ ] Type system snags
+***** [ ] Understanding the type system and gaining and intuition for WHY nominal typing
+
+#+begin_src md
+
+
+[1] >>>>>>>>>>> learning: it's not possible to skip the transitive relations:
+
+Key point: In OCaml, abstract types aren’t interchangeable with their underlying concrete type outside the module. You always need to use the module’s type (or conversion function, if you provide one).
+
+Ah! Now we’ve hit the classic **type parameter mismatch** between your `Value` module and your event bus. The error says:
+
+```
+The value bus has type string Message.Message.t B.t
+but an expression was expected of type V.t Message.Message.t B.t
+Type string is not compatible with type V.t
+```
+
+---
+
+### What's happening
+
+1. Your `bus` is created here:
+
+```ocaml
+let bus =
+  Paxos.Event_bus.Event_bus.create
+    ~logger:(fun topic msg ->
+      Printf.sprintf "[LOG][%s] %s"
+        (Sexplib.Sexp.to_string (Paxos.Types.Types.sexp_of_topic topic))
+        (Sexplib.Sexp.to_string
+           (Paxos.Message.Message.sexp_of_t Base.String.sexp_of_t msg) ) )
+    ()
+```
+
+Notice the type:
+
+```ocaml
+string Message.Message.t B.t
+```
+
+because `Base.String.sexp_of_t` is used — i.e., your bus is **hard-coded to `string` messages**.
+
+2. Later, when you instantiate the Node functor:
+
+```ocaml
+let module Node = Paxos.Node.Make_node(V)(S)(B) in
+```
+
+The `Node` functor expects the bus to carry `V.t Message.t`, not `string Message.t`. Since `V.t` is `Value_string.Value_string.t`, which is `string`, you might think “oh, they’re the same”.
+
+⚠ But OCaml treats **`V.t` and `string` as abstract types** coming from different modules. `Value_string.Value_string.t` is **not literally `string`**; it's an abstract type alias for `string` in `V.t`. OCaml sees them as **distinct types**.
+
+---
+
+### How to fix
+
+You need your bus to be **parameterized over the same `V.t`** that Node is expecting. In your bus creation, change the `Message.Message.sexp_of_t` line to use `V.sexp_of_t` instead of `Base.String.sexp_of_t`:
+
+```ocaml
+let module V = Paxos.Value_string.Value_string in
+let bus =
+  Paxos.Event_bus.Event_bus.create
+    ~logger:(fun topic msg ->
+      Printf.sprintf "[LOG][%s] %s"
+        (Sexplib.Sexp.to_string (Paxos.Types.Types.sexp_of_topic topic))
+        (Sexplib.Sexp.to_string
+           (Paxos.Message.Message.sexp_of_t V.sexp_of_t msg) ) )
+    ()
+```
+
+#+end_src
+***** [ ] type unionisation, parameter binding: sharing constraints vs destructive substitution
+
+I faced significant hurdles trying to extract out an inline signature for my node module, because it was inlined in a functor that depended on the injected polymorphic types from 3 other modules
+
+#+begin_src md
+
+Here is an elaboration of the two approaches — sharing constraints vs destructive substitution — with their differences, pros and cons, followed by advice on extracting the node signature with careful explanation on how the functor parameter types bind into the output node signature.
+
+Approaches: Sharing Constraints vs Destructive Substitution
+
+Sharing Constraints (=with type = ...=)
+- This approach adds explicit equality constraints in the signature to equate some types inside a module signature with corresponding types from functor parameters.
+- For example, you add =with type t = V.t= on your output signature to indicate the output type =t= is exactly the type =t= from module =V=.
+- It keeps the original type declarations visible (though now equal to the designated type).
+- Resulting signatures are more explicit about which types are equal but may become verbose.
+- This method is older and more common before destructive substitution was introduced.
+- Sharing constraints do not remove redundant type declarations from the interface; they only specify equalities.
+
+Destructive Substitution (=with type := ...=)
+- Introduced around OCaml 4.06 (improved subsequently).
+- It "destructively" removes the original type declaration from the signature, replacing all occurrences of that type with the substituted type.
+- Syntax uses =with type t := ...= (note the =:== instead of ===).
+- The substituted type is fully removed from the resulting signature; this can clean up interfaces by avoiding unnecessary manifest types.
+- This approach is more modern and recommended when the original type definition is not needed in the interface, especially for abstracting away internals.
+- Can only substitute a type once and with a compatible type constructor.
+- Helps produce cleaner, simpler interface signatures especially useful for functors that fix some input parameter types inside their output signature.
+
+#### Pros and Cons Summary
+
+| Aspect               | Sharing Constraints (with type = ...)                | Destructive Substitution (with type := ...)              |
+| Interface Verbosity   | More verbose; type declared and equated             | Less verbose; type declaration removed                    |
+| Clarity              | Explicit equalities often easy to understand         | Cleaner interfaces; may obscure which exact type replaced |
+| Use Case             | When you want to expose type equality explicitly     | When you want to abstract/replace a type cleanly          |
+| Limitations          | Cannot hide redundant types                           | Can only substitute with compatible types, once per type  |
+| OCaml Version        | Supported always                                      | Introduced in OCaml 3.12+, improved in 4.06+               |
+| Complexity           | Slightly simpler syntax                               | Newer syntax, a bit less intuitive                         |
+
+Extracting the Node Signature from Functor Parameters Using Destructive Substitution
+
+Given your functor signature pattern:
+
+```ocaml
+module Make_node : functor
+  (V : Value.S)
+  (Storage : Storage.S)
+  (Bus : sig include module type of Event_bus end)
+  -> sig
+    (* output node signature here *)
+  end
+```
+
+and desiring:
+
+- Output signature's types (e.g., `State.t`, types involving `V.t`, `Storage.t`) to reflect exactly the input modules' types.
+- Use destructive substitution to make output signature types fully tied to input module types and avoid redundant type declarations.
+
+#### How to do this:
+
+- Define the output signature as a module type with abstract types replaced by the corresponding input module types destructively.
+- Use `with type ... := ...` to destructively substitute type definitions inside the output signature.
+- For example, assuming you write your output signature as a standalone module type, say `Node_sig`, you can destructively substitute as follows when applying the functor:
+
+```ocaml
+module Make_node :
+  functor (V : Value.S)
+          (Storage : Storage.S)
+          (Bus : sig include module type of Event_bus end)
+    -> (module Node_sig
+        with type 'v = V.t
+         and type storage = Storage.t
+         and type bus = Bus.t (* wherever applicable *)
+         (* Or more destructively *)
+         with type State.t := State.t (* tied to V.t inside State *))
+```
+
+- More concretely, inside the output signature, you avoid redeclaring types like `V.t` or `Storage.t` again but replace them destructively so that the type `V.t` is used directly.
+
+- This ensures that the output node module's type `State.t` and others that rely on `V.t` are not abstracted but concretely bound to the input `V.t`, and similarly for `Storage.t` and `Bus.t`.
+
+- This is especially useful in your `State.t` GADT which uses `V.t`, so you want this GADT type to be concretely bound to the exact `V.t` passed to the functor.
+
+#### Caution points:
+
+- Destructive substitution removes the substituted type from the signature, so the type is no longer re-declared/visible in the output signature; it is replaced everywhere.
+- You must be sure this substitution is valid (types have compatible parameters).
+- The ordering of substitutions matters: applying them in the right order results in well-formed signatures.
+- If your functor parameter modules contain multiple types that appear in nested submodules in the output signature, you may need nested substitutions or carefully structured substitution chains.
+
+### Summary
+
+- Use **sharing constraints** when you want explicit type equality visible but tolerating verbosity.
+- Use **destructive substitution** when you want cleaner interfaces and to fully tie the output types to functor parameters, hiding redundant declarations.
+- Extract your node signature by defining it separately and applying destructive substitutions (`with type ... := ...`) corresponding to each functor parameter type you want concretely linked.
+- This approach influences how the GADT inside `State` and the overall node's types connect to `V.t`, `Storage.t`, and `Bus.t` ensuring strong typing guarantees with clean signatures.
+
+This design will allow your `Make_node` functor to produce node modules whose types are precisely influenced by the injected modules' types, with a clean, minimal signature thanks to destructive substitution.
+
+If needed, sample code snippet on how to write this extraction and substitution can be provided on demand.
+
+[1](https://dev.realworldocaml.org/functors.html)
+[2](https://ocaml.org/docs/functors)
+[3](https://ocaml.org/manual/5.1/signaturesubstitution.html)
+[4](https://stackoverflow.com/questions/69790879/how-to-receive-types-built-from-functors-as-argument-to-functions-in-ocaml)
+[5](https://stackoverflow.com/questions/44049185/ocaml-destructive-substitution-error)
+[6](https://caml.inria.fr/pub/old_caml_site/ocaml/htmlman/manual018.html)
+[7](https://stackoverflow.com/questions/9778595/ocaml-functors-counter-intuitive-behaviour)
+[8](https://www.reddit.com/r/ocaml/comments/3j0vj0/in_what_ways_does_ocamls_module_system_differ/)
+[9](https://stackoverflow.com/questions/38743225/ocaml-functors-and-type-issues?rq=3)
+[10](https://www.cs.cornell.edu/courses/cs3110/2014fa/recitations/9/rec09.html)
+#+end_src
+***** [ ] why record fields can't reference labelled args
+
+NOTE: jane street has a repo up for a (possible) language extension to this with
+
+#+begin_src md
+
+You cannot put named (labeled) arguments such as `~to_node_id` in **record field types** in OCaml. Labeled arguments are only allowed in function definitions and type annotations for function values, but **not** inside record type declarations as part of field types.
+
+For example, this is invalid:
+
+```ocaml
+type 'a formatters = {
+  publish_unicast : 'a base_formatter -> ~to_node_id:Types.node_id -> Types.topic -> 'a -> string;
+}
+```
+
+because record fields expect plain types, not labeled parameter declarations.
+
+Instead, you must declare the field type as a plain function type with positional arguments, like this:
+
+```ocaml
+type 'a formatters = {
+  publish_unicast : 'a base_formatter -> Types.node_id -> Types.topic -> 'a -> string;
+}
+```
+
+Then, in **function definitions** implementing these fields, you can use labeled arguments for convenience:
+
+```ocaml
+let formatters = {
+  publish_unicast = (fun logger ~to_node_id topic payload ->
+    (* your implementation *)
+  )
+}
+```
+
+### Summary
+
+- Record field types cannot include labeled arguments.
+- Labeled argument syntax is allowed **only in function value definitions** and **type annotations of functions (outside records)**.
+- In record type declarations, use plain, positional function types.
+- In implementations of those function values, you may use labeled parameters.
+
+This is a commonly encountered limitation in OCaml's type system for record field declarations.
+
+[1](https://ocamlbook.org/records-and-references/)
+[2](https://dev.realworldocaml.org/records.html)
+[3](https://courses.cs.cornell.edu/cs3110/2021sp/textbook/data/records.html)
+[4](https://courses.cs.cornell.edu/cs3110/2021sp/textbook/mut/mutable_fields.html)
+[5](https://cs3110.github.io/textbook/chapters/data/records_tuples.html)
+[6](https://ocaml.org/docs/basic-data-types)
+[7](https://discuss.ocaml.org/t/dedicated-syntax-for-overriding-nested-record-field/10807)
+[8](https://stackoverflow.com/questions/40950935/access-the-record-fields-in-ocaml)
+[9](https://stackoverflow.com/questions/40950935/access-the-record-fields-in-ocaml/40951291)
+[10](https://www.reddit.com/r/ocaml/comments/5jvg74/more_concise_functional_record_update/)
+#+end_src
+***** [ ] type escapes
+why inline cons usage of pattern-mat will risk type escapes but not destructuring
+
+odd error in type escapings
+
+#+begin_src ocaml
+
+File "lib/node.ml", line 654, characters 28-36:
+654 |         let updated_nacks = nack_msg :: wfp.nacks_received in
+                                  ^^^^^^^^
+Error: This form is not allowed as the type of the inlined record could escape.
+Had 1 error, waiting for filesystem changes...
+
+  let handle_nack node msg =
+
+    (* process rejection in proposer/acceptor logic *)
+    match msg with
+    | Message.Coordination (Nack nack_msg) -> (
+      match node.state.proposer with
+      | State.WaitingForPromises wfp ->
+        let updated_nacks = nack_msg :: wfp.nacks_received in
+        let updated_state = State.WaitingForPromises {wfp with nacks_received = updated_nacks} in
+        node.state <- State.set_role node.state State.Proposer updated_state
+
+      | State.ProposerAccepting pa -> ()
+      | _ -> failwith "Met an impossible state when handling nacks -- can only be in states out of [State.WaitingForPromises, State.ProposerAccepting]."
+)
+
+    | _ -> failwith "Handle_nack is being called with a msg other than a nack."
+
+#+end_src
+
+This can be fixed by just doing a destructure @ the pattern match:
+
+#+begin_src ocaml
+
+
+  let handle_nack node msg =
+    (* process rejection in proposer/acceptor logic *)
+    match msg with
+    | Message.Coordination (Nack {meta; from;proposal;hint}) -> (
+      match node.state.proposer with
+      | State.WaitingForPromises wfp ->
+        let nack:State.nack = ( meta.id, hint, Some proposal) in
+        let updated_nacks = nack :: wfp.nacks_received in
+        let updated_state = State.WaitingForPromises {wfp with nacks_received = updated_nacks} in
+        node.state <- State.set_role node.state State.Proposer updated_state
+
+      | State.ProposerAccepting pa -> ()
+      | _ -> failwith "Met an impossible state when handling nacks -- can only be in states out of [State.WaitingForPromises, State.ProposerAccepting]."
+)
+
+    | _ -> failwith "Handle_nack is being called with a msg other than a nack."
+
+
+#+end_src
+
+#+begin_src md
+
+----
+
+The difference between destructuring in the function parameter list and destructuring inside the function body lies in the way OCaml resolves record field scoping and types.
+
+### Why destructuring works in parameters but not inside the body without more context:
+
+- When you destructure in the **function parameter**, e.g.:
+
+  ```ocaml
+  let handle_permission_request node {meta; from; proposal; value} =
+    (* use meta, from, proposal, value *)
+  ```
+
+  The compiler knows exactly which record type the destructured fields belong to because the whole parameter is matched against a specific, expected type. This gives OCaml full context for field resolution.
+
+- Inside the function body, when you do:
+
+  ```ocaml
+  let {meta; from; proposal; value} = pr in
+  ```
+
+  OCaml needs to know the **exact** record type of `pr` to resolve the field names. If the field type is polymorphic or the module exposing the record type isn't opened or fully qualified, OCaml fails with "Unbound record field".
+
+This happens because in the parameter destructuring case, the pattern is coupled with the function's type signature which tells the compiler exactly what record type is expected.
+
+***
+
+### How to fix or understand this better:
+
+- **Ensure the record type is fully in scope** when destructuring inside the function body, either by opening the module defining the record or fully qualifying the field names.
+
+- Use parameter destructuring whenever possible for succinctness and clarity, letting the compiler use the function's expected type for resolution.
+
+- If you must destructure inside the body, add explicit type annotations or module opens referencing the record type.
+
+***
+
+### Summary
+Destructuring directly in a function parameter benefits from the type signature context, allowing OCaml to resolve fields easily, whereas destructuring inside a function body requires explicit type/module context to resolve record field names.
+
+This is a standard behavior in OCaml’s type and pattern matching system and best practices include preferring pattern match destructuring at the function parameter level when possible.[3][9][11]
+
+[1](https://discuss.ocaml.org/t/including-entire-record-when-pattern-matching-records/4649)
+[2](https://reasonml.github.io/docs/en/destructuring)
+[3](https://ocaml.org/docs/guidelines)
+[4](https://ocaml.org/manual/4.08/coreexamples.html)
+[5](https://stackoverflow.com/questions/36440478/how-to-extract-information-from-a-record-in-ocaml)
+[6](https://www.reddit.com/r/java/comments/12fnanq/record_patterns_point_to_java_language_designers/)
+[7](https://discuss.ocaml.org/t/why-does-the-order-of-fields-in-a-record-type-definition-matter/16131)
+[8](https://stackoverflow.com/questions/17173690/record-type-pattern-matching-in-ocaml)
+[9](https://discourse.elm-lang.org/t/pattern-match-on-record-field-values/7724)
+[10](https://www2.lib.uchicago.edu/keith/ocaml-class/control.html)
+[11](https://stackoverflow.com/questions/63165980/ocaml-pattern-matching-a-variable-with-the-destructured-elements-of-a-tuple)
+
+
+#+end_src
+
+**** [ ] Syntax snags
+   - optional args and the need for unit as one of the args
+
+     OCaml be quirky sometimes:
+
+     what's the diff between the two? Why does one need a =()= but the other does not?
+
+     #+begin_src ocaml
+
+            let handle_message (node: t) (msg: V.t Message.t) =
+                match Message.proposal_id_of msg with
+                | None -> ()
+                | Some key -> let inbox_entry = get_or_create_inbox_entry node key
+                in
+                inbox_entry.messages <- msg::inbox_entry.messages;
+                process_inboxes node
+
+
+            let handle_simulation_control (node: t) (msg: V.t Message.t) =
+                Stdio.printf "---> Node %d being controlled to do something" node.id;
+                match Message.proposal_id_of msg with
+                | None -> ()
+                | Some key -> let inbox_entry = get_or_create_inbox_entry node key
+                in (
+                    inbox_entry.messages <- msg::inbox_entry.messages;
+                    process_inboxes node
+                )
+
+
+
+            #+end_src
+
+     When you have optional arguments with defaults, always add a trailing mandatory argument (e.g., ()) at the end.
+
+    This allows the OCaml compiler to safely handle partial application and erasure of optional arguments.
+
+    This is a common and idiomatic pattern in OCaml.
+   - unclear thoughts == not an enojoyer of pipes
+*** [2] Magic (and quirks) of Ocaml
+**** Magic
+***** [ ] how in the world is the compilation so fast?
+***** [ ] working with generics and expressiveness of the type system
+
+- how can we quickly try to have a first-taste of the boundaries / limits of the language when it comes to expressiveness?
+
+***** [ ] expressiveness and the magic of GADTs
+- GADT is beautiful for FSM state management and giving peace of mind -- beautiful
+- but hella confusing
+***** [ ] beauty of pipes (though it's not unique to ocaml)
+**** Quirks
+*** [3] What I learnt about myself from this
+**** [ ] Importance of exposure for improving intuition
+
+- e.g. why a pipe-enjoyer? because I've worked on elixir code-bases before and have the intuition that a pipeline / combination pattern / transformations / ecto casts is like casting metal or forging metal. When state of an amorphous nature is given shape and then the shape gets transformed.
+
+**** [ ] Workflow improvements: letting the "design" marinate in your head on purpose
+
+new skill of task switching.
+
+a task has phases, e.g. planning & design -> implmentation -> refactor and testing
+
+chunking can be done at this level of granularity
+
+e.g. I plan how the time should be simulated and where things should be changed and who has responsibility of what. But I don't implement it yet intentionally. I just design it and try to design it well. I then end up task-switching so that this marinates.
+
+this allows me to get the following benefits:
+1. marinating at  the back of my mind == random spontaneous requirements / lemma discovery
+2. deferring the implementation allows me to be excited about "next step"
+3. forces me to prioritise what to do immediately @ every point in time that I need to change tasks
+
+**** [ ] Importance of parables and analogies in explaining things
+
+- they are intentionally reductivist/reductionist at times because being able to communicate HOW they are reductionist helps us appreciate ontological layers better
+
+**** [ ] Importance of impossible challenges
+
+- initial goal was impossible, on hindsight -- but I would like to make this into a body of work that would allow someone in the future to achieve a 2 day learning of things or 2 weekend learning of something.
+
+  it's a refinement of pedagogy that i'm interested in
+*** [4] How I feel about OCaml, what I feel about programming languages
+
+OCaml has genuinely felt like the language thhat resonates with my thhinking style the most. I think a lot and write a lot before coding. It's because when focused, I'm able to visualise mechanisms, boundaries and interfaces well enough.
+
+The process of adhering to static typing, allowing algebraic / abstract nature of behaviours and protocols is very aligned with.
+
+Syntax makes the code I write as a novice easy to read, though I'd consider the same for elixir, when writing elixir code, I ended up thinking in EIP patterns more so than in OCaml. In OCaml, it ends up being more of a type-matching / struct-based focus. I'm not sure whichh I like more yet, but it aligns with my working style where I usually prefer to build bottom up interfaces but design top-down.
+
+The OCaml code reads like pseudocode. that's amazing.
+
+****  programming languages and ecosystem choice as a point of business strategy
+
+- the relationship with conway's laws
+
+- the economic lens into it
+  - however, I think timeframe matters. It's a local minima of cost optimisation imo and that's the reason why I dread working in unstable ecosystems like those more familiar and accessible to the webdev world.
+  - ecosystem support but there's no agency in you when it's work
+
+- i think these help to inform decision-making and strategy when it comes to finding a team working on problems that I want to be exposed to.
+
 
 * Intentional Shortcuts
 Since I'm keeping this to a 2 day effort, there's a need to be aware of some time-sinks that I will most likely side-step first.

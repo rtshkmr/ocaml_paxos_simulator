@@ -1,5 +1,5 @@
 open Base
-open Color
+open Log
 
 module Time = struct
   type t = int [@@deriving sexp, compare, equal]
@@ -8,23 +8,16 @@ module Time = struct
 
   let increment t = t + 1
 
-  type clock = {mutable current: t}
+  type clock = {mutable current: t; logger: string Logger.t}
 
-  let create_clock () = {current= zero}
+  let create_clock () = {current= zero; logger= Logger.create ()}
 
   let now c = c.current
 
-  let tick c = c.current <- increment c.current
+  let timestamp_of_now c = Int.to_string_hum (now c)
 
-  let format_tick_msg c ?(msg = "") () =
-    let curr_tick = now c in
-    let curr_tick_str = Int.to_string curr_tick in
-    let tick_tag =
-      Color.underline
-        (Color.blink
-           (Color.bold
-              (Color.bg_white
-                 (Color.bright_blue (Printf.sprintf "[Tick %s]" curr_tick_str)) ) ) )
-    in
-    tick_tag ^ " " ^ msg
+  let tick c =
+    c.current <- increment c.current ;
+    Logger.log_tick c.logger (timestamp_of_now c)
+      ~msg:"...time is now stopped @ this tick for us to inspect" ()
 end

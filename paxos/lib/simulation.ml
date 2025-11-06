@@ -72,19 +72,23 @@ module Simulation = struct
     Simulator.enqueue_thunk sim ~time:dispatch_time thunk
 
   let permission_events =
-    [ Simulator.create_message_event sim ~time:2 ~topic:Types.Types.Coordination
-        ~from:n1 ~to_node:n2
+    [ (* Simulator.create_message_event sim ~time:2 ~topic:Types.Types.Coordination *)
+      (*   ~from:n1 ~to_node:n2 *)
+      (*   ~msg_factory:(permission_event_msg_factory "Let's go ritesh let's go") *)
+      (*   (); *)
+      Simulator.create_message_event sim ~time:2 ~topic:Types.Types.Coordination
+        ~from:n1
         ~msg_factory:(permission_event_msg_factory "Let's go ritesh let's go")
         ()
-    ; Simulator.create_message_event sim ~time:4 ~topic:Types.Types.Coordination
-        ~from:n2
+    ; Simulator.create_message_event sim ~time:10
+        ~topic:Types.Types.Coordination ~from:n2
         ~msg_factory:
           (permission_event_msg_factory "We are so close to our goal")
         ()
-    ; Simulator.create_message_event sim ~time:6 ~topic:Types.Types.Coordination
-        ~from:n2
-        ~msg_factory:(permission_event_msg_factory "We must persist")
-        () ]
+      (* ; Simulator.create_message_event sim ~time:6 ~topic:Types.Types.Coordination *)
+      (*     ~from:n2 *)
+      (*     ~msg_factory:(permission_event_msg_factory "We must persist") *)
+      (*     () *) ]
 
   let print_events =
     [ Simulator.make_event sim ~time:1
@@ -106,7 +110,9 @@ module Simulation = struct
     ; make_sim_control_event ~sim ~dispatch_time:5 ~to_node_id:1
         ~make_msg:Message.make_sim_control_idle_node ]
 
-  let predetermined_events = permission_events @ print_events @ sim_ctrl_events
+  (* let predetermined_events = permission_events @ print_events @ sim_ctrl_events *)
+  let predetermined_events =
+    permission_events (* @ print_events @ sim_ctrl_events *)
 
   let seed_predetermined_events sim events =
     List.iter ~f:(fun e -> Simulator.schedule_event sim e) events

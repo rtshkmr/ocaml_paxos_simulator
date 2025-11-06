@@ -33,6 +33,8 @@ module type S = sig
   val stats : 'a t -> (Types.topic * (int * int * int * int)) list
 
   val print_stats : 'a t -> unit
+
+  val dump_stats : 'a t -> string
 end
 
 module Event_bus : S

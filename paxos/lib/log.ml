@@ -2,11 +2,52 @@ module LogFormatter = struct
   open Color.Color
   open Types
   open Base
+  open Core.Time_float
+
+  let get_terminal_width () =
+    let open Stdio in
+    let ic = Unix.open_process_in "tput cols" in
+    try
+      let line = Option.value (In_channel.input_line ic) ~default:"80" in
+      ignore (Unix.close_process_in ic) ;
+      Int.of_string line
+    with _ -> 80
+
+  let center_string_in_terminal s =
+    let width = get_terminal_width () in
+    let len = String.length s in
+    let pad = Int.max 0 ((width - len) / 2) in
+    String.make pad ' ' ^ s
+
+  let format_subroutine_flow routine_name msg =
+    let open Printf in
+    let routine_tag = sprintf "(%s)" routine_name |> yellow |> italic in
+    sprintf "|>---[%s] {##%s##}" routine_tag msg
+
+  let format_tick_msg timestamp ?(msg = "") () =
+    (* Format local current time as ISO8601 *)
+    let msg_str = msg |> italic in
+    let iso_time_str =
+      to_string_abs ~zone:(Zone.of_utc_offset ~hours:8) (now ())
+      |> String.strip |> italic
+    in
+    timestamp
+    |> fun curr_tick_str ->
+    Printf.sprintf "\n\n\t\t\t\t[Clock:Tick %s] --- realtime = %s" curr_tick_str
+      iso_time_str
+    |> bright_green |> bold |> underline |> center_string_in_terminal
+    |> fun tick_tag -> tick_tag ^ "\n\t\t\t\t" ^ msg_str
 
   (* Role tag formatters *)
-  let acceptor_tag = "[Acceptor]" |> blue |> bold
 
-  let proposer_tag = "[Proposer]" |> blue |> bold
+  let role_tag node_id role_str =
+    Printf.sprintf "[Node%3d::Role::%s]" node_id role_str |> blue |> bold
+
+  let acceptor_tag node_id = "Acceptor" |> role_tag node_id
+
+  let proposer_tag node_id = "Proposer" |> role_tag node_id
+
+  let learner_tag node_id = "Learner" |> role_tag node_id
 
   (* Reaction style: italic *)
   let reaction msg = msg |> italic
@@ -61,21 +102,24 @@ module LogFormatter = struct
       |> Sexp.to_string_hum ~indent:1
       |> cyan |> bold
     in
-    let header = "[ENQUEUE]" |> yellow |> underline |> bold in
+    let header = "[event_bus::ENQUEUE]" |> yellow |> underline |> bold in
     Printf.sprintf "%s Enqueued message, queue size now %s for topic %s" header
       (Int.to_string queue_size |> magenta)
       topic_str
 
   let drain_start batch_size =
-    let header = "[DRAIN_START]" |> bright_blue |> bold in
-    Printf.sprintf "%s Starting to drain queue of %s messages..." header
+    let header = "[event_bus::DRAIN_START]" |> bright_blue |> bold in
+    Printf.sprintf "%s Starting to drain a snapshotted queue of %s messages..."
+      header
       (Int.to_string batch_size |> magenta |> bold)
     |> underline
 
   let drain_end () =
-    "[DRAIN_END] Finished draining queue." |> bright_blue |> bold |> underline
+    "[event_bus::DRAIN_END] Finished draining queue." |> bright_blue |> bold
+    |> underline
 
-  let print_stats () = "[STATS] Printing statistics..." |> blue |> bold
+  let print_stats () =
+    "[event_bus::STATS] Printing statistics..." |> blue |> bold
 
   (* Unified record type for composability *)
   type 'a formatters =
@@ -86,6 +130,10 @@ module LogFormatter = struct
     ; enqueue: Types.topic -> int -> string
     ; drain_start: int -> string
     ; drain_end: unit -> string
+    ; format_tick_msg: string -> ?msg:string -> unit -> string
+    ; format_subroutine_flow: string -> string -> string
+    ; decision: string -> string
+    ; reaction: string -> string
     ; print_stats: unit -> string }
 
   let make () : 'a formatters =
@@ -96,6 +144,10 @@ module LogFormatter = struct
     ; enqueue
     ; drain_start
     ; drain_end
+    ; format_tick_msg
+    ; format_subroutine_flow
+    ; decision
+    ; reaction
     ; print_stats }
 end
 
@@ -128,4 +180,17 @@ module Logger = struct
   let log_drain_end t = print_endline (t.formatters.drain_end ())
 
   let log_stats_header t = print_endline (t.formatters.print_stats ())
+
+  let log_event_bus_stats t stats_dump =
+    log_stats_header t ; print_endline stats_dump
+
+  let log_tick t ?(msg = "") timestamp () =
+    print_endline (t.formatters.format_tick_msg timestamp ~msg ())
+
+  let log_subroutine_flow t subroutine ?(msg = "") () =
+    print_endline (t.formatters.format_subroutine_flow subroutine msg)
+
+  let log_decision t msg = print_endline (t.formatters.decision msg)
+
+  let log_reaction t msg = print_endline (t.formatters.reaction msg)
 end

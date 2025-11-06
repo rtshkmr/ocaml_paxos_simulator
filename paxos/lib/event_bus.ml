@@ -39,6 +39,8 @@ module type S = sig
   val stats : 'a t -> (Types.topic * (int * int * int * int)) list
 
   val print_stats : 'a t -> unit
+
+  val dump_stats : 'a t -> string
 end
 
 module Event_bus : S = struct
@@ -132,8 +134,8 @@ module Event_bus : S = struct
     | Some ts ->
       Hashtbl.iteri ts.subs ~f:(fun ~key ~data ->
           if key.node_id = node_id then begin
-            data.callback payload;
-            Logger.log_publish_unicast t.logger node_id topic (payload |> t.payload_serialiser)
+            Logger.log_publish_unicast t.logger node_id topic (payload |> t.payload_serialiser);
+            data.callback payload
           end
         );
       ts.delivered <- ts.delivered + 1
@@ -143,30 +145,27 @@ module Event_bus : S = struct
     let ts = ensure_topic_state t topic in
     ts.queued <- ts.queued + 1 ;
     Queue.enqueue t.queue thunk;
+    (* BUG: (low priority: because we are snapshotting when draining then we aren't immediately clearing out the queue, the queue size here is not correct because the count includes the snapshot size) *)
     Logger.log_enqueue t.logger topic ts.queued
 
   let drain t =
     (* Snapshot the current queue to isolate this batch *)
-    let current_batch = Queue.to_list t.queue in
+    let current_batch = Queue.copy t.queue in
     Queue.clear t.queue ;
-    let q_size = List.length current_batch in
-    Stdio.print_endline
-      ( "--- Draining the queue of " ^ Int.to_string q_size
-        ^ " items from batch start" ) ;
+    let q_size = Queue.length current_batch in
+
     Logger.log_drain_start t.logger q_size;
-    List.iter current_batch ~f:(fun ((topic, node_id_opt), payload) ->
-        match Hashtbl.find t.topics topic with
-        | None ->
-          ()
-        | Some ts ->
+    while not (Queue.is_empty current_batch) do
+      let ((topic, node_id_opt), payload) = Queue.dequeue_exn current_batch in
+      match Hashtbl.find t.topics topic with
+      | None -> ()
+      | Some ts ->
           match node_id_opt with
           | None -> publish_broadcast t ~topic payload
-          | Some node_id -> publish_unicast t  ~node_id ~topic payload;
-            ts.queued <- Int.max 0 (ts.queued - 1));
-
+          | Some node_id -> publish_unicast t ~node_id ~topic payload;
+          ts.queued <- Int.max 0 (ts.queued - 1)
+      done;
     Logger.log_drain_end t.logger
-
-  (* Any enqueued messages during publish will accumulate in t.queue for the next tick — not this one *)
 
   let stats t =
     Hashtbl.to_alist t.topics
@@ -174,23 +173,32 @@ module Event_bus : S = struct
         ( topic
         , (Hashtbl.length ts.subs, ts.published, ts.delivered, ts.queued) ) )
 
-  let print_stats t =
-    Logger.log_stats_header t.logger;
+  let dump_stats t =
     let stats = stats t in
-    let header =
-      " Topic                  | Subscribers | Published | Delivered | Queued "
-    in
+    let header = " Topic                  | Subscribers | Published | Delivered | Queued " in
     let line = String.make (String.length header) '-' in
-    Stdio.printf "\n%s\n%s\n%s\n" line header line ;
+    let buffer = Buffer.create 1024 in
+
+    (* Append header section *)
+    Buffer.add_string buffer ("\n" ^ line ^ "\n" ^ header ^ "\n" ^ line ^ "\n");
+
+    (* Append each stat line *)
     List.iter stats ~f:(fun (topic, (subs, published, delivered, queued)) ->
         let topic_str = Sexp.to_string (Types.sexp_of_topic topic) in
-        (* truncate or pad topic_str for aligned display *)
         let topic_str =
           if String.length topic_str > 22 then
-            String.sub ~pos:0 ~len:19 topic_str ^ "..."
+            String.sub topic_str ~pos:0 ~len:19 ^ "..."
           else topic_str ^ String.make (22 - String.length topic_str) ' '
         in
-        Stdio.printf " %s | %11d | %9d | %9d | %6d\n" topic_str subs published
-          delivered queued ) ;
-    Stdio.printf "%s\n" line
+        Buffer.add_string buffer
+          (Printf.sprintf " %s | %11d | %9d | %9d | %6d\n"
+             topic_str subs published delivered queued));
+
+    Buffer.add_string buffer (line ^ "\n");
+
+    Buffer.contents buffer
+
+  let print_stats t =
+    let dump = dump_stats t in
+    Logger.log_event_bus_stats t.logger dump
 end

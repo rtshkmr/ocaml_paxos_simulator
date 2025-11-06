@@ -42,7 +42,7 @@ module Color = struct
 
   let underline s = "\027[4m" ^ s ^ reset
 
-  let blink s = "\027[5m" ^ s ^ reset
+  let blink_ s = "\027[5m" ^ s ^ reset
 
   let reverse s = "\027[7m" ^ s ^ reset
 
@@ -70,12 +70,4 @@ module Color = struct
 
   (* Example with format *)
   let redf fmt = Printf.sprintf ("\027[31m" ^^ fmt ^^ "\027[0m")
-
-  let get_terminal_width () =
-    let ic = Unix.open_process_in "tput cols" in
-    try
-      let line = input_line ic in
-      ignore (Unix.close_process_in ic) ;
-      int_of_string line
-    with _ -> 80 (* fallback to default width *)
 end
