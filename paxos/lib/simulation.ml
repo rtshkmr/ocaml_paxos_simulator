@@ -71,24 +71,16 @@ module Simulation = struct
     let thunk = ((topic, Some to_node_id), msg) in
     Simulator.enqueue_thunk sim ~time:dispatch_time thunk
 
-  let permission_events =
-    [ (* Simulator.create_message_event sim ~time:2 ~topic:Types.Types.Coordination *)
-      (*   ~from:n1 ~to_node:n2 *)
-      (*   ~msg_factory:(permission_event_msg_factory "Let's go ritesh let's go") *)
-      (*   (); *)
-      Simulator.create_message_event sim ~time:2 ~topic:Types.Types.Coordination
-        ~from:n1
-        ~msg_factory:(permission_event_msg_factory "Let's go ritesh let's go")
-        ()
-    ; Simulator.create_message_event sim ~time:10
-        ~topic:Types.Types.Coordination ~from:n2
-        ~msg_factory:
-          (permission_event_msg_factory "We are so close to our goal")
-        ()
-      (* ; Simulator.create_message_event sim ~time:6 ~topic:Types.Types.Coordination *)
-      (*     ~from:n2 *)
-      (*     ~msg_factory:(permission_event_msg_factory "We must persist") *)
-      (*     () *) ]
+  let paxos_initiation_events =
+    [ Simulator.make_node_proposal_event sim ~time:2 ~initiator:n1
+        ~proposal:(Types.Types.make_proposal_id ~node:1 ~seq:1)
+        ~value:
+          (V.t_of_sexp
+             (Sexplib.Sexp.Atom
+                "Let's go ritesh let's gooooooooo, much better feel" ) )
+    ; Simulator.make_node_proposal_event sim ~time:10 ~initiator:n2
+        ~proposal:(Types.Types.make_proposal_id ~node:2 ~seq:2)
+        ~value:(V.t_of_sexp (Sexplib.Sexp.Atom "ANother one, let's gooo")) ]
 
   let print_events =
     [ Simulator.make_event sim ~time:1
@@ -112,7 +104,7 @@ module Simulation = struct
 
   (* let predetermined_events = permission_events @ print_events @ sim_ctrl_events *)
   let predetermined_events =
-    permission_events (* @ print_events @ sim_ctrl_events *)
+    paxos_initiation_events (* @ print_events @ sim_ctrl_events *)
 
   let seed_predetermined_events sim events =
     List.iter ~f:(fun e -> Simulator.schedule_event sim e) events

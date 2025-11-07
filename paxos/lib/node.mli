@@ -76,8 +76,11 @@ module type S = sig
       * Types.proposal_id option
     [@@deriving sexp]
 
+    type paxos_assertion_state = {proposal: Types.proposal_id; value: V.t}
+    [@@deriving sexp]
+
     type waiting_for_promise_state =
-      { proposal: Types.proposal_id
+      { assertion: paxos_assertion_state
       ; promises_received: promise list
       ; nacks_received: nack list }
     [@@deriving sexp]
@@ -92,7 +95,7 @@ module type S = sig
     type proposer_state =
       | Inactive
       | Idle
-      | Preparing
+      | Preparing of paxos_assertion_state
       | WaitingForPromises of waiting_for_promise_state
       | ProposerAccepting of proposer_accepting_state
       | Decided of V.t
@@ -183,12 +186,15 @@ module type S = sig
     -> proposal:Types.proposal_id
     -> value:V.t
     -> unit
-  (** Proposal function for the node to propose a value.
-      It takes the message id, time, communication bus (parametrized on message
-      type matching [V.t]), the node, proposal id, and value to propose.
 
-      Based on our design, this enqueues to the bus instead of synchronously dispatching (i.e. it will get added to the current buffer).
-   *)
+  val propose :
+       t
+    -> msg_id:int
+    -> time:int
+    -> bus:V.t Message.t Bus.t
+    -> proposal:Types.proposal_id
+    -> value:V.t
+    -> unit
 
   val suggest :
        msg_id:int
@@ -199,8 +205,7 @@ module type S = sig
     -> value:V.t
     -> unit
 
-  val dump_state : t -> Sexp.t
-  (** Dump the current state of the node as an s-expression for debugging. *)
+  val sexp_of_role_state : t -> Sexp.t
 
   val make_config :
        topics:Types.topic list

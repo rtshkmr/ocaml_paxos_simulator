@@ -94,4 +94,12 @@ module type Runtime = sig
 
   val print_bus_stats : t -> unit
   (** Gives a rudimentary print-dump of the state within the event bus used for the simulation.*)
+
+  val make_node_proposal_event :
+       t
+    -> initiator:node
+    -> proposal:Types.Types.proposal_id
+    -> value:V.t
+    -> time:int
+    -> event
 end

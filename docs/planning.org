@@ -3230,6 +3230,115 @@ Had 1 error, waiting for filesystem changes...
 - Deliverables:
   - Durable acceptor state per node
   - Simple learning logic integrated
+
+***** [X] Bugfix: how proposer proposes its own value
+CLOSED: [2025-11-08 Sat 01:04]
+- CLOSING NOTE [2025-11-08 Sat 01:04] \\
+  This is partially fixed, the proposer propses its own value, but for some reason, thhere's a regression bug...
+
+  Basically 2 hhas accepted something before. 2 also sends a new proposal, but somehow 2's previously accepted value is affecting the initiation process. SHould be a minor fix. I'll do it in the morning
+
+  HHOwever this bug is out of scope because simple paxos == one one round of assertion. We should ignore this problem
+
+  #+begin_src txt
+                                  [Clock:Tick 10] --- realtime = 2025-11-08 00:59:42.854711+08:00
+                                  ...time is now stopped @ this tick for us to inspect
+  ------------------------------------------------------------------------------------------------[PUBLISH_BROADCAST] via topic Time:
+  (Time (Heartbeat (meta ((id 13) (timestamp 10) (topic Time))) (time 10)))
+  ------------------------------------------------------------------------------------------------|>---[(Paxos__Node.Make_node.get_handler_for_topic)] {##by node 1 for topic=(Time)##}
+  |>---[(Paxos__Node.Make_node.handle_time)] {##node 1 felt simulation heartbeat for time=(10)##}
+  |>---[(Paxos__Node.Make_node.get_handler_for_topic)] {##by node 2 for topic=(Time)##}
+  |>---[(Paxos__Node.Make_node.handle_time)] {##node 2 felt simulation heartbeat for time=(10)##}
+
+  [event_bus::ENQUEUE] Enqueued message, queue size now 3 for topic Coordination
+  [event_bus::DRAIN_START] Starting to drain a snapshotted queue of 1 messages...
+  ------------------------------------------------------------------------------------------------[PUBLISH_BROADCAST] via topic Coordination:
+  (Coordination
+   (PermissionRequest
+    ((meta ((id 14) (timestamp 10) (topic Coordination))) (from 2)
+     (proposal ((seq 2) (node 2))) (value "ANother one, let's gooo"))))
+  ------------------------------------------------------------------------------------------------|>---[(Paxos__Node.Make_node.get_handler_for_topic)] {##by node 2 for topic=(Coordination)##}
+  |>---[(Paxos__Node.Make_node.handle_coordination)] {##...coordination is happening##}
+  |>---[(Paxos__Node.Make_node.handle_permission_request)] {##... node 2 received permission request from 2 with proposal=((seq 2) (node 2)) for value=(ANother one, let's gooo)##}
+  the permission request is permissible. new_state: ( ((promised (((seq 2) (node 2))))
+   (accepted
+    ((((seq 1) (node 1)) "Let's go ritesh let's gooooooooo, much better feel")))) )
+  [event_bus::ENQUEUE] Enqueued message, queue size now 4 for topic Coordination
+  |>---[(Paxos__Node.Make_node.get_handler_for_topic)] {##by node 1 for topic=(Coordination)##}
+  |>---[(Paxos__Node.Make_node.handle_coordination)] {##...coordination is happening##}
+  |>---[(Paxos__Node.Make_node.handle_permission_request)] {##... node 1 received permission request from 2 with proposal=((seq 2) (node 2)) for value=(ANother one, let's gooo)##}
+  the permission request is permissible. new_state: ( ((promised (((seq 2) (node 2))))
+   (accepted
+    ((((seq 1) (node 1)) "Let's go ritesh let's gooooooooo, much better feel")))) )
+  [event_bus::ENQUEUE] Enqueued message, queue size now 5 for topic Coordination
+  [event_bus::DRAIN_END] Finished draining queue.
+
+
+                                  [Clock:Tick 11] --- realtime = 2025-11-08 00:59:43.075928+08:00
+                                  ...time is now stopped @ this tick for us to inspect
+  ------------------------------------------------------------------------------------------------[PUBLISH_BROADCAST] via topic Time:
+  (Time (Heartbeat (meta ((id 15) (timestamp 11) (topic Time))) (time 11)))
+  ------------------------------------------------------------------------------------------------|>---[(Paxos__Node.Make_node.get_handler_for_topic)] {##by node 1 for topic=(Time)##}
+  |>---[(Paxos__Node.Make_node.handle_time)] {##node 1 felt simulation heartbeat for time=(11)##}
+  |>---[(Paxos__Node.Make_node.get_handler_for_topic)] {##by node 2 for topic=(Time)##}
+  |>---[(Paxos__Node.Make_node.handle_time)] {##node 2 felt simulation heartbeat for time=(11)##}
+
+  [event_bus::DRAIN_START] Starting to drain a snapshotted queue of 2 messages...
+  ------------------------------------------------------------------------------------------------[PUBLISH_UNICAST] Target Node ID = 2 via topic Coordination:
+  (Coordination
+   (PermissionGranted
+    ((meta ((id 15) (timestamp 11) (topic Coordination))) (from 2)
+     (proposal ((seq 2) (node 2)))
+     (last_accepted
+      ((((seq 1) (node 1))
+        "Let's go ritesh let's gooooooooo, much better feel"))))))
+  ------------------------------------------------------------------------------------------------|>---[(Paxos__Node.Make_node.get_handler_for_topic)] {##by node 2 for topic=(Coordination)##}
+  |>---[(Paxos__Node.Make_node.handle_coordination)] {##...coordination is happening##}
+  |>---[(Paxos__Node.Make_node.handle_permission_granted)] {##... node 2 received permission granted from 2 with proposal=((seq 2) (node 2)) for last_accepted=((((seq 1) (node 1)) "Let's go ritesh let's gooooooooo, much better feel"))##}
+  node 2's proposer state has been waiting for promises. it will accumulate this then check if a quorum is achieved!
+  ------------------------------------------------------------------------------------------------[
+
+  #+end_src
+:LOGBOOK:
+CLOCK: [2025-11-08 Sat 00:10]--[2025-11-08 Sat 01:04] =>  0:54
+CLOCK: [2025-11-07 Fri 20:45]--[2025-11-07 Fri 22:13] =>  1:28
+:END:
+There are 2 minor bugs to fix here.
+
+1. FIXED: I have inadvertently mixed up states and mixed up =Idle= with =Preparing= state
+   - also we need to expose a =node::propose= function which will allow us to do the following:
+
+     a) Transition proposer state from Idle to Preparing and hold the proposal and value there.
+
+     b) Enqueue the permission request into the bus.
+
+     c) Transition from Preparing to WaitingForPromises, now carrying the proposal and value.
+
+
+2. FIXED: the =preparing= state needs to keep it's own internal value (that it is attempting to drive consensus for) so that it can assert it's own value in the right condition.
+
+I'm going to try fix them asap first.
+
+***** [X] Pattern problems
+CLOSED: [2025-11-07 Fri 23:56]
+- CLOSING NOTE [2025-11-07 Fri 23:56] \\
+  Okay done with this. It actually just a =make_node_proposal_event= first.
+
+  Will come back to thhe ergonomics of this area when i'm doing cleanpus and refactors eventually.
+:LOGBOOK:
+CLOCK: [2025-11-07 Fri 22:40]--[2025-11-07 Fri 23:56] =>  1:16
+:END:
+
+- The simulation is whhat drives the propopsals by the nodes but the problems is that this directly enqueues the message on the =event_bus=. This violates the abstraction boundaries because the node should be nudged to make the proposal instead of the simulator directly enqueing things.
+
+  _This is a quick fix:_
+
+  1. add =Node::propose= which does the enqueing
+
+  2. add =Simulator::propose= that uses one of the nodes within the simulation for this.
+
+  3. make the =simulation= use =Simulator::propose=
+
 **** TODO Stage 3.5: Ensure happy path works, add basic tests
 **** TODO Stage 4: Add predefined simulation Demo Case
 :PROPERTIES:
@@ -3264,6 +3373,26 @@ Had 1 error, waiting for filesystem changes...
   3) Tighten signatures, remove unsafe partial matches.
 
   4) Final documentation pass.
+***** Refactoring Goals
+****** General Refactoring Goals
+- [ ] Avoid long let-binding chains
+
+  kind of forgot when i first wrote up teh thing that we can be more elixir-like and do destructuring @ the message parameters
+
+  this will make a lot more of the code cleaner.
+
+- [ ] for function params, keep t as the first one. Consider adding stuff that can be piped continuously
+
+
+****** Runtime and Simulator
+- simulator is very blown up and there's a lot of unnecessary functions exposed.
+- [ ] there should be a way for the simulator to allow simulation (runner module) to control node lifecycle
+- [ ] should be a way to:
+  - make a node initiate a proposal without violating the abstraction boundaries. So the node needs to call its own propose function
+
+  - add their own messages (typically a simulation control message only) to theh eventbuss for message passing. This can directly enqueue to the event bus
+
+  - allow other simulation events to directly be run (e.g. state dumps of one of the nodes and so on) -- these are things that don't rely on the event bus
 **** TODO Correctness check: Isolated areas in consideration
 
 These are mechanisms that we need to add in part by part. It would be greate to add a sort of pipelining capability to this though and to just add in policy elements direclty.
@@ -3823,7 +3952,21 @@ This is a standard behavior in OCaml’s type and pattern matching system and be
    - unclear thoughts == not an enojoyer of pipes
 *** [2] Magic (and quirks) of Ocaml
 **** Magic
-***** [ ] how in the world is the compilation so fast?
+***** [ ] Compiler magic
+****** [ ] how in the world is the compilation so fast?
+****** [ ] thanks compiler for doing exhaustiveness checks
+- if the typing is handled correctly, then the compiler will tell us nicely if we missed something:
+  #+begin_src ocaml
+File "lib/node.ml", lines 503-506, characters 10-72:
+503 | ..........match State.get_role node.state State.Acceptor with
+504 |           (* TODO [FSM]: when will it be inactive? do we transition out to inactive after? *)
+505 |           | State.Idle -> Logger.log_decision node.logger ( Printf.sprintf "Node %d Acceptor was idle/inactive; no current promised / previously accepted to report. Carrying on..." node.id); (None, None)
+506 |           | State.Accepting record -> (record.promised, record.accepted)
+Error (warning 8 [partial-match]): this pattern-matching is not exhaustive.
+Here is an example of a case that is not matched:
+Inactive
+  #+end_src
+
 ***** [ ] working with generics and expressiveness of the type system
 
 - how can we quickly try to have a first-taste of the boundaries / limits of the language when it comes to expressiveness?
@@ -3833,6 +3976,9 @@ This is a standard behavior in OCaml’s type and pattern matching system and be
 - but hella confusing
 ***** [ ] beauty of pipes (though it's not unique to ocaml)
 **** Quirks
+***** [ ] Minor wishlist
+- i wish assert expressions had associated messages that we could use (we could always wrap this and make a custom assertion but still)
+
 *** [3] What I learnt about myself from this
 **** [ ] Importance of exposure for improving intuition
 

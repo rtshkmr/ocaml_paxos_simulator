@@ -24,6 +24,8 @@ module Simulator : Runtime = struct
   let msg_of_message (m: V.t Message.t): msg = m (* converts structurally equal type to shadow type *)
   type node = NodeImpl.t
   let id_of_node node = NodeImpl.id node
+  let propose node = NodeImpl.propose node
+
   type event = EventScheduler.event
 
   let bus = B.create ~payload_serialiser:payload_serialiser()
@@ -41,6 +43,7 @@ module Simulator : Runtime = struct
   let next_event_id t = Counter.next t.event_id_counter
   let next_msg_id t = Counter.next t.msg_id_counter
 
+  (* TODO [REFACTOR] simulator is a little blown up right now and needs a cleanup. We can do this later. *)
   let make_event sim ?(id=next_event_id sim) ~time action () = EventScheduler.create_event id time action
 
   let enqueue_thunk sim ?(id=next_event_id sim) ~time (thunk:msg enqueuable_thunk) = let action = (fun () -> Event_bus.enqueue bus thunk) in
@@ -48,6 +51,10 @@ module Simulator : Runtime = struct
 
   type msg_factory =  msg_id:int -> from:node -> ?to_node:node -> time:Time.t -> unit -> msg
 
+  let make_node_proposal_event sim ~(initiator:node) ~(proposal:Types.Types.proposal_id) ~(value:V.t) ~(time:Time.t) =
+    let thunk () = let msg_id = next_msg_id sim in
+      propose initiator ~msg_id ~time ~bus ~proposal ~value in
+    make_event sim ~time thunk ()
 
   let create_message_event
       (sim : t)
@@ -164,5 +171,6 @@ module Simulator : Runtime = struct
 
   let print_bus_stats t =
     B.print_stats bus;
+
 
 end
