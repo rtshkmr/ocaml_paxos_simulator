@@ -44,19 +44,6 @@ module Simulation = struct
     Stdio.print_endline s ;
     Out_channel.flush Stdio.stdout
 
-  [@@@ocaml.warning "-27"] (* TODO fixme: remove this eventually @ cleanup *)
-
-  let permission_event_msg_factory my_string : Simulator.msg_factory =
-   fun ~msg_id ~from ?to_node ~time () ->
-    let proposal = Types.Types.make_proposal_id ~seq:0 ~node:1 in
-    let from_id = Simulator.id_of_node from in
-    let raw_msg =
-      Message.make_permission_request ~msg_id ~time
-        ~topic:Types.Types.Coordination ~from:from_id ~proposal
-        ~value:(make_val my_string)
-    in
-    Simulator.msg_of_message (Message.Coordination raw_msg)
-
   let make_sim_control_event ~(sim : Simulator.t) ~(dispatch_time : Time.Time.t)
       ~(to_node_id : Types.Types.node_id)
       ~(make_msg :
@@ -104,10 +91,10 @@ module Simulation = struct
 
   (* let predetermined_events = permission_events @ print_events @ sim_ctrl_events *)
   let predetermined_events =
-    paxos_initiation_events (* @ print_events @ sim_ctrl_events *)
+    paxos_initiation_events @ print_events (*@ sim_ctrl_events *)
 
   let seed_predetermined_events sim events =
-    List.iter ~f:(fun e -> Simulator.schedule_event sim e) events
+    List.iter ~f:(fun e -> e |> Simulator.schedule_event sim) events
 
   let rec run_with_pause sim =
     match In_channel.input_char In_channel.stdin with

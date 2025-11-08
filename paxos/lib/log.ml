@@ -121,6 +121,10 @@ module LogFormatter = struct
   let print_stats () =
     "[event_bus::STATS] Printing statistics..." |> blue |> bold
 
+  let format_node_state_change node_id old_state_str new_state_str =
+    Printf.sprintf "Node %d changed state from \n%s to \n%s\n%!" node_id
+      old_state_str new_state_str
+
   (* Unified record type for composability *)
   type 'a formatters =
     { publish_broadcast: Types.topic -> string -> string
@@ -134,6 +138,7 @@ module LogFormatter = struct
     ; format_subroutine_flow: string -> string -> string
     ; decision: string -> string
     ; reaction: string -> string
+    ; format_node_state_change: int -> string -> string -> string
     ; print_stats: unit -> string }
 
   let make () : 'a formatters =
@@ -148,6 +153,7 @@ module LogFormatter = struct
     ; format_subroutine_flow
     ; decision
     ; reaction
+    ; format_node_state_change
     ; print_stats }
 end
 
@@ -193,4 +199,8 @@ module Logger = struct
   let log_decision t msg = print_endline (t.formatters.decision msg)
 
   let log_reaction t msg = print_endline (t.formatters.reaction msg)
+
+  let log_node_state_change t node_id old_state_str new_state_str =
+    t.formatters.format_node_state_change node_id old_state_str new_state_str
+    |> print_endline
 end

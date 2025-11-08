@@ -19,6 +19,12 @@ module Message = struct
     ; last_accepted: (Types.proposal_id * 'v) option }
   [@@deriving sexp, compare, equal]
 
+  let sexp_of_last_accepted sexp_of_v = function
+    | None ->
+        Sexplib.Sexp.Atom "None"
+    | Some (proposal_id, v) ->
+        List [Types.sexp_of_proposal_id proposal_id; sexp_of_v v]
+
   type 'v suggestion_msg =
     {meta: Meta.t; from: Types.node_id; proposal: Types.proposal_id; value: 'v}
   [@@deriving sexp, compare, equal]
@@ -37,6 +43,12 @@ module Message = struct
     ; from: Types.node_id
     ; hint: (Types.proposal_id * 'v) option }
   [@@deriving sexp, compare, equal]
+
+  let sexp_of_nack_hint sexp_of_v = function
+    | None ->
+        Sexplib.Sexp.Atom "None"
+    | Some (proposal_id, v) ->
+        List [Types.sexp_of_proposal_id proposal_id; sexp_of_v v]
 
   (** Messages are parameterized by payload type ['v].
       The Paxos algo defines these 5 variants in its spec for Coordination
@@ -161,8 +173,7 @@ module Message = struct
 
   let make_permission_granted ~msg_id ~topic ~proposal ~time ~from
       ~last_accepted =
-    let id = msg_id in
-    let meta = make_meta id time topic in
+    let meta = make_meta msg_id time topic in
     PermissionGranted {meta; from; proposal; last_accepted}
 
   let make_suggestion ~msg_id ~topic ~time ~from ~proposal ~value =

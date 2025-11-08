@@ -28,6 +28,9 @@ module Message : sig
     {meta: Meta.t; from: Types.node_id; proposal: Types.proposal_id; value: 'v}
   [@@deriving sexp, compare, equal]
 
+  val sexp_of_last_accepted :
+    ('a -> Sexp.t) -> (Types.proposal_id * 'a) option -> Sexp.t
+
   type 'v permission_granted_msg =
     { meta: Meta.t
     ; from: Types.node_id
@@ -53,6 +56,9 @@ module Message : sig
     ; from: Types.node_id
     ; hint: (Types.proposal_id * 'v) option }
   [@@deriving sexp, compare, equal]
+
+  val sexp_of_nack_hint :
+    ('a -> Sexp.t) -> (Types.proposal_id * 'a) option -> Sexp.t
 
   (** Messages are parameterized by payload type ['v].
       The Paxos algo defines these 5 variants in its spec for Coordination

@@ -123,8 +123,6 @@ module type S = sig
     val is_quorum_reached : role_state -> int -> quorum_result
   end
 
-  val state_of_string_opt : string option -> State.role_state option
-
   (** Configuration for simulation semantics, including mutable cluster_size tracking. *)
   type simulation_config = {mutable cluster_size: int option ref}
 
@@ -177,15 +175,6 @@ module type S = sig
   (** Handle a simulation control message received by the node. *)
 
   val handle_time : t -> V.t Message.t -> unit
-
-  val seek_permission :
-       msg_id:int
-    -> time:int
-    -> bus:V.t Message.t Bus.t
-    -> t
-    -> proposal:Types.proposal_id
-    -> value:V.t
-    -> unit
 
   val propose :
        t

@@ -2230,6 +2230,145 @@ All nodes with roles containing =Acceptor=.
 
 One thing to note is that we don't really reset the state. This is because simple paxos is about running one instance of the paxos process. So the final state is the decided sate.
 
+****** Improved Outline with implementation details
+This is the improved outline for 1 round of the paxos protocol, which is our minimum intent. It has some implementation details within it too.
+
+******* Phase 1: Permission/Prepare Phase (Proposer's POV)
+******** message
+
+=Prepare(proposal_id)=
+
+For our implementation:
+
+1. =PermissionRequestMessage= we have included the message that we're trying to assert as well.
+
+2. State transitions:
+
+   * the proposal subroutine will expect the node's proposal state to ONLY be in an =Idle= state
+   * then as we start preparing, we go from =Idle= $\rightarrow$ =Preparing=.
+     this keeps an assertion.
+     #+begin_src ocaml
+    type paxos_assertion_state = {proposal: Types.proposal_id; value: V.t}
+    [@@deriving sexp]
+     #+end_src
+   * then after finally dispatching the =PermissionRequestMessage= to the event bus, we do another state transition from =Preparing= $\rightarrow$ =WaitingForPromises=
+
+******** sender
+
+=Proposer=
+
+******** recipient
+
+All nodes that are not =Inactive=.
+
+This is because every node will simultaneously have state management for all 3 roles: Proposer, Acceptor, Learner. The sub-states are all independently managed.
+
+********* recipient behaviour (acceptor role) @ =handle_permission_request=
+********** Case 1: =no_promises_made || proposal_id= =>== =promised_id=
+
+permissibility check is done like so:
+#+begin_src ocaml
+  let is_permissible ~current_promised_opt proposal =
+    match current_promised_opt with
+    | None -> true
+    | Some promised -> Types.compare_proposal_id proposal promised > 0
+#+end_src
+
+1) recipient records =promised_id= =:== =proposal_id=
+
+2) reply unicast to sender with =Promise(accepted_id_opt, accepted_value_opt)=
+
+********** Case 2: else
+
+1) reply with =Nack(promised_id)=
+
+********* sender's behaviour (proposer role) @ =handle_permission_granted= or =handle_nack=
+
+- sender will wait for quorum of =Promise= messages (or quorum of nacks)
+
+  In our case, accumulation / collecting of messages for multiple unicasts is done by keeping track of state within the =WaitingForPromises= state. For now, it's just immutable state (record), we might consider making it a mutable state in the future when shifting to a proper async framework.
+
+- sender's behaviour (proposer that is waiting):
+  1. sender can only be in a =WaitingForPromises= state, all other states are illegal
+
+  2. we will always update the =WaitingForPromises= state's =promises_received= or =nacks_received= FIRST, then we shall check if either quorum is reached.
+
+
+
+********** Case 1: on quorum
+   1) Pick value by considering promises:
+      - consider highest =proposal_id= from =promises= (highest =promise_id=)
+
+        if non-=None=, then pick that associated value to propose $\implies$ since it's a broadcast, the cases get simpler.
+
+        this could be =None=.
+
+      - if =highest_promised_id= is =None=
+
+        - propose own value.
+
+   2) Transition sender state:
+      - Transition end state: =Accepting(proposal, value)=
+
+      - for our implementation, this is the =ProposerAccepting= state:
+        #+begin_src ocaml
+type proposer_accepting_state =
+      { proposal: Types.proposal_id
+      ; value: V.t
+      ; acks: Types.node_id list
+      ; nacks_received: nack list }
+    [@@deriving sexp]
+        #+end_src
+
+        so we do a transition from =WaitingForPromises= to =ProposerAccepting=
+
+********** Case 2: Or failure = rejection (majority nack) or timeout or ...
+   1) Fail the round. @ =abort=
+
+      for now, we shall call an =abort= routine, which just prints some stuff to sdtout.
+
+******* Phase 2: Accept Phase
+******** message
+=AcceptRequest(proposal_id, value)=
+
+we're calling it the =suggestion_msg=
+#+begin_src ocaml
+type 'v suggestion_msg =
+  {meta: Meta.t; from: Types.node_id; proposal: Types.proposal_id; value: 'v}
+    [@@deriving sexp, compare, equal]
+#+end_src
+
+******** sender
+
+=Proposer=
+
+******** recipient
+
+All nodes that are not =Inactive= for their =Acceptor= state.
+
+********* Recipient's Behaviour:
+
+********** Case 1: =proposal_id= =>== =promised_id=
+
+1) Record =accepted_id= =:== =proposal_id= and =accepted_value=  =:== =value=
+
+2) Reply =Accepted(proposal_id, value)=
+
+********** Case 2: Else
+
+1) Reply =Nack(promised_id)=
+
+********* Sender's Behaviour:
+
+1. wait for quorum of =Accepted= s
+2. =on_quorum=:
+   1. consensus reached
+   2. broadcast =Decided(value)= to all learners (including self)
+   3. Transition state: =-> Decided(value)=
+
+
+One thing to note is that we don't really reset the state. This is because simple paxos is about running one instance of the paxos process. So the final state is the decided sate.
+
 ****** Some questions
 1. [X] A node will have multiple states at once, correct?
 
@@ -3339,6 +3478,33 @@ CLOCK: [2025-11-07 Fri 22:40]--[2025-11-07 Fri 23:56] =>  1:16
 
   3. make the =simulation= use =Simulator::propose=
 
+***** [ ] Fix FSM mismatches (bugs)
+1. [ ] need to standardise what a promise is (sent from the acceptor)
+   - we need to add in the previously accepted suggestion id and value to the promise
+   - it should also send the current suggestion id (proposal id) that is being asserted
+   - this should require state improvements as well as likely message type improvements
+     - [ ] promise state changes
+     - [ ] changes to =is_quorum_reached_on_promise_wait=
+
+       here, the best-value accumulation needs to change to consider the previously accepted from promises. Only if ALL of them are none then we set chosen value as the proposer's own value
+
+     - [ ] also the quorum check routine can just return us a (non-optional) chosen value, it will clean up the subsequent parts.
+2. [ ] need to add =current_promised= within =make_nack= even if we are not going to add in the nack optimisation stuff (yet?)
+3. [ ] use the =paxos_assertion_state= where possible
+
+***** [ ] Broadcast decided state (end state)
+As per our outline, the proposer should be:
+
+#+begin_quote
+1. wait for quorum of =Accepted= s
+2. =on_quorum=:
+   1. consensus reached
+   2. broadcast =Decided(value)= to all learners (including self)
+   3. Transition state: =-> Decided(value)=
+#+end_quote
+
+We haven't handled this part yet, we can add this in
+***** [ ] Add in storage helpers
 **** TODO Stage 3.5: Ensure happy path works, add basic tests
 **** TODO Stage 4: Add predefined simulation Demo Case
 :PROPERTIES:
@@ -3383,6 +3549,22 @@ CLOCK: [2025-11-07 Fri 22:40]--[2025-11-07 Fri 23:56] =>  1:16
 
 - [ ] for function params, keep t as the first one. Consider adding stuff that can be piped continuously
 
+- [ ] use assertions instead of =failwith= s
+
+- [ ] avoid accessor functions if we don't hide it at the interface level
+  here's an example:
+  #+begin_src ocaml
+  (* TODO: [REFACTOR] I think such accessors are useless, we can pattern-match destructure them anyway. Keep only if we wanna hide the internal state struct @ the interface boundary *)
+  let id t = t.id
+  let roles t = t.config.roles
+  let state t = t.state
+  let buses_for_topic t topic =
+    match Hashtbl.find t.subs topic with
+    | Some table -> Hashtbl.fold table ~init:[] ~f:(fun ~key:_ ~data:bus acc -> bus :: acc)
+    | None -> []
+  #+end_src
+
+- [ ] add assertions to communicate invariants
 
 ****** Runtime and Simulator
 - simulator is very blown up and there's a lot of unnecessary functions exposed.
@@ -3973,7 +4155,91 @@ Inactive
 
 ***** [ ] expressiveness and the magic of GADTs
 - GADT is beautiful for FSM state management and giving peace of mind -- beautiful
+
+  see polymorphic setters and getters replacing the need for dedicated setters and getters
+  #+begin_src ocaml
+    type paxos_assertion_state = {proposal: Types.proposal_id; value: V.t}
+    [@@deriving sexp]
+
+    type waiting_for_promise_state =
+      { assertion: paxos_assertion_state
+      ; promises_received: promise list
+      ; nacks_received: nack list }
+    [@@deriving sexp]
+
+    type proposer_accepting_state =
+      { proposal: Types.proposal_id
+      ; value: V.t
+      ; acks: Types.node_id list
+      ; nacks_received: nack list }
+    [@@deriving sexp]
+
+    type proposer_state =
+      | Inactive (** this state encodes it's unavailability. When a node is inactivated, it is effectively killed -- it must look to its storage to resume partitipation thereafter *)
+      | Idle (** An node may be idle to indicate that it can be a valid participant (by initiating a proposal)*)
+      | Preparing  of paxos_assertion_state (** A node that is initiating a proposal will be in the preparing state. It will be ready to .*)
+      | WaitingForPromises of waiting_for_promise_state (** A node that is gathering responses to their proposal and is waiting to reach a quorum of responses.*)
+      | ProposerAccepting of proposer_accepting_state (** A node that has suggested *)
+      | Decided of V.t
+    [@@deriving sexp]
+
+
+    type acceptor_state = Inactive | Idle | Accepting of Acceptor_record.value [@@deriving sexp]
+    type learner_state = Learned of V.t option [@@deriving sexp]
+
+    type role_state = {
+      proposer: proposer_state;
+      acceptor: acceptor_state;
+      learner: learner_state;
+    } [@@deriving sexp]
+
+    let idle_of () = {
+      proposer = Idle;
+      acceptor = Idle;
+      learner = Learned None;
+    }
+
+    let inactive_of () = {
+      proposer = Inactive;
+      acceptor = Inactive;
+      learner = Learned None;
+    }
+
+    (* Getters and setters *)
+    let get_proposer rs = rs.proposer
+    let set_proposer rs p = { rs with proposer = p }
+    let get_acceptor rs = rs.acceptor
+    let set_acceptor rs a = { rs with acceptor = a }
+    let get_learner rs = rs.learner
+    let set_learner rs l = { rs with learner = l }
+
+    (** GADT to encode which role and its sub-state type
+        This encodes the association between a constructor (Proposer, Acceptor, Learner) and its precise sub-state type.
+    *)
+    type _ role_selector =
+      | Proposer : proposer_state role_selector
+      | Acceptor : acceptor_state role_selector
+      | Learner : learner_state role_selector
+
+    (** Polymorphic role_state accessor *)
+    let get_role : type a. role_state -> a role_selector -> a = fun rs sel ->
+      match sel with
+      | Proposer -> rs.proposer
+      | Acceptor -> rs.acceptor
+      | Learner -> rs.learner
+
+    (** Polymorphic role_state setter *)
+    let set_role : type a. role_state -> a role_selector -> a -> role_state = fun rs sel v ->
+      match sel with
+      | Proposer -> { rs with proposer = v }
+      | Acceptor -> { rs with acceptor = v }
+      | Learner -> { rs with learner = v }
+  #+end_src
 - but hella confusing
+***** [ ] language features with pleasant ergonomics
+- pattern matching like in elixir
+  - we can do param destructuring, so no need long let-binds just to prepare structs for usage within the body + standardisation of field names $\implies$ consistent naming and a focus on the linguistic choices behind variable naming $\implies$ intentional communication behind the chohice of a name
+
 ***** [ ] beauty of pipes (though it's not unique to ocaml)
 **** Quirks
 ***** [ ] Minor wishlist
@@ -4027,6 +4293,14 @@ The OCaml code reads like pseudocode. that's amazing.
   - ecosystem support but there's no agency in you when it's work
 
 - i think these help to inform decision-making and strategy when it comes to finding a team working on problems that I want to be exposed to.
+*** [5] Areas of improvement on the code
+**** fat messages with superfluous info
+
+the current messages are have superflous information sometimes (e.g. value doesn't need to always be passed around for every message).
+
+this was intentionally done because it's just easier to visually debug things and verify correctness.
+
+in a more realistic simulation where bandwidth is a resource to be frugal about, these messages can be made leaner
 
 
 * Intentional Shortcuts
