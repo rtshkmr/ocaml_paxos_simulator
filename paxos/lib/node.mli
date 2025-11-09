@@ -46,36 +46,72 @@ module type S = sig
 
   val role_of_string : string -> role
 
+  type assertion = V.t Types.paxos_assertion_state [@@deriving sexp]
+
+  type promise = assertion option [@@deriving sexp]
+
+  (** Acceptor_record module for local acceptor state snapshot *)
+  module Acceptor_record : sig
+    (** The value a local acceptor holds as part of the Paxos state.
+
+        - [promised] is the highest proposal id this acceptor has promised not to
+          accept proposals less than.
+        - [accepted] is the optional last accepted proposal id and value pair.
+    *)
+    type value = {promised: Types.proposal_id option; accepted: promise}
+    [@@deriving sexp]
+  end
+
   (** Internal ADT representing the various states of a node during the Paxos
       consensus process. Each constructor optionally carries data typed using
       [V.t], ensuring the node's state is parametrically tied to the concrete
       value type chosen in [V]. *)
   module State : sig
-    type t =
-      | Echo
-      | Idle
-          (** Node is inactive or waiting to initiate consensus or for messages *)
-      | Preparing of
-          {current_proposal: Types.proposal_id; awaiting: Types.node_id list}
-          (** Proposer has sent Prepare requests, awaiting promises *)
-      | WaitingForPromises of
-          { proposal: Types.proposal_id
-          ; promises_received:
-              (Types.node_id * (Types.proposal_id * V.t) option) list }
-          (** Proposer is collecting promises and evaluating highest accepted proposals *)
-      | Accepting of
-          {proposal: Types.proposal_id; value: V.t; acks: Types.node_id list}
-          (** Proposer sending Accept requests, waiting for acknowledgments *)
-      | AcceptedLocally of {proposal: Types.proposal_id; value: V.t}
-          (** Acceptor has accepted a proposal locally *)
-      | Decided of V.t  (** Consensus value is decided and learned *)
+    type nack = {rejected_assertion: assertion; hint: promise} [@@deriving sexp]
+
+    type waiting_for_promise_state =
+      { assertion: assertion
+      ; promises_received: promise list
+      ; nacks_received: nack list }
     [@@deriving sexp]
+
+    type proposer_accepting_state =
+      {assertion: assertion; acks: Types.node_id list; nacks_received: nack list}
+    [@@deriving sexp]
+
+    type proposer_state =
+      | Inactive
+      | Idle
+      | Preparing of assertion
+      | WaitingForPromises of waiting_for_promise_state
+      | ProposerAccepting of proposer_accepting_state
+      | Decided of V.t
+    [@@deriving sexp]
+
+    type acceptor_state = Inactive | Idle | Accepting of Acceptor_record.value
+
+    type learner_state = Learned of V.t option [@@deriving sexp]
+
+    type role_state =
+      { proposer: proposer_state
+      ; acceptor: acceptor_state
+      ; learner: learner_state }
+    [@@deriving sexp]
+
+    val idle_of : unit -> role_state
+
+    val inactive_of : unit -> role_state
+
+    type quorum_result =
+      | NotReached
+      | MajorityNacks of promise
+      | MajorityGrants of assertion
+
+    val is_quorum_reached : role_state -> int -> quorum_result
   end
 
-  val state_of_string_opt : string option -> State.t option
-
-  (** Configuration for simulation semantics, including mutable quorum tracking. *)
-  type simulation_config = {mutable quorum: int option ref}
+  (** Configuration for simulation semantics, including mutable cluster_size tracking. *)
+  type simulation_config = {mutable cluster_size: int option ref}
 
   (** Node runtime configuration consisting of simulation settings, assigned roles,
       and a persistence storage backend. The types here are tied to the [Storage]
@@ -90,7 +126,7 @@ module type S = sig
   type t
 
   val create :
-       ?state:State.t
+       ?state:State.role_state
     -> id:Types.node_id
     -> config:config
     -> bus:V.t Message.t Bus.t
@@ -107,16 +143,13 @@ module type S = sig
       Note: The types of [bus] and messages depend on the injected [V] and [Bus]
       modules, ensuring tight coupling between node messaging and value representation. *)
 
-  val set_node_state : t -> State.t -> unit
+  val set_node_state : t -> State.role_state -> unit
   (** Update the internal state of a node. *)
-
-  val id : t -> Types.node_id
-  (** Return the unique identifier of a node. *)
 
   val roles : t -> roles
   (** Return the roles assigned to a node. *)
 
-  val state : t -> State.t
+  val state : t -> State.role_state
   (** Return the current internal state of a node. *)
 
   val handle_coordination : t -> V.t Message.t -> unit
@@ -128,6 +161,15 @@ module type S = sig
   val handle_time : t -> V.t Message.t -> unit
 
   val propose :
+       t
+    -> msg_id:int
+    -> time:int
+    -> bus:V.t Message.t Bus.t
+    -> proposal:Types.proposal_id
+    -> value:V.t
+    -> unit
+
+  val suggest :
        msg_id:int
     -> time:int
     -> bus:V.t Message.t Bus.t
@@ -135,26 +177,19 @@ module type S = sig
     -> proposal:Types.proposal_id
     -> value:V.t
     -> unit
-  (** Proposal function for the node to propose a value.
-      It takes the message id, time, communication bus (parametrized on message
-      type matching [V.t]), the node, proposal id, and value to propose.
 
-      Based on our design, this enqueues to the bus instead of synchronously dispatching (i.e. it will get added to the current buffer).
-   *)
-
-  val dump_state : t -> Sexp.t
-  (** Dump the current state of the node as an s-expression for debugging. *)
+  val sexp_of_role_state : t -> Sexp.t
 
   val make_config :
        topics:Types.topic list
     -> roles:roles
     -> storage:Storage.t
-    -> quorum:int option
+    -> cluster_size:int option
     -> config
   (** Construct a configuration record for the node.
       - [roles]: list of roles to assign.
       - [storage]: storage backend instance.
-      - [quorum]: optional quorum size, must be positive if given. *)
+      - [cluster_size]: optional cluster_size, must be positive if given. *)
 
   val make_node_idle :
        msg_id:int
@@ -164,6 +199,9 @@ module type S = sig
     -> node_id:int
     -> unit
   (** Convenience function to make a node idle in simulation control. *)
+
+  val get_cluster_size : t -> int
+  (** convenience cluster size getter *)
 end
 
 (** The functor for constructing node implementations parameterized by:

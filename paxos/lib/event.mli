@@ -5,7 +5,7 @@ open Time
     This is expected to be used for the simulation / logging more so than for message passing.
   *)
 module EventMeta : sig
-  type t = {timestamp: Time.t; id: Uuidm.t} [@@deriving sexp, compare, equal]
+  type t = {timestamp: Time.t; id: int} [@@deriving sexp, compare, equal]
 end
 
 module BaseEvent : sig

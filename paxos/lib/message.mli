@@ -24,32 +24,54 @@ module Message : sig
     [@@deriving sexp, compare, equal]
   end
 
+  type 'v permission_request_msg =
+    { meta: Meta.t
+    ; from: Types.node_id
+    ; assertion: 'v Types.paxos_assertion_state }
+  [@@deriving sexp, compare, equal]
+
+  val sexp_of_last_accepted :
+    ('a -> Sexp.t) -> (Types.proposal_id * 'a) option -> Sexp.t
+
+  type 'v permission_granted_msg =
+    { meta: Meta.t
+    ; from: Types.node_id
+    ; assertion: 'v Types.paxos_assertion_state
+    ; last_accepted: 'v Types.paxos_promise }
+  [@@deriving sexp, compare, equal]
+
+  type 'v suggestion_msg =
+    { meta: Meta.t
+    ; from: Types.node_id
+    ; assertion: 'v Types.paxos_assertion_state }
+  [@@deriving sexp, compare, equal]
+
+  type 'v accepted_msg =
+    { meta: Meta.t
+    ; from: Types.node_id
+    ; assertion: 'v Types.paxos_assertion_state }
+  [@@deriving sexp, compare, equal]
+
+  (**  [Nack] variant ([nack_msg] has an optional [hint] which helps to inform about the highest promise seen.
+       this is intended for future use for nack optimisations @ the accepting stage.
+
+       FIXME: the Message.Nack and State.nack don't play well together, they should have similar shapes.*)
+  type 'v nack_msg =
+    { meta: Meta.t
+    ; from: Types.node_id
+    ; rejected_assertion: 'v Types.paxos_assertion_state
+    ; hint: 'v Types.paxos_promise }
+  [@@deriving sexp, compare, equal]
+
   (** Messages are parameterized by payload type ['v].
       The Paxos algo defines these 5 variants in its spec for Coordination
-      Notes:
-      1. [Nack] variant has an optional [hint] which helps to inform about the highest promise seen.
   *)
   type 'v coordination_message =
-    | PermissionRequest of
-        { meta: Meta.t
-        ; from: Types.node_id
-        ; proposal: Types.proposal_id
-        ; value: 'v }
-    | PermissionGranted of
-        { meta: Meta.t
-        ; from: Types.node_id
-        ; last_accepted: (Types.proposal_id * 'v) option }
-    | Suggestion of
-        { meta: Meta.t
-        ; from: Types.node_id
-        ; proposal: Types.proposal_id
-        ; value: 'v }
-    | Accepted of
-        { meta: Meta.t
-        ; from: Types.node_id
-        ; proposal: Types.proposal_id
-        ; value: 'v }
-    | Nack of {meta: Meta.t; from: Types.node_id; hint: Types.proposal_id option}
+    | PermissionRequest of 'v permission_request_msg
+    | PermissionGranted of 'v permission_granted_msg
+    | Suggestion of 'v suggestion_msg
+    | Accepted of 'v accepted_msg
+    | Nack of 'v nack_msg
   [@@deriving sexp, compare, equal]
 
   and 'v time_message =
@@ -60,7 +82,7 @@ module Message : sig
 
   and 'v simulation_control_message =
     | MakeNodeIdle of {meta: Meta.t; node_id: Types.node_id}
-    | MakeNodeEcho of {meta: Meta.t; node_id: Types.node_id}
+    | MakeNodeInactive of {meta: Meta.t; node_id: Types.node_id}
     | Pause of {meta: Meta.t}
     | Resume of {meta: Meta.t}
     | AdvanceTick of {meta: Meta.t}
@@ -72,6 +94,10 @@ module Message : sig
     | Control of 'v simulation_control_message
     | Time of 'v time_message
   [@@deriving sexp, compare, equal]
+
+  val payload_serialiser_of : ('v -> Sexp.t) -> 'v t -> string
+
+  val meta_of : _ t -> Meta.t
 
   val topic_of : _ t -> Types.topic
   (** [topic_of] extracts the topic from any message. *)
@@ -95,9 +121,10 @@ module Message : sig
   val make_permission_granted :
        msg_id:int
     -> topic:Types.topic
+    -> assertion:'v Types.paxos_assertion_state
     -> time:Time.t
     -> from:Types.node_id
-    -> last_accepted:(Types.proposal_id * 'v) option
+    -> last_accepted:'v Types.paxos_promise
     -> 'v coordination_message
 
   val make_suggestion :
@@ -123,7 +150,8 @@ module Message : sig
     -> topic:Types.topic
     -> time:Time.t
     -> from:Types.node_id
-    -> hint:Types.proposal_id option
+    -> rejected_assertion:'v Types.paxos_assertion_state
+    -> hint:'v Types.paxos_promise
     -> 'v coordination_message
 
   val make_sim_control_idle_node :
@@ -132,7 +160,7 @@ module Message : sig
     -> node_id:Types.node_id
     -> 'v simulation_control_message
 
-  val make_sim_control_echo_node :
+  val make_sim_control_inactive_node :
        msg_id:int
     -> time:Time.t
     -> node_id:Types.node_id

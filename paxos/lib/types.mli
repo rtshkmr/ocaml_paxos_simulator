@@ -19,6 +19,13 @@ module Types : sig
   type proposal_id = {seq: int  (** sequence counter*); node: node_id}
   [@@deriving sexp, compare, equal, hash]
 
+  (** When driving consensus, a node would need to assert their own value first.*)
+  type 'a paxos_assertion_state = {proposal: proposal_id; value: 'a}
+  [@@deriving sexp, compare, equal]
+
+  type 'a paxos_promise = 'a paxos_assertion_state option
+  [@@deriving sexp, compare, equal]
+
   (** Explicit topics for which nodes communicate*)
   type topic =
     | Coordination  (** Consensus coordination messages, e.g., Paxos *)
@@ -30,6 +37,4 @@ module Types : sig
 
   val make_proposal_id : seq:int -> node:node_id -> proposal_id
   (** Convenience builder helpers *)
-
-  val next_proposal_id : proposal_id -> node:node_id -> proposal_id
 end
