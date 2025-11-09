@@ -1868,42 +1868,24 @@ this is fixed now, the simulator's event scheduler keeps generic simulation even
 
 the =event_bus= keeps messages buffered. This is so that we can simulate async without doing async by draining deterministically.
 
-
-**** TODO Paxos Protocol Groundworks
-:PROPERTIES:
-:EFFORT:   45min
-:END:
-:LOGBOOK:
-CLOCK: [2025-11-03 Mon 09:27]--[2025-11-03 Mon 09:33] =>  0:06
-:END:
-Not the whole algo yet, but somewhere close
- - [ ] Re-read paxos notes, some documentation touch ups on the nodes
- - [ ] Begin applying inbox stateful processing in nodes upon tick calls.
- - [ ] outline a test case of communication for one paxos process that we should be supporting.
-
-***** TODO Add explicit proposal field to response messages
-
-Why: Correlating responses to proposals must be unambiguous.
-
-Files: lib/message.mli|ml
-
-Changes:
-
-Add proposal: Types.proposal_id to PermissionGranted and Nack message variants (and ensure constructors accept it).
-
-Acceptance: Message.proposal_id_of returns proposal for request and response variants consistently.
-**** TODO Add better logging to simulation
+**** DONE Add better logging to simulation
+CLOSED: [2025-11-04 Tue 20:30]
 :PROPERTIES:
 :EFFORT:   1h
 :END:
 
+- CLOSING NOTE [2025-11-04 Tue 20:30] \\
+  Good enough for now
 this is almost a subsystem of its own
 
 We can add logging at every callback level so all the message passing is logged out.
 
 This one can use jane street's =Log= library. I'm not sure how big of a lift that is. It's definitely essential for the polishing of this mini project though.
-***** [ ] Replace UUID/time logging with simulator-managed logging
+***** [X] Replace UUID/time logging with simulator-managed logging
+CLOSED: [2025-11-04 Tue 20:30]
 
+- CLOSING NOTE [2025-11-04 Tue 20:30] \\
+  Done
 Why: You need a single authoritative event log to show traces to interviewers and debug runs.
 
 Files: bin/simulator.ml, lib/event_bus.ml
@@ -1916,13 +1898,17 @@ Let Event_bus.create accept logger that returns string; publish should capture i
 
 Acceptance: A run produces a readable, timestamped event log that can be replayed.
 
-***** TODO Basic Simulation Event Logging
+***** DONE Basic Simulation Event Logging
+CLOSED: [2025-11-04 Tue 20:30]
 :PROPERTIES:
 :EFFORT:   30min
 :END:
+- CLOSING NOTE [2025-11-04 Tue 20:30] \\
+  This is somewhat done, good enough for now, anything else shall be incrementall added
 This is necessary for the completion of this project because without it, the simulation visuals won't be sexy.
 
 this part involves adding in the loops we were talking about.
+
 **** TODO Add storage pattern, in-mem -> persistent storage
 This is not as high priority but will be cool to demonstrate how crashing can still bring things back
 *** TODO Implement v0 (basic paxos algorithm -- main goal)
@@ -1933,11 +1919,14 @@ DEADLINESs: <2025-11-01 Sat 11:00>
 - New deadline from "[2025-11-01 Sat]" on [2025-10-31 Fri 19:39]
 — deterministic single-threaded simulation
 - then, an integration between this and the orchestration code
-**** TODO Simulator run loop (single threaded)
+**** DONE Simulator run loop (single threaded)
+CLOSED: [2025-11-04 Tue 20:31]
 :PROPERTIES:
 :EFFORT:   30min
 :END:
 
+- CLOSING NOTE [2025-11-04 Tue 20:31] \\
+  this works
 Why: Orchestrates ticks and node processing deterministically. Interviewers expect a clear run loop.
 
 Files: bin/simulator.ml (new orchestrator code)
@@ -1965,40 +1954,1648 @@ CLOSED: [2025-11-03 Mon 19:20]
   Done
 - [ ] add =node_id= within the subscription handle
 
-**** TODO Add in proper logic for Node's @ =handle_event=
+**** TODO Paxos Protocol Groundworks
+:PROPERTIES:
+:EFFORT:   2h
+:END:
+:LOGBOOK:
+CLOCK: [2025-11-04 Tue 10:16]--[2025-11-04 Tue 14:10] =>  3:54
+CLOCK: [2025-11-03 Mon 09:27]--[2025-11-03 Mon 09:33] =>  0:06
+:END:
+Not the whole algo yet, but somewhere close
+***** DONE Finish some chores
+CLOSED: [2025-11-04 Tue 20:48]
+- CLOSING NOTE [2025-11-04 Tue 20:48] \\
+  Ready to go
+ - [X] Improve Simulator ergonomics
+   - allow a simulator to have a bunch of counters, just use the counters to generate new ids so that we don't get lost about it.
+ - [X] Re-read paxos notes, some documentation touch ups on the nodes
+***** DONE Add explicit proposal field to response messages
+CLOSED: [2025-11-05 Wed 12:35]
+- CLOSING NOTE [2025-11-05 Wed 12:35] \\
+  Done, this was pretty fast to do, needed to do it because =handle_coordination= will ignore everythhing that doesn't have a =proposal_id=
+:LOGBOOK:
+CLOCK: [2025-11-05 Wed 12:28]--[2025-11-05 Wed 12:35] =>  0:07
+:END:
+
+Why: Correlating responses to proposals must be unambiguous.
+
+Files: lib/message.mli|ml
+
+Changes:
+
+Add proposal: Types.proposal_id to PermissionGranted and Nack message variants (and ensure constructors accept it).
+
+Acceptance: Message.proposal_id_of returns proposal for request and response variants consistently.
+***** TODO Outline Rollout Plan
+:LOGBOOK:
+CLOCK: [2025-11-04 Tue 20:51]--[2025-11-04 Tue 21:41] =>  0:50
+:END:
+- [ ] Stage 1: Logic Skeleton, the layers from =handle_coordination= / =handle_event= to FSM-state-based handling
+- [ ] Stage 2: Implement state transitions (simple paxos happy path)
+- [ ] Stage 3: Storage & Learning - Persist Acceptor state, enable learners to converge
+- [ ] Stage 4: Simulation Demo Case
+- [ ] Stage 5: Refinement and Clean-up
+- [ ] Stage 6: considering extensions
+  - Post-v0 Extensions (to note but skip for now)
+    - Retries / backoff policy.
+
+    - Nack optimization.
+
+    - Timeout-based progress.
+
+    - Multi-decree Paxos (reusing per-inbox states).
+
+    - Learner sync broadcast (once decided).
+
+****** Protocol Outline
+I wish to represent the logic as intuitively as possible. I need to be able to represent the suggestor's POV and acceptor's POV
+
+Here's my brief notes on the process. This outline of cases will be absolutely useful as a blueprint for us. We shall keep improving on the accuracy of the terms here and completeness of info w.r.t the FSM states, transitions, stimuli and transition conditions.
+
+ - Outline:
+
+   * [what is a paxos protocol process]
+
+      #+begin_quote
+      *a single run of the paxos protocol == attempt single value consensus driving.*
+      #+end_quote
+
+     - a run may fail. On failure, the suggestor will get NACKs and may choose to respond to failure with:
+
+       - FAILURE REPONSE CASE A: retry with improved proposal (using information from NACK)
+
+       - FAILURE RESPONSE CASE B: shut up and don't do anything $\implies$ QQ: HOW TO KNOW when to do this?
+
+     - possible edge cases:
+
+        a)???
+
+   * a process = single run. has 2 phases:
+
+     a) permission acquisition phase
+
+        1) step 1: request for permission
+
+           * request is just broadcasted
+
+           * *possible edge cases:*
+
+             a) multiple peers requesting at the same time
+
+           * *assumptions/constraint relaxations*:
+
+             a) no network issues
+
+             b) we don't simulate network delays
+
+        2) step 2: wait for responses from voters (unicasted, NOT broadcasted)
+
+           1) *Outcomes:*
+
+              1. every node (including self) in the network will respond (everyone with acceptor role)
+                  We have 3 cases for each node's response:
+
+                 a) case A: voter responds with ack
+
+                 b) condition for ACK:
+
+                      TODO: define the condition
+
+                 c) case B: voter responds with nack
+
+                 d) condition for NACK and reason:
+
+                      TODO: define the condition
+
+                 e) case C: voter doesn't respond (idle, network issues)
+
+              2. QQ: how does a suggestor node know that they've gotten all responses? or does it just keep waiting ad infinitum?
+
+                 Ans:
+
+                 There are two answers depending on simulation realism:
+
+                   * *Simplified (our v0 case):*
+
+                     assume synchronous or bounded delivery, so:
+
+                      You know all nodes $N$.
+
+                      You wait for either:
+
+                        - $|Promise| + |Nack| = N$, or
+
+                        - Quorum of Promises, or
+
+                        - Quorum of Nacks.
+
+
+                        That’s sufficient to deterministically conclude.
+
+                   * Realistic (asynchronous case, post-v0):
+
+                     We'd add a timeout + backoff policy.
+
+                     So for v0, just count total responses = N or quorum whichever earlier.
+
+              1. when the node is able to conclude, there's only 2 case:
+
+                 a) case A: success $\implies$ can proceed to the phase B: Value Suggestion Phase
+
+                 b) case B: failure $\implies$ decide if they should do FAILURE RESPONSE CASE A or FAILURE RESPONSE CASE B
+
+              2. *possible edge cases:*
+
+                 a) voter no respond, what do we do? How to know if they'll never respond and it's possible for suggestor node to make a decision.
+
+                 b) while waiting for response, suggestor receives a request for permission $\implies$
+
+                    QQ: then what to do?
+
+                    ANS:
+
+                    Handle this via the Acceptor branch of the FSM — your proposer is also an acceptor.
+
+                    So:
+
+                    - Still handle incoming Prepare normally (promise or nack it).
+
+                    - Don’t interrupt your proposer *waiting loop*.
+
+                    - Your current proposal might fail if quorum shifts elsewhere — and that’s OK (safety first).
+
+
+           3) *assumptions/constraint relaxations*:
+
+              - no delay simulation
+
+              - can simulate idleness or network partitioning
+
+     b) Value Suggestion phase
+
+        1. We enter this phase only when the previous one has succeeded.
+
+        2. Suggestor node will now suggest and broadcast that suggestion to all the voters
+
+        3. voters will double check their internal state, and then respond
+
+           1. Case A: accepted
+
+           2. Case B: rejected and returns an NACK
+
+              1. Reasons for rejecting?
+
+                   TODO: enumerate all the reasons for rejecting
+****** Improved Outline
+This is the improved outline for 1 round of the paxos protocol, which is our minimum intent.
+
+******* Phase 1: Permission/Prepare Phase (Proposer's POV)
+******** message
+
+=Prepare(proposal_id)=
+
+******** sender
+
+=Proposer=
+
+******** recipient
+
+All nodes with roles containing =Acceptor=.
+
+********* recipient behaviour (acceptor role)
+********** Case 1: =no_promises_made || proposal_id > promised_id=
+
+1) recipient records =promised_id= =:== =proposal_id=
+
+2) reply unicast to sender with =Promise(accepted_id_opt, accepted_value_opt)=
+
+********** Case 2: else
+
+1) reply with =Nack(promised_id)=
+
+********* sender's behaviour (proposer role)
+- sender will wait for quorum of =Promise= messages
+
+********** Case 1: on quorum
+   1) Pick value by considering promises:
+      - consider highest =proposal_id= from =promises= (highest =promise_id=)
+
+        if non-=None=, then pick that associated value to propose $\implies$ since it's a broadcast, the cases get simpler.
+
+        this could be =None=.
+
+      - if =highest_promised_id= is =None=
+
+        - propose own value.
+
+   2) Transition sender state:
+      - Transition end state: =Accepting(proposal, value)=
+
+********** Case 2: Or failure = rejection (majority nack) or timeout or ...
+   1) Fail the round.
+
+******* Phase 2: Accept Phase
+******** message
+=AcceptRequest(proposal_id, value)=
+
+******** sender
+
+=Proposer=
+
+******** recipient
+
+All nodes with roles containing =Acceptor=.
+
+********* Recipient's Behaviour:
+
+********** Case 1: =proposal_id= =>== =promised_id=
+
+1) Record =accepted_id= =:== =proposal_id= and =accepted_value=  =:== =value=
+
+2) Reply =Accepted(proposal_id, value)=
+
+********** Case 2: Else
+
+1) Reply =Nack(promised_id)=
+
+********* Sender's Behaviour:
+
+1. wait for quorum of =Accepted= s
+2. =on_quorum=:
+   1. consensus reached
+   2. broadcast =Decided(value)= to all learners (including self)
+   3. Transition state: =-> Decided(value)=
+
+
+One thing to note is that we don't really reset the state. This is because simple paxos is about running one instance of the paxos process. So the final state is the decided sate.
+
+****** Improved Outline with implementation details
+This is the improved outline for 1 round of the paxos protocol, which is our minimum intent. It has some implementation details within it too.
+
+******* Phase 1: Permission/Prepare Phase (Proposer's POV)
+******** message
+
+=Prepare(proposal_id)=
+
+For our implementation:
+
+1. =PermissionRequestMessage= we have included the message that we're trying to assert as well.
+
+2. State transitions:
+
+   * the proposal subroutine will expect the node's proposal state to ONLY be in an =Idle= state
+   * then as we start preparing, we go from =Idle= $\rightarrow$ =Preparing=.
+     this keeps an assertion.
+     #+begin_src ocaml
+    type paxos_assertion_state = {proposal: Types.proposal_id; value: V.t}
+    [@@deriving sexp]
+     #+end_src
+   * then after finally dispatching the =PermissionRequestMessage= to the event bus, we do another state transition from =Preparing= $\rightarrow$ =WaitingForPromises=
+
+******** sender
+
+=Proposer=
+
+******** recipient
+
+All nodes that are not =Inactive=.
+
+This is because every node will simultaneously have state management for all 3 roles: Proposer, Acceptor, Learner. The sub-states are all independently managed.
+
+********* recipient behaviour (acceptor role) @ =handle_permission_request=
+********** Case 1: =no_promises_made || proposal_id= =>== =promised_id=
+
+permissibility check is done like so:
+#+begin_src ocaml
+  let is_permissible ~current_promised_opt proposal =
+    match current_promised_opt with
+    | None -> true
+    | Some promised -> Types.compare_proposal_id proposal promised > 0
+#+end_src
+
+1) recipient records =promised_id= =:== =proposal_id=
+
+2) reply unicast to sender with =Promise(accepted_id_opt, accepted_value_opt)=
+
+********** Case 2: else
+
+1) reply with =Nack(promised_id)=
+
+********* sender's behaviour (proposer role) @ =handle_permission_granted= or =handle_nack=
+
+- sender will wait for quorum of =Promise= messages (or quorum of nacks)
+
+  In our case, accumulation / collecting of messages for multiple unicasts is done by keeping track of state within the =WaitingForPromises= state. For now, it's just immutable state (record), we might consider making it a mutable state in the future when shifting to a proper async framework.
+
+- sender's behaviour (proposer that is waiting):
+  1. sender can only be in a =WaitingForPromises= state, all other states are illegal
+
+  2. we will always update the =WaitingForPromises= state's =promises_received= or =nacks_received= FIRST, then we shall check if either quorum is reached.
+
+
+
+********** Case 1: on quorum
+   1) Pick value by considering promises:
+      - consider highest =proposal_id= from =promises= (highest =promise_id=)
+
+        if non-=None=, then pick that associated value to propose $\implies$ since it's a broadcast, the cases get simpler.
+
+        this could be =None=.
+
+      - if =highest_promised_id= is =None=
+
+        - propose own value.
+
+   2) Transition sender state:
+      - Transition end state: =Accepting(proposal, value)=
+
+      - for our implementation, this is the =ProposerAccepting= state:
+        #+begin_src ocaml
+type proposer_accepting_state =
+      { proposal: Types.proposal_id
+      ; value: V.t
+      ; acks: Types.node_id list
+      ; nacks_received: nack list }
+    [@@deriving sexp]
+        #+end_src
+
+        so we do a transition from =WaitingForPromises= to =ProposerAccepting=
+
+********** Case 2: Or failure = rejection (majority nack) or timeout or ...
+   1) Fail the round. @ =abort=
+
+      for now, we shall call an =abort= routine, which just prints some stuff to sdtout.
+
+******* Phase 2: Accept Phase
+******** message
+=AcceptRequest(proposal_id, value)=
+
+we're calling it the =suggestion_msg=
+#+begin_src ocaml
+type 'v suggestion_msg =
+  {meta: Meta.t; from: Types.node_id; proposal: Types.proposal_id; value: 'v}
+    [@@deriving sexp, compare, equal]
+#+end_src
+
+******** sender
+
+=Proposer=
+
+******** recipient
+
+All nodes that are not =Inactive= for their =Acceptor= state.
+
+********* Recipient's Behaviour:
+
+********** Case 1: =proposal_id= =>== =promised_id=
+
+1) Record =accepted_id= =:== =proposal_id= and =accepted_value=  =:== =value=
+
+2) Reply =Accepted(proposal_id, value)=
+
+********** Case 2: Else
+
+1) Reply =Nack(promised_id)=
+
+********* Sender's Behaviour:
+
+1. wait for quorum of =Accepted= s
+2. =on_quorum=:
+   1. consensus reached
+   2. broadcast =Decided(value)= to all learners (including self)
+   3. Transition state: =-> Decided(value)=
+
+
+One thing to note is that we don't really reset the state. This is because simple paxos is about running one instance of the paxos process. So the final state is the decided sate.
+
+****** Some questions
+1. [X] A node will have multiple states at once, correct?
+
+   In fact, at any time, a node can always vote, right? The other state will either be a learner or a suggestor.
+
+   Is it possible for a node to both suggest and receive a request for permission at the same time? -- this makes sense to me, since nodes are supposed to broadcast, so messages get sent to itself. On receiving multiple messages, the node shall take "complete" mailboxes (requests) and respond only to the one with the highest proposal order, right?
+
+   a) _Resolved:_
+
+      a. In Paxos, a single node may play multiple roles =concurrently=:
+
+         Proposer (a node initiating a proposal)
+
+         Acceptor (a node that promises or accepts proposals)
+
+         Learner (a node that learns the decided value)
+
+         */A node may simultaneously be in proposer’s WaitingForPromises and acceptor’s “promised proposal N” state. Those are logically independent slices of node state (and must not overwrite each other)./*
+
+         Key Idea: *each role will have it's own FSM state*
+
+      b. Possible options for supporting this role-specific FSM:
+
+         - model this as a single node with multiple submodules / substates,
+
+         — simpler: have a unified FSM with flags or nested variants for role states.
+
+      c. Fundamental concurrency case
+
+         - example case:
+
+           #+begin_quote
+Node A starts a proposal with proposal_id = 5.
+
+Node B, independently, starts another proposal with proposal_id = 7.
+
+Both nodes broadcast Prepare(5) and Prepare(7) messages, each will receive the other’s message as well.
+
+When A receives Prepare(7), it checks:
+
+    Has it already promised a higher proposal than 7?
+
+    If not, it must promise 7 (even if it’s currently in the middle of waiting for responses for proposal 5).
+
+    This doesn’t violate safety — it just means A’s own round 5 will likely fail (since quorum members might move on to 7).
+           #+end_quote
+
+      d. Some invariants:
+         - Nodes can absolutely receive permission requests while proposing their own value.
+         - Each received Prepare (permission request) is evaluated independently using acceptor rules (based on local highest promised proposal).
+         - The proposer logic should not assume “exclusive attention” from peers.
+2. [X] need to verify the correctness of the outline above and improve on the outline.
+
+   - At the moment, this outline needs improvements in the following areas:
+     * the cases and conditions with TODOs need to be enumerated
+     * the outline doesn't explicitly define the state changes w.r.t the node state variant ADT that we have defined. We need to merge the terminology in for consistency-sake.
+       #+begin_src ocaml
+     module State : sig
+       type t =
+         | Echo
+         | Idle
+             (** Node is inactive or waiting to initiate consensus or for messages *)
+         | Preparing of
+             {current_proposal: Types.proposal_id; awaiting: Types.node_id list}
+             (** Proposer has sent Prepare requests, awaiting promises *)
+         | WaitingForPromises of
+             { proposal: Types.proposal_id
+             ; promises_received:
+                 (Types.node_id * (Types.proposal_id * V.t) option) list }
+             (** Proposer is collecting promises and evaluating highest accepted proposals *)
+         | Accepting of
+             {proposal: Types.proposal_id; value: V.t; acks: Types.node_id list}
+             (** Proposer sending Accept requests, waiting for acknowledgments *)
+         | AcceptedLocally of {proposal: Types.proposal_id; value: V.t}
+             (** Acceptor has accepted a proposal locally *)
+         | Decided of V.t  (** Consensus value is decided and learned *)
+       [@@deriving sexp]
+     end
+
+
+       #+end_src
+     * need to define any assumptions that I haven't considered
+
+**** DONE Stage 0: Verify Logic in my write ups, do some chores
+CLOSED: [2025-11-05 Wed 01:51]
+:PROPERTIES:
+:EFFORT:   1h
+:END:
+- CLOSING NOTE [2025-11-05 Wed 01:51]
+:LOGBOOK:
+CLOCK: [2025-11-04 Tue 23:24]--[2025-11-04 Tue 23:55] =>  0:31
+CLOCK: [2025-11-04 Tue 22:00]--[2025-11-04 Tue 23:00] =>  1:00
+:END:
+ - [X] Begin applying inbox stateful processing in nodes upon tick calls.
+ - [X] outline a test case of communication for one paxos process that we should be supporting.
+ - [X] verify if the outline written above makes sense, improve on that.
+ - [X] Add some hhelper functions
+
+**** DONE Stage 1: Node Logic Skeleton
+CLOSED: [2025-11-05 Wed 12:38]
+:PROPERTIES:
+:EFFORT:   2h
+:END:
+- CLOSING NOTE [2025-11-05 Wed 12:38] \\
+  Completed! this looks clear, FSM state transitioning function uses a GADT and it's cool how clean it looks
+- Goal:
+
+  - Turn =Node.handle_coordination= and =process_inboxes= into a real FSM driver.
+
+- Tasks:
+
+  1. Define clear event handlers for each Paxos message variant:
+
+     - PermissionRequest
+
+     - PermissionGranted
+
+     - Nack
+
+     - Suggestion
+
+     - Accepted
+
+  2. Each handler updates node state accordingly.
+
+  3. Ensure proposers and acceptors both handle their role responsibilities.
+
+- Deliverable:
+  - A functioning message→state transition graph without correctness proofs yet (just internal transitions and prints).
+
+***** GPT5-critique of the design of the simulated time-loop
+
+I like the critique, will dump it in full:
+
+#+begin_src md
+Excellent — this is a really good point to pause and evaluate the lifecycle of a **single simulation tick** in your architecture.
+
+Let’s walk through the current tick lifecycle *as implemented*, and then I’ll flag both **conceptual gaps** and **architectural smells / refinements** that will help you stabilize the next iteration.
+
+----
+
+## 🧭 Current Tick Lifecycle (as implemented)
+
+Let’s trace one full `Simulator.step sim`:
+
+1. **Collect due events**
+
+   ```ocaml
+   let sim_events_due = EventScheduler.pop_due_events !(sim.scheduler) now
+   ```
+
+   → Scheduler partitions pending events into “due now” vs “future”, using the simulator’s current logical time.
+
+2. **Execute event actions**
+
+   ```ocaml
+   List.iter ~f:(fun ev -> ev.action ()) sim_events_due
+   ```
+
+   → Each event’s `action` executes immediately.
+   → Those actions are *usually one of:*
+
+   * Enqueuing messages into the `Event_bus`
+   * Printing stats
+   * Possibly modifying simulator-level state.
+
+3. **Tick the simulator clock**
+
+   ```ocaml
+   tick sim
+   ```
+
+   Inside `tick`:
+
+   * `Event_bus.drain bus` — flushes all enqueued messages (delivering them to subscribed nodes).
+   * `Time.tick t.clock` — increments logical time.
+   * `broadcast_heartbeat t` — pushes a periodic `Time` topic message (heartbeat) into the bus.
+
+---
+
+## 🧩 Sequence of Flow
+
+So the actual chronological flow in a single tick is:
+
+```
+1. Gather due events (EventScheduler)
+2. Execute each event (→ enqueues messages)
+3. Drain bus (deliver those messages to nodes)
+4. Increment logical time (tick)
+5. Broadcast heartbeat (enqueued for next tick)
+```
+
+That means:
+
+  * All messages enqueued during this tick are delivered within this tick.
+  * The heartbeat is queued *after* draining, so it will only deliver on the *next* tick. (This is actually good deterministic behavior.)
+
+---
+
+## ⚙️ Key Design Observations
+
+Here’s what you’ve done *very well*:
+✅ Clear separation between scheduling (EventScheduler), dispatch (Event_bus), and simulation progression (tick).
+✅ Nodes are not directly mutated — all behavior is mediated via message passing.
+✅ Time advancement is explicit, not implicit (deterministic).
+✅ Logically, a “frame” (tick) maps cleanly to one cycle of event dispatch + message drain + clock advance.
+
+---
+
+## 🚨 What’s Missing / Potential Design Gaps
+
+### 1. **Node Progression Isn’t Yet Time-Aware**
+
+ * Nodes don’t “tick” in sync with simulation time — they only react to incoming messages.
+ * You might want `NodeImpl.on_tick` callbacks for time-based internal logic (timeouts, retries, etc.).
+
+  ```ocaml
+  List.iter !(sim.nodes) ~f:(fun node -> NodeImpl.on_tick node (Time.now sim.clock))
+  ```
+
+  so nodes can implement “liveness” logic.
+
+---
+
+### 2. **Scheduler Time Does Not Auto-Advance to Next Event**
+
+Right now, `step` just advances the logical clock by `Time.tick`.
+But that’s a fixed unit increment — it doesn’t necessarily match the *next scheduled event time*.
+
+If no events are due for 50 ticks, the simulator will still walk through 50 empty ticks doing heartbeats.
+That’s fine for real-time simulation, but wasteful for *discrete-event simulation*.
+
+➡️ Possible refinement:
+
+```ocaml
+match EventScheduler.peek_next_event_time !(sim.scheduler) with
+| Some next_time when next_time > now -> Time.advance_to sim.clock next_time
+| _ -> Time.tick sim.clock
+```
+
+This makes the simulator “jump” to the next event time.
+
+---
+
+### 3. **Bus and Scheduler Are Loosely Coupled**
+
+You enqueue message sends as *events* into the scheduler, then *those* enqueue into the bus, and then the bus drains to nodes.
+
+That’s a 3-step chain:
+
+```
+EventScheduler → Event_bus.enqueue → Event_bus.drain → node callbacks
+```
+
+It’s good separation, but could cause subtle ordering bugs (e.g., event ordering vs. bus order).
+
+**Improvement:**
+Consider a clearer “phase separation” in each tick:
+
+```ocaml
+phase 1: run all due events (scheduler)
+phase 2: drain all bus messages (delivery)
+phase 3: tick time + heartbeat
+```
+
+Right now, these are interleaved slightly — but enforcing the discipline keeps simulation semantics crisp.
+
+---
+
+### 4. **Events Don’t Carry Type Context**
+
+Your `event` is just `{time; action; id}`.
+It’s *opaque* — you can’t introspect what kind of event it was (message vs metric vs node control).
+
+In debugging and logging, this becomes painful.
+
+➡️ Suggest adding an event type:
+
+```ocaml
+type event_kind =
+  | MessageSend of { topic: topic; from: node_id; to_: node_id option }
+  | Callback of string
+  | Print of string
+  | Custom of Sexp.t
+
+type event = {
+  id: int;
+  time: Time.t;
+  action: unit -> unit;
+  kind: event_kind;
+}
+```
+
+so you can later record or replay event traces deterministically.
+
+---
+
+### 5. **No Feedback from Node → Scheduler**
+
+Nodes can enqueue messages to the bus, but not schedule *future* events.
+
+Eventually, a node might want to do:
+
+```ocaml
+Simulator.schedule_event sim
+  (Simulator.make_event sim ~time:(now + 5) (fun () -> NodeImpl.timeout node))
+```
+
+That’s currently impossible unless nodes are given a handle to the `Simulator.t`.
+
+➡️ You can fix that later by giving nodes a thin handle or `Runtime.schedule_after` API.
+
+---
+
+### 6. **No Stop Condition Other Than Key Input**
+
+Your top-level loop `run_with_pause` depends on stdin interaction.
+For autonomous testing, it’d be better to support “headless mode” (run until max_ticks or event queue empty).
+
+---
+
+### 7. **Bus Queues are Global**
+
+Currently, the `Event_bus` is a singleton inside the simulator.
+If you ever want multi-network or partition simulation (e.g. drop/delay), you’ll want `Event_bus` per *network region* or delay wrapper.
+
+For now, fine — but good to note.
+
+---
+
+## 🔮 Future-Proof Additions
+
+To make this architecture extend cleanly into Paxos proper:
+
+| Need                   | Feature                                                   |
+| ---------------------- | --------------------------------------------------------- |
+| Timeouts & Retransmits | Node-level on_tick + schedule_after                       |
+| Controlled randomness  | EventScheduler.random_delay + deterministic seed          |
+| Replay & determinism   | event_kind logging                                        |
+| Parallel simulation    | independent sub-schedulers per network partition          |
+| Visualization          | expose bus state each tick as JSON (for Graphviz/HTML UI) |
+
+---
+
+## ✅ Summary of Lifecycle (Idealized Form)
+
+Your ideal tick should look like this:
+
+```ocaml
+let step sim =
+  let now = current_time sim in
+
+  (* 1. Gather and execute due events *)
+  let due = EventScheduler.pop_due_events !(sim.scheduler) now in
+  List.iter due ~f:(fun ev -> ev.action ());
+
+  (* 2. Deliver all enqueued messages *)
+  Event_bus.drain bus;
+
+  (* 3. Let nodes react to time passage *)
+  List.iter !(sim.nodes) ~f:(fun n -> NodeImpl.on_tick n now);
+
+  (* 4. Advance clock and send heartbeat *)
+  Time.tick sim.clock;
+  broadcast_heartbeat sim ~msg_id:(next_msg_id sim);
+```
+
+---
+
+If you’d like, I can diagram the **per-tick callgraph** (e.g., which functions call which, visually) or refactor your `step` implementation to this idealized pattern — would you like me to do that next?
+
+#+end_src
+
+***** Chores
+:PROPERTIES:
+:EFFORT:   1h
+:END:
+:LOGBOOK:
+CLOCK: [2025-11-05 Wed 07:10]--[2025-11-05 Wed 09:38] =>  2:28
+:END:
+
+- [X] Minor cleanups of tick event loop
+
+- [X] Clarifications
+  - we should tie-down the definition of quorum, especially in the context of
+
+    #+begin_quote
+A quorum is the minimum number of members required to be present at a meeting in order to conduct official business. This number is usually specified in an organization's bylaws or governing documents.
+    #+end_quote
+
+    - "quorum shifts elsewhere"
+
+      + this affects correctness and termination conditions
+
+      + for the subset of messages that we are tracking, =quorum_threshold= is reached when =let quorum_threshold_reached = total count count >== =(total / 2) + 1=.
+
+    - "nack quorum" vs "promises quorum"
+
+    - in a way we have an inaccurate use of language where quorum within the config has been set to number of nodes and I make reference to =quorum_threshold= in addition. I think I shall continue with this inconsistency and just point it out.
+
+- [X] should have a =last_seen= or something? or =last_accepted=
+
+  not sure if the current design for node will be sufficient
+
+  Seems like our =Acceptor_record= will work.
+  #+begin_src ocaml
+  (* helper to persist acceptor record *)
+  module Acceptor_record = struct
+    type value = {
+      promised : Types.proposal_id option;
+      accepted : (Types.proposal_id * V.t) option;
+    } [@@deriving sexp]
+  end
+  #+end_src
+
+  - [X] Add helper functions:
+    - =Storage.get_promised_id=
+    - =Storage.get_accepted_value=
+
+- [X] Ensure role-specific states can be defined
+
+  currently I only have a single state submodule. I'm not sure if this is sufficient, or if I should be using a record of states. This is be cause states should be role-specific and at the moment, we only have one state submodule.
+
+  regardless of implementation, we need to be able to respond to multiple messages in our tick (mimicked-concurrency).
+
+  This needs a change, our variants are not sufficient, we can layer it to create sub-states:
+
+  #+begin_src ocaml
+type proposer_state =
+  | Idle
+  | Preparing of proposal_id
+  | WaitingForPromises of proposal_id * promises
+  | Accepting of proposal_id * V.t * acks
+  | Decided of V.t
+
+type acceptor_state =
+  { promised_id: proposal_id option
+  ; accepted: (proposal_id * V.t) option }
+
+type learner_state = Learned of V.t option
+
+type role_state = {
+  proposer: proposer_state;
+  acceptor: acceptor_state;
+  learner: learner_state;
+}
+  #+end_src
+
+  and within =type t=:
+  #+begin_src ocaml
+type t = {
+  ...
+  role_state : role_state;
+}
+  #+end_src
+
+  And an example of the state demuxing could be:
+  #+begin_src ocaml
+let handle_coordination node msg =
+  match msg with
+  | PermissionRequest _ -> handle_as_acceptor node msg
+  | PermissionGranted _ -> handle_as_proposer node msg
+  | Suggestion _ -> handle_as_acceptor node msg
+  | Accepted _ -> handle_as_proposer node msg
+  | Decided _ -> handle_as_learner node msg
+#+end_src
+
+****** Implementation notes
+1. change to the meaning of =Idle= in =role_state=:
+
+   the individual =Idle= states doesn't mean =Inactive=, it just means it's ready
+
+   1. we shall soon add in another =Inactive= state for future connectivity simulations, but not for now.
+
+2. Reinstated the ability to do =Simulation_control= from the simulator. We can now make a node inactive.
+***** DONE Layer the event handlers
+:LOGBOOK:
+CLOCK: [2025-11-05 Wed 11:15]--[2025-11-05 Wed 12:28] =>  1:13
+:END:
+
+The pattern that emerges out of this is something like a demuxing-pattern -- something that feels like a Mediator / Command pattern of sorts. We are interested in the data-flow POV of this, so the exact canonical pattern is irrelevant for us here.
+
+Define clear event handlers for each Paxos message variant:
+
+- [X] PermissionRequest
+
+- [X] PermissionGranted
+
+- [X] Nack
+
+- [X] Suggestion
+
+- [X] Accepted
+
+**** DONE Stage 2: State Transitions
+CLOSED: [2025-11-07 Fri 20:28]
+:PROPERTIES:
+:EFFORT:   2.5h
+:END:
+- CLOSING NOTE [2025-11-07 Fri 20:28] \\
+  Transitions exist but not guaranteed to be correct yet. We shall move on
+Goal: Make a single round of Paxos succeed.
+
+Implementation outline:
+
+| Role     | Message                    | Expected Behavior                                            |
+|----------+----------------------------+--------------------------------------------------------------|
+| Proposer | sends PermissionRequest    | → transitions to WaitingForPromises                          |
+| Acceptor | receives PermissionRequest | → if proposal > promised, reply PermissionGranted; else Nack |
+| Proposer | collects PermissionGranted | (quorum) → sends Suggestion                                  |
+| Acceptor | receives Suggestion        | → accepts and replies Accepted                               |
+| Proposer | collects Accepted          | (quorum) → transitions to Decided                            |
+| Learners | learn via Accepted/Decided | → update local state                                         |
+
+***** DONE Extend state definitions
+:LOGBOOK:
+CLOCK: [2025-11-05 Wed 13:23]--[2025-11-05 Wed 13:42] =>  0:19
+:END:
+
+***** DONE Handle the proposer logic (=handle_permission_request=)
+CLOSED: [2025-11-05 Wed 16:26]
+- CLOSING NOTE [2025-11-05 Wed 16:26] \\
+  [ Implementation Notes ]
+
+  1. For the response =message_id=, I'm doing =1 + msg_id=. Same for the =time= since the response should be in the next time (assuming no network delay for now).
+
+  2. Some oddities:
+     1. this function be ugly. but we shall refactor at the end instead of now.
+
+     2. bus should be a singleton for v0, and not really a singleton thereafter.
+
+        I think i jumped the gun, @ node creation, I store the subscriptions per topic as a list. It should be safe for me to just take the first bus since it's a singleton, but it's still really odd.
+
+        #+begin_src ocaml
+       let create ?(state=(State.idle_of ())) ~id ~config ~bus () =
+         let topics = config.topics in
+         let node = {
+           id;
+           state;
+           config;
+           subs= Hashtbl.Poly.create ();
+           inbox= Hashtbl.Poly.create ();
+           transitions = ref [];
+         } in
+         List.iter topics ~f:(fun topic ->
+             let topic_table =
+               match Hashtbl.find node.subs topic with
+               | Some table -> table
+               | None ->
+                 let table = Hashtbl.Poly.create () in
+                 Hashtbl.add_exn node.subs ~key:topic ~data:table;
+                 table
+             in
+             let callback msg = get_handler_for_topic node topic msg in
+             let node_id = node.id in
+             let subscription_handle = Bus.subscribe bus ~topic ~node_id callback in
+             Hashtbl.add_exn topic_table ~key:subscription_handle ~data:bus
+           );
+
+         Stdio.eprintf "Node %d subscribed to topics %s\n%!" node.id (topics |> List.map ~f:(fun topic -> Sexp.to_string (Types.sexp_of_topic topic))
+         node
+        #+end_src
+
+     3. there's a fixme on how we create the =updated_record= I'll just leave the fixme there for now
+:LOGBOOK:
+CLOCK: [2025-11-05 Wed 15:20]--[2025-11-05 Wed 16:19] =>  0:59
+:END:
+
+***** DONE Handle the acceptor logic (=handle_permission_granted=)
+CLOSED-FORM: [2025-11-05 Wed 18:56]
+- CLOSING NOTE [2025-11-05 Wed 18:56] \\
+  Finally finished!
+:LOGBOOK:
+CLOCK: [2025-11-05 Wed 16:39]--[2025-11-05 Wed 18:56] =>  2:17
+:END:
+- need to add in the quorum check
+- need to add in helpers to check the best value seen yet
+
+A while ago, I made a stateful inbox so that all the messages would go into it.
+Right now, the use of lists of responses within =role_states= actually removes the need for stateful inboxes.
+
+I think it's better to keep it within the role_states directly so that the lifecycle management for messages will automatically be part of the FSM transitions that happen.
+
+For debugging sake, I'll still commit incoming messages into the stateful inbox regardless.
+
+****** DONE add in quorum check while waiting for promises
+CLOSED: [2025-11-05 Wed 18:39]
+
+- CLOSING NOTE [2025-11-05 Wed 18:39] \\
+  This is done, need to wire up
+We need to check our accumulated state as we are waiting for promises and determine if the quorum has been reached.
+
+This one is a little special.
+    #+begin_quote
+A quorum is the minimum number of members required to be present at a meeting in order to conduct official business. This number is usually specified in an organization's bylaws or governing documents.
+    #+end_quote
+
+    - "quorum shifts elsewhere"
+
+      + this affects correctness and termination conditions
+
+      + for the subset of messages that we are tracking, =quorum_threshold= is reached when =let quorum_threshold_reached = total count count >== =(total / 2) + 1=.
+
+    - "nack quorum" vs "promises quorum"
+
+    - in a way we have an inaccurate use of language where quorum within the config has been set to number of nodes and I make reference to =quorum_threshold= in addition. I think I shall continue with this inconsistency and just point it out.
+
+  - [X] Inject =quorum_type= (message type) and do a lazy check if any of them are reached when judging if proposer node can stop collecting and respond.
+
+  - Different quorum results possible! See =type quorum_result=
+
+    It was my understanding that a quorum check has 3 cases:
+    1. no not reached yet
+
+    2. yes reached, we got majority nacks
+
+    3. yes reached, we got majority permission granteds
+
+    Given these 3 cases, I was expecting an optional output for is_quorum_reached, so that I can pattern match the 3 cases
+
+    ==> yes this is the case.
+
+****** DONE add in helper to check for best value seen yet
+CLOSED: [2025-11-05 Wed 18:39]
+
+- CLOSING NOTE [2025-11-05 Wed 18:39] \\
+  Coupled with =is_quorum_reached=
+I coupled this together with the quorum.
+
+best value is actually more of topmost proposal id then take the corresponding value there
+
+***** DONE Handle the suggestion logic (=handle_suggestion=)
+CLOSED: [2025-11-05 Wed 20:12]
+- CLOSING NOTE [2025-11-05 Wed 20:12] \\
+  Donezo
+:LOGBOOK:
+CLOCK: [2025-11-05 Wed 19:36]--[2025-11-05 Wed 20:09] =>  0:33
+:END:
+
+The style for this mimics =handle_permission_request=, the only change is in what the conditions are for acceptance:
+1. the previous phase must pass $\implies$ there should be a promised value $\implies$ the promise must exist
+2. incoming $proposal\_id \ge promised\_id$
+
+So our accepted logic is:
+#+begin_src ocaml
+      let open Types in
+      let is_acceptable = Option.is_some current_promised_opt && compare_proposal_id proposal (Option.value_exn current_promised_opt) >= 0 in
+      let buses = buses_for_topic node topic in
+
+      let enqueue_reply reply_msg =
+        match buses with
+        | [] -> failwith "Impossible case, should always have at least one bus"
+        | bus :: _ -> Bus.enqueue bus ((topic, Some sender_id), reply_msg)
+      in
+
+      if is_acceptable then
+        let updated_record = { Acceptor_record.promised = Some proposal; accepted = Some (proposal, sg.value) } in
+        node.state <- State.set_role node.state State.Acceptor (State.Accepting updated_record);
+        let accepted_msg = Message.make_accepted ~msg_id ~topic ~time ~from:node.id ~proposal ~value:sg.value in
+        enqueue_reply (Message.Coordination accepted_msg)
+      else
+        let nack_msg = Message.make_nack ~msg_id ~topic ~time ~from:node.id ~proposal ~hint:prev_accepted_opt in
+        enqueue_reply (Message.Coordination nack_msg)
+#+end_src
+
+***** DONE Handle the nack logic (=handle_nack=)
+CLOSED: [2025-11-06 Thu 09:23]
+- the nack needs to be explicit about where to throw the nack into because both =proposer.WaitingForPromises= and =proposer.ProposerAccepting= will be accumulating nacks
+- Also, there's a chance that we can achieve quorum, so =handle_nack= should do the necessary stuff if quorum has been achieved.
+
+****** Implementation notes:
+1. the code is really ugly and we need to do a cleanup asap
+2. need to figure out the retrying stuff, I've put in a stubbed =abort= function for now.
+
+***** DONE Handle the accepted logic (=handle_accepted=)
+CLOSED: [2025-11-05 Wed 22:52]
+- CLOSING NOTE [2025-11-05 Wed 22:52] \\
+  Nack optimisation and the broadcasting of decided value have been skipped for now, I don't see the full picture yet and so I can't tell if they're important.
+:LOGBOOK:
+CLOCK: [2025-11-05 Wed 20:39]--[2025-11-05 Wed 21:45] =>  1:06
+CLOCK: [2025-11-05 Wed 20:20]--[2025-11-05 Wed 20:23] =>  0:03
+:END:
+****** Precursor Chores
+******* DONE =proposer_state::Accepting= needs to accumulate the nacks received
+- we need to update the =proposer_state::Accepting= add in the =nacks_received=
+******* DONE proposer state change to Accepting AFTER broadcasting a suggestion
+
+- the proposer is supposed to be in "accepting" state when receiving the acks for accepted?
+
+  - how does this state change happen? I'm guessing it's when we realise that we have the quorum for phase 1 and then we dispatch the suggestion, then we should change the proposer state to Accepting?
+
+- turns out i had a name clashing so i had to update the =propopser.Accepting= to =proposer.ProposerAccepting= instead
+****** DONE update the =is_quorum_reached= so that we can inject in the proposer state for quorum calc
+CLOSED: [2025-11-05 Wed 22:51]
+
+- CLOSING NOTE [2025-11-05 Wed 22:51] \\
+  this is done, it will delegate based on the proposer state at that point in time
+SO currently we only consider the =proposer.WaitingForPromises= only within that function, so the counting and everything happens from there
+
+We need to layer it and allow counting from =proposer.ProposerAccepting= as well
+
+***** DONE cleanup refactors
+CLOSED: [2025-11-06 Thu 13:46]
+- CLOSING NOTE [2025-11-06 Thu 13:46] \\
+  Done, this took a while but it feels easier to read because:
+  1. pipes are easier to follow dataflow ideas
+  2. there are nested helper functions that allow consolidation of data extractions and side-effects and so on. Basicall similar logic is grouped together better.
+:LOGBOOK:
+CLOCK: [2025-11-06 Thu 10:50]--[2025-11-06 Thu 13:46] =>  2:56
+:END:
+Things are really ugly, let's do some cleanups.
+- [X] use destructures
+  too long let-binded chains -- use pattern-matched destructuring or just
+
+- [X] extract duplicated code into helpers
+  duplicated code areas -- e.g. =handle_nack= and =handle_accepted=
+
+
+****** things learnt:
+1. records, to be referenced for their types can't be inline. So we have to extract out the types if we wish to pattern match or something later.
+2. intuition:
+   - side-effects can be pipelined out via fns but looks ugly
+   - transformation of shapes (like in elixir) can be done via pipes
+3. destructuring works on function params, it's so much cleaner than doing let bindings unnecessarily
+
+***** DONE Add logging to trace current code
+CLOSED: [2025-11-07 Fri 20:25]
+- CLOSING NOTE [2025-11-07 Fri 20:25] \\
+  This works, we have to make sure we fix the happy path out using these traces
+
+
+  The ergonomics around the logger is bad, so I will eventually reduce it and will prioritise adding some basic level of tests around this.
+We have our colors that helps us format.
+We need to define some formatters again.
+
+Let's define some wishlists:
+1. all the reaction logic needs to have a similar style -- i'm thinking of just italicising it
+2. handlers are for events that can be split into 2 categories:
+   - events that the node needs to respond to as a Acceptor Role --> so this needs to be a role tag like "[Acceptor]" Bolded  coloured blue maybe
+   - events that the node needs to respond to as a Proposer Role --> this needs to be a role tag like "[Proposer]" Bolded and coloured Blue maybe
+3. i want to add a formatter for "decisions" which are just info logs really but i'm anthropomorphosing it. I think just a gray / dim blue italics works for this
+
+I want to keep v0 dependency free, that's why i'm manually writing it out.
+
+example of how formatters had been defined manually (crudely) within event_bus.ml
+
+#+begin_src ocaml
+  let formatters = {
+    publish_broadcast = (fun logger topic payload ->
+        let width = Color.get_terminal_width () in
+        let header_msg =
+          "\t\t\t\t[PUBLISH_BROADCAST]"
+          |> Color.bg_white
+          |> Color.red
+          |> Color.bold
+        in
+        let header =
+          String.make width '-'
+          |> Color.red
+          |> Color.bold
+        in
+        let topic_str =
+          topic
+          |> Types.sexp_of_topic
+          |> Sexp.to_string_hum ~indent:1
+          |> Color.bold
+          |> Color.red
+        in
+        Printf.sprintf "%s\n%s via topic %s:\n%s\n%s"
+          header header_msg topic_str (logger topic payload) header
+      );
+
+    publish_unicast = (fun node_id logger topic payload ->
+        let width = Color.get_terminal_width () in
+        let header_msg =
+          Printf.sprintf "\t\t\t\t[PUBLISH_UNICAST] Target Node ID = %d" node_id
+          |> Color.bg_white
+          |> Color.magenta
+          |> Color.bold
+        in
+        let header =
+          String.make width '-'
+          |> Color.magenta
+          |> Color.bold
+        in
+        let topic_str =
+          topic
+          |> Types.sexp_of_topic
+          |> Sexp.to_string_hum ~indent:1
+          |> Color.bold
+          |> Color.magenta
+        in
+        Printf.sprintf "%s\n%s via topic %s:\n%s\n%s"
+          header header_msg topic_str (logger topic payload) header
+      );
+
+    subscribe = (fun sub_handle ->
+        sub_handle.topic
+        |> Types.sexp_of_topic
+        |> Sexp.to_string_hum ~indent:1
+        |> fun topic_str ->
+        Printf.sprintf "< +++ Subscribed +++ >: \n\ttopic=%s, node_id=%d, subscription_id=%d"
+          topic_str sub_handle.node_id sub_handle.id
+        |> Color.green
+        |> Color.bold
+      );
+
+    unsubscribe = (fun sub_handle ->
+        sub_handle.topic
+        |> Types.sexp_of_topic
+        |> Sexp.to_string_hum ~indent:1
+        |> fun topic_str ->
+        Printf.sprintf "< --- Unsubscribed --- >: \n\ttopic=%s, node_id=%d, subscription_id=%d"
+          topic_str sub_handle.node_id sub_handle.id
+        |> Color.red
+        |> Color.bold
+      );
+
+    enqueue = (fun topic queue_size ->
+        let topic_str =
+          topic
+          |> Types.sexp_of_topic
+          |> Sexp.to_string_hum ~indent:1
+          |> Color.cyan
+          |> Color.bold
+        in
+        "[ENQUEUE]"
+        |> Color.yellow
+        |> Color.underline
+        |> Color.bold
+        |> fun header ->
+        Printf.sprintf "%s Enqueued message, queue size now %s for topic %s"
+          header (queue_size |> Int.to_string |> Color.magenta) topic_str
+      );
+
+    drain_start = (fun batch_size ->
+        "[DRAIN_START]"
+        |> Color.bright_blue
+        |> Color.bold
+        |> fun header ->
+        Printf.sprintf "%s Starting to drain queue of %s messages..."
+          header (batch_size |> Int.to_string |> Color.magenta |> Color.bold)
+        |> Color.underline
+      );
+
+
+    drain_end = (fun () ->
+        "[DRAIN_END] Finished draining queue."
+        |> Color.bright_blue
+        |> Color.bold
+        |> Color.underline
+      );
+
+
+    print_stats = (fun () ->
+        "[STATS] Printing statistics..."
+        |> Color.blue
+        |> Color.bold
+      );
+
+  }
+#+end_src
+
+****** DONE Isolate our logging into it's special module
+CLOSED: [2025-11-06 Thu 19:36]
+:LOGBOOK:
+CLOCK: [2025-11-06 Thu 17:38]--[2025-11-06 Thu 19:38] =>  2:00
+:END:
+
+- CLOSING NOTE [2025-11-06 Thu 19:36] \\
+  Lovely, big learnings, time sink !
+
+  but it's okay i have a somewhat more intuitive understanding of the type system @ compile time and how the concretization happens.
+this is a custom module. It ended up being really painful to write for the following reasons:
+
+_Key Learning:_
+
+1. I'm keeping the =event_bus= polymorphic in its payload. This means that we need to be careful how the types get concretised eventually @ the point of usage. Only then can we bind things like serialisers and such (i.e. at =create()=).
+
+   at this point, the ='a= becomes concrete.
+
+   We can see this happen @ the =event_bus.create()= where we set the serialiser that we are going to use.
+
+****** DONE Add log statements to trace the decision-making flow
+CLOSED: [2025-11-07 Fri 20:22]
+:PROPERTIES:
+:EFFORT:   1.45h
+:END:
+- CLOSING NOTE [2025-11-07 Fri 20:22] \\
+  Technically did this a while ago, was busy tracing out the code.
+
+  I think I will rely on my log statements for the happy path testing then i will prioritise adding some basic tests. It's important to demonstrate some basic tests.
+:LOGBOOK:
+CLOCK: [2025-11-07 Fri 18:42]--[2025-11-07 Fri 20:22] =>  1:40
+CLOCK: [2025-11-07 Fri 08:02]--[2025-11-07 Fri 08:27] =>  0:25
+CLOCK: [2025-11-06 Thu 20:49]--[2025-11-06 Thu 21:48] =>  0:59
+CLOCK: [2025-11-06 Thu 19:38]--[2025-11-06 Thu 19:41] =>  0:03
+:END:
+
+this should help us trace the logic of the simple paxos protocol that we've implemented.
+
+it's a happy path correctness check that we're interested in.
+
+
+******* BUG fixes:
+1. subtle snapshotting bug in how we were doing the drain
+
+***** Learning Points: Polymorphic Event Bus and Logging in OCaml
+****** Polymorphic Payloads in Event Bus
+- Event bus polymorphic over payload type ='a=.
+- Types concretize only at usage point (e.g., at =create= function).
+- Serializer and concrete type binding done at bus creation.
+
+****** Logger and Serialization Design
+- Logger only consumes string representations of payloads.
+- Serialization delegated to a serializer function ='a -> string=.
+- Serializer passed into event bus at creation as mandatory argument.
+
+****** Leveraging Ppx-Derived S-expression Serializers
+- Use automatically generated sexp_of_* functions ([@@deriving sexp]).
+- Compose message serializer by applying =sexp_of_t= to payload serializer.
+- Convert s-expression to hum-readable string with =Sexplib.Sexp.to_string_hum=.
+
+****** Example Serializer Function
+#+BEGIN_SRC ocaml
+let payload_serialiser_of (sexp_of_v : 'v -> Sexplib.Sexp.t) : 'v t -> string =
+  fun msg ->
+    let sexp = sexp_of_t sexp_of_v msg in
+    Sexplib.Sexp.to_string_hum sexp
+#+END_SRC
+
+****** Practical Usage
+- At event bus creation: =Event_bus.create ~serialiser:(payload_serialiser_of V.sexp_of_t) ()=.
+- Event bus stores the serializer function.
+- Logger calls serializer to get payload string for logging.
+
+****** Common Pitfalls
+- =sexp_of_t= is a module-level function, not a field; call directly.
+- Explicitly pass payload sexp serializer to =payload_serialiser_of=.
+- Avoid confusion between type names and function/values.
+
+****** Benefits
+- Polymorphic and type-safe serialization.
+- Decouples logging from serialization.
+- Uses OCaml idioms and ppx tooling effectively.
+- Clean, reusable, and minimal serialization code.
+***** Implementation notes
+1. Lmao i reached my first circular dependency issue :')
+   #+begin_src ocaml
+Error: dependency cycle between modules in _build/default/lib:
+   Simulator
+-> Event_bus
+-> Event_bus
+-> required by _build/default/lib/paxos.a
+-> required by alias lib/all
+-> required by alias default
+File "lib/event_bus.ml", lines 43-327, characters 23-3:
+ 43 | .......................struct
+ 44 |   (** sub_handle is the type for what a subscription handle looks like.
+ 45 |       -  [id] here refers to a subscription id (arbitrary for now)
+ 46 |   *)
+ 47 |   let logger = Logger.create ()
+...
+324 |         Stdio.printf " %s | %11d | %9d | %9d | %6d\n" topic_str subs published
+325 |           delivered queued ) ;
+326 |     Stdio.printf "%s\n" line
+Error: dependency cycle between modules in _build/default/lib:
+   Simulator
+-> Event_bus
+-> Event_bus
+-> required by _build/default/lib/paxos.a
+-> required by alias lib/all
+-> required by alias default
+Had 1 error, waiting for filesystem changes...
+   #+end_src
+
+**** TODO Stage 3: Storage & Learning
 :PROPERTIES:
 :EFFORT:   1.5h
 :END:
-***** [ ] for acceptor logic
-***** [ ] for state transitions
-***** [ ] learner behaviour
-**** TODO Implement full minimal Paxos state-machine inside Node
-:PROPERTIES:
-:EFFORT:   30min
+- Goal:
+
+  - Persist acceptor state and enable learners to converge.
+
+- Tasks:
+
+  1) Implement small persistence helpers:
+
+     - =Storage.write_acceptor_record=
+
+     - =Storage.read_acceptor_record=
+
+  2) Ensure acceptors don’t forget promises between rounds.
+
+  3) Learners aggregate Accepted messages and decide locally.
+
+
+- Deliverables:
+  - Durable acceptor state per node
+  - Simple learning logic integrated
+
+***** [X] Bugfix: how proposer proposes its own value
+CLOSED: [2025-11-08 Sat 01:04]
+- CLOSING NOTE [2025-11-08 Sat 01:04] \\
+  This is partially fixed, the proposer propses its own value, but for some reason, thhere's a regression bug...
+
+  Basically 2 hhas accepted something before. 2 also sends a new proposal, but somehow 2's previously accepted value is affecting the initiation process. SHould be a minor fix. I'll do it in the morning
+
+  HHOwever this bug is out of scope because simple paxos == one one round of assertion. We should ignore this problem
+
+  #+begin_src txt
+                                  [Clock:Tick 10] --- realtime = 2025-11-08 00:59:42.854711+08:00
+                                  ...time is now stopped @ this tick for us to inspect
+  ------------------------------------------------------------------------------------------------[PUBLISH_BROADCAST] via topic Time:
+  (Time (Heartbeat (meta ((id 13) (timestamp 10) (topic Time))) (time 10)))
+  ------------------------------------------------------------------------------------------------|>---[(Paxos__Node.Make_node.get_handler_for_topic)] {##by node 1 for topic=(Time)##}
+  |>---[(Paxos__Node.Make_node.handle_time)] {##node 1 felt simulation heartbeat for time=(10)##}
+  |>---[(Paxos__Node.Make_node.get_handler_for_topic)] {##by node 2 for topic=(Time)##}
+  |>---[(Paxos__Node.Make_node.handle_time)] {##node 2 felt simulation heartbeat for time=(10)##}
+
+  [event_bus::ENQUEUE] Enqueued message, queue size now 3 for topic Coordination
+  [event_bus::DRAIN_START] Starting to drain a snapshotted queue of 1 messages...
+  ------------------------------------------------------------------------------------------------[PUBLISH_BROADCAST] via topic Coordination:
+  (Coordination
+   (PermissionRequest
+    ((meta ((id 14) (timestamp 10) (topic Coordination))) (from 2)
+     (proposal ((seq 2) (node 2))) (value "ANother one, let's gooo"))))
+  ------------------------------------------------------------------------------------------------|>---[(Paxos__Node.Make_node.get_handler_for_topic)] {##by node 2 for topic=(Coordination)##}
+  |>---[(Paxos__Node.Make_node.handle_coordination)] {##...coordination is happening##}
+  |>---[(Paxos__Node.Make_node.handle_permission_request)] {##... node 2 received permission request from 2 with proposal=((seq 2) (node 2)) for value=(ANother one, let's gooo)##}
+  the permission request is permissible. new_state: ( ((promised (((seq 2) (node 2))))
+   (accepted
+    ((((seq 1) (node 1)) "Let's go ritesh let's gooooooooo, much better feel")))) )
+  [event_bus::ENQUEUE] Enqueued message, queue size now 4 for topic Coordination
+  |>---[(Paxos__Node.Make_node.get_handler_for_topic)] {##by node 1 for topic=(Coordination)##}
+  |>---[(Paxos__Node.Make_node.handle_coordination)] {##...coordination is happening##}
+  |>---[(Paxos__Node.Make_node.handle_permission_request)] {##... node 1 received permission request from 2 with proposal=((seq 2) (node 2)) for value=(ANother one, let's gooo)##}
+  the permission request is permissible. new_state: ( ((promised (((seq 2) (node 2))))
+   (accepted
+    ((((seq 1) (node 1)) "Let's go ritesh let's gooooooooo, much better feel")))) )
+  [event_bus::ENQUEUE] Enqueued message, queue size now 5 for topic Coordination
+  [event_bus::DRAIN_END] Finished draining queue.
+
+
+                                  [Clock:Tick 11] --- realtime = 2025-11-08 00:59:43.075928+08:00
+                                  ...time is now stopped @ this tick for us to inspect
+  ------------------------------------------------------------------------------------------------[PUBLISH_BROADCAST] via topic Time:
+  (Time (Heartbeat (meta ((id 15) (timestamp 11) (topic Time))) (time 11)))
+  ------------------------------------------------------------------------------------------------|>---[(Paxos__Node.Make_node.get_handler_for_topic)] {##by node 1 for topic=(Time)##}
+  |>---[(Paxos__Node.Make_node.handle_time)] {##node 1 felt simulation heartbeat for time=(11)##}
+  |>---[(Paxos__Node.Make_node.get_handler_for_topic)] {##by node 2 for topic=(Time)##}
+  |>---[(Paxos__Node.Make_node.handle_time)] {##node 2 felt simulation heartbeat for time=(11)##}
+
+  [event_bus::DRAIN_START] Starting to drain a snapshotted queue of 2 messages...
+  ------------------------------------------------------------------------------------------------[PUBLISH_UNICAST] Target Node ID = 2 via topic Coordination:
+  (Coordination
+   (PermissionGranted
+    ((meta ((id 15) (timestamp 11) (topic Coordination))) (from 2)
+     (proposal ((seq 2) (node 2)))
+     (last_accepted
+      ((((seq 1) (node 1))
+        "Let's go ritesh let's gooooooooo, much better feel"))))))
+  ------------------------------------------------------------------------------------------------|>---[(Paxos__Node.Make_node.get_handler_for_topic)] {##by node 2 for topic=(Coordination)##}
+  |>---[(Paxos__Node.Make_node.handle_coordination)] {##...coordination is happening##}
+  |>---[(Paxos__Node.Make_node.handle_permission_granted)] {##... node 2 received permission granted from 2 with proposal=((seq 2) (node 2)) for last_accepted=((((seq 1) (node 1)) "Let's go ritesh let's gooooooooo, much better feel"))##}
+  node 2's proposer state has been waiting for promises. it will accumulate this then check if a quorum is achieved!
+  ------------------------------------------------------------------------------------------------[
+
+  #+end_src
+:LOGBOOK:
+CLOCK: [2025-11-08 Sat 00:10]--[2025-11-08 Sat 01:04] =>  0:54
+CLOCK: [2025-11-07 Fri 20:45]--[2025-11-07 Fri 22:13] =>  1:28
+:END:
+There are 2 minor bugs to fix here.
+
+1. FIXED: I have inadvertently mixed up states and mixed up =Idle= with =Preparing= state
+   - also we need to expose a =node::propose= function which will allow us to do the following:
+
+     a) Transition proposer state from Idle to Preparing and hold the proposal and value there.
+
+     b) Enqueue the permission request into the bus.
+
+     c) Transition from Preparing to WaitingForPromises, now carrying the proposal and value.
+
+
+2. FIXED: the =preparing= state needs to keep it's own internal value (that it is attempting to drive consensus for) so that it can assert it's own value in the right condition.
+
+I'm going to try fix them asap first.
+
+***** [X] Pattern problems
+CLOSED: [2025-11-07 Fri 23:56]
+- CLOSING NOTE [2025-11-07 Fri 23:56] \\
+  Okay done with this. It actually just a =make_node_proposal_event= first.
+
+  Will come back to thhe ergonomics of this area when i'm doing cleanpus and refactors eventually.
+:LOGBOOK:
+CLOCK: [2025-11-07 Fri 22:40]--[2025-11-07 Fri 23:56] =>  1:16
 :END:
 
-Why: Now that the simulator loops are deterministic, you must implement the protocol transitions properly.
+- The simulation is whhat drives the propopsals by the nodes but the problems is that this directly enqueues the message on the =event_bus=. This violates the abstraction boundaries because the node should be nudged to make the proposal instead of the simulator directly enqueing things.
 
-Files: lib/node.ml
+  _This is a quick fix:_
 
-Minimal behavior:
+  1. add =Node::propose= which does the enqueing
 
-On PermissionRequest (proposer sends): acceptors respond with PermissionGranted(proposal, last_accepted_opt) or Nack(proposal, hint) depending on persisted promised.
+  2. add =Simulator::propose= that uses one of the nodes within the simulation for this.
 
-Node.handle_message: enqueue messages into inbox_entry keyed by proposal.
+  3. make the =simulation= use =Simulator::propose=
 
-Node.tick:
+***** [X] Fix FSM mismatches (bugs)
+CLOSED: [2025-11-09 Sun 20:10]
+- CLOSING NOTE [2025-11-09 Sun 20:10] \\
+  splendid stuff
+:LOGBOOK:
+CLOCK: [2025-11-09 Sun 06:07]--[2025-11-09 Sun 09:17] =>  3:10
+:END:
+1. [X] need to standardise what a promise is (sent from the acceptor)
+   - we need to add in the previously accepted suggestion id and value to the promise
+   - it should also send the current suggestion id (proposal id) that is being asserted
+   - this should require state improvements as well as likely message type improvements
+     - [X] promise state changes
+     - [X] changes to =is_quorum_reached_on_promise_wait=
 
-If WaitingForPromises and >= quorum promises: determine value (highest accepted if any) → send Suggestion (AcceptRequest).
+       here, the best-value accumulation needs to change to consider the previously accepted from promises. Only if ALL of them are none then we set chosen value as the proposer's own value
 
-If Accepting and acks >= quorum: persist accepted locally and move to Decided.
+     - [X] also the quorum check routine can just return us a (non-optional) chosen value, it will clean up the subsequent parts.
 
-Implement per-inbox created_at and timeout handling.
+       we just directly let it return a chosen value.
 
-Maintain per-inbox seen_nodes to avoid double-counting.
+2. [X] need to add =current_promised= within =make_nack= even if we are not going to add in the nack optimisation stuff (yet?)
+   - added it as =rejected_assertion= field within the existing record type
 
-Acceptance: tests below succeed.
-**** TODO Isolated areas in consideration
+3. [X] use the =paxos_assertion_state= where possible
+
+***** [ ] Broadcast decided state (end state)
+As per our outline, the proposer should be:
+
+#+begin_quote
+1. wait for quorum of =Accepted= s
+2. =on_quorum=:
+   1. consensus reached
+   2. broadcast =Decided(value)= to all learners (including self)
+   3. Transition state: =-> Decided(value)=
+#+end_quote
+
+We haven't handled this part yet, we can add this in
+***** SKIP Add in storage helpers
+I don't really want to focus on this, I'll just add in some stub functions for now.
+
+The kill/respawning of servers is something that we shall slate for v1 extensions
+
+**** TODO Stage 3.5: Ensure happy path works, add basic tests
+Happy path seems to be working well so far.
+
+We should be able to move onto the test-writing stuff. I just wanna demonstrate some basic
+**** TODO Stage 4: Add predefined simulation Demo Case
+:PROPERTIES:
+:EFFORT:   1h
+:END:
+
+- Goal: Demonstrate full cycle in the simulator.
+
+- Tasks:
+
+  1) Build a small scenario with 3 nodes: one proposer, two acceptors.
+
+  2) Run a proposal to consensus (quorum 2/3).
+
+  3) Verify end state logs show all nodes learned the same value.
+
+- Deliverable:
+
+  - End-to-end trace printed via Simulator.print_bus_stats + Node.dump_state.
+**** TODO Stage 5: Refinements & Cleanup
+:PROPERTIES:
+:EFFORT:   1h
+:END:
+
+- Goal: Harden ergonomics and readability.
+
+- Tasks:
+  1) Move logging into a small Node.debug helper.
+
+  2) Remove unnecessary Stdio.printf noise.
+
+  3) Tighten signatures, remove unsafe partial matches.
+
+  4) Final documentation pass.
+***** Simulator Logging Improvements
+- [ ] add a rudimentary implementation for log levels, allow the settings to cascade down from one point of setting it (sim)
+***** Refactoring Goals
+****** General Refactoring Goals
+- [ ] Avoid long let-binding chains
+
+  kind of forgot when i first wrote up teh thing that we can be more elixir-like and do destructuring @ the message parameters
+
+  this will make a lot more of the code cleaner.
+
+- [ ] for function params, keep t as the first one. Consider adding stuff that can be piped continuously
+
+- [ ] use assertions instead of =failwith= s
+
+- [ ] avoid accessor functions if we don't hide it at the interface level
+  here's an example:
+  #+begin_src ocaml
+  (* TODO: [REFACTOR] I think such accessors are useless, we can pattern-match destructure them anyway. Keep only if we wanna hide the internal state struct @ the interface boundary *)
+  let id t = t.id
+  let roles t = t.config.roles
+  let state t = t.state
+  let buses_for_topic t topic =
+    match Hashtbl.find t.subs topic with
+    | Some table -> Hashtbl.fold table ~init:[] ~f:(fun ~key:_ ~data:bus acc -> bus :: acc)
+    | None -> []
+  #+end_src
+
+- [ ] add assertions to communicate invariants
+
+****** Runtime and Simulator
+- simulator is very blown up and there's a lot of unnecessary functions exposed.
+- [ ] there should be a way for the simulator to allow simulation (runner module) to control node lifecycle
+- [ ] should be a way to:
+  - make a node initiate a proposal without violating the abstraction boundaries. So the node needs to call its own propose function
+
+  - add their own messages (typically a simulation control message only) to theh eventbuss for message passing. This can directly enqueue to the event bus
+
+  - allow other simulation events to directly be run (e.g. state dumps of one of the nodes and so on) -- these are things that don't rely on the event bus
+**** TODO Correctness check: Isolated areas in consideration
 
 These are mechanisms that we need to add in part by part. It would be greate to add a sort of pipelining capability to this though and to just add in policy elements direclty.
 
@@ -2043,7 +3640,6 @@ That being said, I'll likely come back to this real soon after I do some explain
 - Use Notty/Lwt/Voodoo if you want a terminal UI — not required for demo; skip unless you have spare time.
 
 
-
 ** Testing
 *** TODO Iterate and test scenarios
 :PROPERTIES:
@@ -2055,13 +3651,89 @@ That being said, I'll likely come back to this real soon after I do some explain
 - Single proposer, no faults $\rightarrow$ must converge in 1 round
 - Competing proposers $\rightarrow$ should eventually converge
 - Node failure mid-round $\rightarrow$ safety must hold
-** Write-up
+
+** Evolution (stretch goal)
+*** TODO Extend basic paxos to multi-paxos
+
+* TODO Add Meaningful Write-ups
 :PROPERTIES:
-:EFFORT:   2h
+:EFFORT:   10h
 :END:
-*** TODO Write-up
+
+As with any piece of work, there's a need to communicate it to other people effectively especially if we wish to make it better. This project needs feedback loops as well because of the goals that it aims to achieve.
+
+The following points are just some general, nebulous thoughts that will eventually get distilled into proper writing outcomes and be published as blog posts.
+
+I want to be able to communicate some aspects of the following things:
+
+1. what this project was about and my motivation for doing this
+
+   - goals:
+
+     What did I set out to achieve by doing this project
+
+     1) I wanted to challenge myself and see how I have grown as a learner now that I'm a little older and have my opinion on things:
+
+        * what do I focus on when learning a language $\implies$ OCaml
+
+          - matching desires for expression with features of a language. Language choice should be seen as
+
+        * I wanted to try get an experience of the language and to do so by choosing a domain that would give me good guardrails
+
+     2) I wanted to demonstrate who I am as an engineer
+
+        I'm strongly opinionated about everything that has to do with processes of creativity and creation but I am not evangelistic about it. I would like to demonstrate it to others as a reference, a bit like style share of sorts.
+
+        I respect the process that people have for themselves and I wanted to share how I do things
+
+        (NOTE: i really like the idea of writing out the blog post with a version of the rifleman's creed --- "this is my style of work, there's many others like it but this one is mine"...)
+
+        this involves outlining some artefacts:
+
+        a) my style of working over an entire "lifecycle" of a typical project.
+
+           - how I design my code
+
+           - the benefits that my workflows give
+
+           - the problems that my workflows create
+
+           - my tooling and why emacs changed my life
+
+        b) purpose of having this artefact:
+
+           - I think modern day social media platforms have exacerbated signal-to-noise ratio problems. Hot-takes are aplenty.
+
+             I realised that if I were to go back to school and were to do computer science as a learner, I would likely drop out by year 1 or year 2. -- why and why I hope this offers a proof
+
+           - A few friends have described how when they hire, the rigour that the talent pool seems to show is now more bimodal and we've had conversations about the role of AI products and their impact on learners....
+
+        c) I'm really want to work on problems where ocaml is a natural fit for the problem and solution space and how engineers are well-organised to solve problems at scale better, as a by-product of the language's design primitives and its ecosystem.
+   - proof of competence goals and artefacts
+     a) what I managed to achieve in a "short" period of time
+        - what systems have been designed
+        - why zero-deps:
+          - so that it's a well-boundaried sandbox to play around with. The boundaries of the problem are well-understood and that makes me decide what I want to put into scope for this. If I'm stuck on something for too long, and it's something that I can't cut from scope
+
+     b) what I wanted to show:
+        - how I work:
+          - the importance of writing within my workflow and the reason why emacs and org mode changed my life.
+          - my strengths and weaknesses, as demonstrated within this project, with appropraite callouts
+          - where my intuition on design has led me to and how it has been useful or not: how good is my nose.
+
+        - what makes me feel good at work, the kind of problems I like to solve and how this is a window of that.
+
+** TODO Write-ups
 DEADLINE: <2025-11-01 Sat 22:00>
 — produce blog-style REDEEM + literate trace
+
+From a reader's perspective, I'd like them to first-land on the unabridged versions and then choose whether they want depth or they want abgridged parts.
+
+The blog posts will be living posts that will be continually updated as I get feedback from others, this should give me the freedom to iterate on its quality before I actually do some marketing on it and publish it on more public forums for even more feedback and test out the usefulness of the project as a teaching tool.
+
+In fact many of the things that I wish to talk about should be blog posts of their own e.g. "why emacs changed my life" but I can see some of these write ups I'll do as a jump-gate into those blog posts in the future.
+
+*** Possible Writeups
 **** Write up 1: Retro: Beauty of OCaml -- Problem Scope Of Distributed Computing
 ***** Ergonomics of the OCaml Language
 - special things I could do
@@ -2075,8 +3747,586 @@ DEADLINE: <2025-11-01 Sat 22:00>
 ****** What theses to validate w.r.t working styles?
 ****** Areas of Improvement
 **** Write up 3: Using this as a tutorial
-** Evolution (stretch goal)
-*** TODO Extend basic paxos to multi-paxos
+
+
+** Temporary dump from scratch notes
+
+The following are from my org scratch notes. It's a dump that I will be continually adding things to as I keep working on the code for v0.
+
+The writeups process will draw inspiration from these points
+
+*** [1] Language Learning: what classic problems as a first-time learner can teach us
+
+here's all the nitty-gritty things that helped me improve my understanding of this language.
+
+**** [ ] Type-parameter mismatches
+**** [ ] Type system snags
+***** [ ] Understanding the type system and gaining and intuition for WHY nominal typing
+
+#+begin_src md
+
+
+[1] >>>>>>>>>>> learning: it's not possible to skip the transitive relations:
+
+Key point: In OCaml, abstract types aren’t interchangeable with their underlying concrete type outside the module. You always need to use the module’s type (or conversion function, if you provide one).
+
+Ah! Now we’ve hit the classic **type parameter mismatch** between your `Value` module and your event bus. The error says:
+
+```
+The value bus has type string Message.Message.t B.t
+but an expression was expected of type V.t Message.Message.t B.t
+Type string is not compatible with type V.t
+```
+
+---
+
+### What's happening
+
+1. Your `bus` is created here:
+
+```ocaml
+let bus =
+  Paxos.Event_bus.Event_bus.create
+    ~logger:(fun topic msg ->
+      Printf.sprintf "[LOG][%s] %s"
+        (Sexplib.Sexp.to_string (Paxos.Types.Types.sexp_of_topic topic))
+        (Sexplib.Sexp.to_string
+           (Paxos.Message.Message.sexp_of_t Base.String.sexp_of_t msg) ) )
+    ()
+```
+
+Notice the type:
+
+```ocaml
+string Message.Message.t B.t
+```
+
+because `Base.String.sexp_of_t` is used — i.e., your bus is **hard-coded to `string` messages**.
+
+2. Later, when you instantiate the Node functor:
+
+```ocaml
+let module Node = Paxos.Node.Make_node(V)(S)(B) in
+```
+
+The `Node` functor expects the bus to carry `V.t Message.t`, not `string Message.t`. Since `V.t` is `Value_string.Value_string.t`, which is `string`, you might think “oh, they’re the same”.
+
+⚠ But OCaml treats **`V.t` and `string` as abstract types** coming from different modules. `Value_string.Value_string.t` is **not literally `string`**; it's an abstract type alias for `string` in `V.t`. OCaml sees them as **distinct types**.
+
+---
+
+### How to fix
+
+You need your bus to be **parameterized over the same `V.t`** that Node is expecting. In your bus creation, change the `Message.Message.sexp_of_t` line to use `V.sexp_of_t` instead of `Base.String.sexp_of_t`:
+
+```ocaml
+let module V = Paxos.Value_string.Value_string in
+let bus =
+  Paxos.Event_bus.Event_bus.create
+    ~logger:(fun topic msg ->
+      Printf.sprintf "[LOG][%s] %s"
+        (Sexplib.Sexp.to_string (Paxos.Types.Types.sexp_of_topic topic))
+        (Sexplib.Sexp.to_string
+           (Paxos.Message.Message.sexp_of_t V.sexp_of_t msg) ) )
+    ()
+```
+
+#+end_src
+***** [ ] type unionisation, parameter binding: sharing constraints vs destructive substitution
+
+I faced significant hurdles trying to extract out an inline signature for my node module, because it was inlined in a functor that depended on the injected polymorphic types from 3 other modules
+
+#+begin_src md
+
+Here is an elaboration of the two approaches — sharing constraints vs destructive substitution — with their differences, pros and cons, followed by advice on extracting the node signature with careful explanation on how the functor parameter types bind into the output node signature.
+
+Approaches: Sharing Constraints vs Destructive Substitution
+
+Sharing Constraints (=with type = ...=)
+- This approach adds explicit equality constraints in the signature to equate some types inside a module signature with corresponding types from functor parameters.
+- For example, you add =with type t = V.t= on your output signature to indicate the output type =t= is exactly the type =t= from module =V=.
+- It keeps the original type declarations visible (though now equal to the designated type).
+- Resulting signatures are more explicit about which types are equal but may become verbose.
+- This method is older and more common before destructive substitution was introduced.
+- Sharing constraints do not remove redundant type declarations from the interface; they only specify equalities.
+
+Destructive Substitution (=with type := ...=)
+- Introduced around OCaml 4.06 (improved subsequently).
+- It "destructively" removes the original type declaration from the signature, replacing all occurrences of that type with the substituted type.
+- Syntax uses =with type t := ...= (note the =:== instead of ===).
+- The substituted type is fully removed from the resulting signature; this can clean up interfaces by avoiding unnecessary manifest types.
+- This approach is more modern and recommended when the original type definition is not needed in the interface, especially for abstracting away internals.
+- Can only substitute a type once and with a compatible type constructor.
+- Helps produce cleaner, simpler interface signatures especially useful for functors that fix some input parameter types inside their output signature.
+
+#### Pros and Cons Summary
+
+| Aspect               | Sharing Constraints (with type = ...)                | Destructive Substitution (with type := ...)              |
+| Interface Verbosity   | More verbose; type declared and equated             | Less verbose; type declaration removed                    |
+| Clarity              | Explicit equalities often easy to understand         | Cleaner interfaces; may obscure which exact type replaced |
+| Use Case             | When you want to expose type equality explicitly     | When you want to abstract/replace a type cleanly          |
+| Limitations          | Cannot hide redundant types                           | Can only substitute with compatible types, once per type  |
+| OCaml Version        | Supported always                                      | Introduced in OCaml 3.12+, improved in 4.06+               |
+| Complexity           | Slightly simpler syntax                               | Newer syntax, a bit less intuitive                         |
+
+Extracting the Node Signature from Functor Parameters Using Destructive Substitution
+
+Given your functor signature pattern:
+
+```ocaml
+module Make_node : functor
+  (V : Value.S)
+  (Storage : Storage.S)
+  (Bus : sig include module type of Event_bus end)
+  -> sig
+    (* output node signature here *)
+  end
+```
+
+and desiring:
+
+- Output signature's types (e.g., `State.t`, types involving `V.t`, `Storage.t`) to reflect exactly the input modules' types.
+- Use destructive substitution to make output signature types fully tied to input module types and avoid redundant type declarations.
+
+#### How to do this:
+
+- Define the output signature as a module type with abstract types replaced by the corresponding input module types destructively.
+- Use `with type ... := ...` to destructively substitute type definitions inside the output signature.
+- For example, assuming you write your output signature as a standalone module type, say `Node_sig`, you can destructively substitute as follows when applying the functor:
+
+```ocaml
+module Make_node :
+  functor (V : Value.S)
+          (Storage : Storage.S)
+          (Bus : sig include module type of Event_bus end)
+    -> (module Node_sig
+        with type 'v = V.t
+         and type storage = Storage.t
+         and type bus = Bus.t (* wherever applicable *)
+         (* Or more destructively *)
+         with type State.t := State.t (* tied to V.t inside State *))
+```
+
+- More concretely, inside the output signature, you avoid redeclaring types like `V.t` or `Storage.t` again but replace them destructively so that the type `V.t` is used directly.
+
+- This ensures that the output node module's type `State.t` and others that rely on `V.t` are not abstracted but concretely bound to the input `V.t`, and similarly for `Storage.t` and `Bus.t`.
+
+- This is especially useful in your `State.t` GADT which uses `V.t`, so you want this GADT type to be concretely bound to the exact `V.t` passed to the functor.
+
+#### Caution points:
+
+- Destructive substitution removes the substituted type from the signature, so the type is no longer re-declared/visible in the output signature; it is replaced everywhere.
+- You must be sure this substitution is valid (types have compatible parameters).
+- The ordering of substitutions matters: applying them in the right order results in well-formed signatures.
+- If your functor parameter modules contain multiple types that appear in nested submodules in the output signature, you may need nested substitutions or carefully structured substitution chains.
+
+### Summary
+
+- Use **sharing constraints** when you want explicit type equality visible but tolerating verbosity.
+- Use **destructive substitution** when you want cleaner interfaces and to fully tie the output types to functor parameters, hiding redundant declarations.
+- Extract your node signature by defining it separately and applying destructive substitutions (`with type ... := ...`) corresponding to each functor parameter type you want concretely linked.
+- This approach influences how the GADT inside `State` and the overall node's types connect to `V.t`, `Storage.t`, and `Bus.t` ensuring strong typing guarantees with clean signatures.
+
+This design will allow your `Make_node` functor to produce node modules whose types are precisely influenced by the injected modules' types, with a clean, minimal signature thanks to destructive substitution.
+
+If needed, sample code snippet on how to write this extraction and substitution can be provided on demand.
+
+[1](https://dev.realworldocaml.org/functors.html)
+[2](https://ocaml.org/docs/functors)
+[3](https://ocaml.org/manual/5.1/signaturesubstitution.html)
+[4](https://stackoverflow.com/questions/69790879/how-to-receive-types-built-from-functors-as-argument-to-functions-in-ocaml)
+[5](https://stackoverflow.com/questions/44049185/ocaml-destructive-substitution-error)
+[6](https://caml.inria.fr/pub/old_caml_site/ocaml/htmlman/manual018.html)
+[7](https://stackoverflow.com/questions/9778595/ocaml-functors-counter-intuitive-behaviour)
+[8](https://www.reddit.com/r/ocaml/comments/3j0vj0/in_what_ways_does_ocamls_module_system_differ/)
+[9](https://stackoverflow.com/questions/38743225/ocaml-functors-and-type-issues?rq=3)
+[10](https://www.cs.cornell.edu/courses/cs3110/2014fa/recitations/9/rec09.html)
+#+end_src
+***** [ ] why record fields can't reference labelled args
+
+NOTE: jane street has a repo up for a (possible) language extension to this with
+
+#+begin_src md
+
+You cannot put named (labeled) arguments such as `~to_node_id` in **record field types** in OCaml. Labeled arguments are only allowed in function definitions and type annotations for function values, but **not** inside record type declarations as part of field types.
+
+For example, this is invalid:
+
+```ocaml
+type 'a formatters = {
+  publish_unicast : 'a base_formatter -> ~to_node_id:Types.node_id -> Types.topic -> 'a -> string;
+}
+```
+
+because record fields expect plain types, not labeled parameter declarations.
+
+Instead, you must declare the field type as a plain function type with positional arguments, like this:
+
+```ocaml
+type 'a formatters = {
+  publish_unicast : 'a base_formatter -> Types.node_id -> Types.topic -> 'a -> string;
+}
+```
+
+Then, in **function definitions** implementing these fields, you can use labeled arguments for convenience:
+
+```ocaml
+let formatters = {
+  publish_unicast = (fun logger ~to_node_id topic payload ->
+    (* your implementation *)
+  )
+}
+```
+
+### Summary
+
+- Record field types cannot include labeled arguments.
+- Labeled argument syntax is allowed **only in function value definitions** and **type annotations of functions (outside records)**.
+- In record type declarations, use plain, positional function types.
+- In implementations of those function values, you may use labeled parameters.
+
+This is a commonly encountered limitation in OCaml's type system for record field declarations.
+
+[1](https://ocamlbook.org/records-and-references/)
+[2](https://dev.realworldocaml.org/records.html)
+[3](https://courses.cs.cornell.edu/cs3110/2021sp/textbook/data/records.html)
+[4](https://courses.cs.cornell.edu/cs3110/2021sp/textbook/mut/mutable_fields.html)
+[5](https://cs3110.github.io/textbook/chapters/data/records_tuples.html)
+[6](https://ocaml.org/docs/basic-data-types)
+[7](https://discuss.ocaml.org/t/dedicated-syntax-for-overriding-nested-record-field/10807)
+[8](https://stackoverflow.com/questions/40950935/access-the-record-fields-in-ocaml)
+[9](https://stackoverflow.com/questions/40950935/access-the-record-fields-in-ocaml/40951291)
+[10](https://www.reddit.com/r/ocaml/comments/5jvg74/more_concise_functional_record_update/)
+#+end_src
+***** [ ] type escapes
+why inline cons usage of pattern-mat will risk type escapes but not destructuring
+
+odd error in type escapings
+
+#+begin_src ocaml
+
+File "lib/node.ml", line 654, characters 28-36:
+654 |         let updated_nacks = nack_msg :: wfp.nacks_received in
+                                  ^^^^^^^^
+Error: This form is not allowed as the type of the inlined record could escape.
+Had 1 error, waiting for filesystem changes...
+
+  let handle_nack node msg =
+
+    (* process rejection in proposer/acceptor logic *)
+    match msg with
+    | Message.Coordination (Nack nack_msg) -> (
+      match node.state.proposer with
+      | State.WaitingForPromises wfp ->
+        let updated_nacks = nack_msg :: wfp.nacks_received in
+        let updated_state = State.WaitingForPromises {wfp with nacks_received = updated_nacks} in
+        node.state <- State.set_role node.state State.Proposer updated_state
+
+      | State.ProposerAccepting pa -> ()
+      | _ -> failwith "Met an impossible state when handling nacks -- can only be in states out of [State.WaitingForPromises, State.ProposerAccepting]."
+)
+
+    | _ -> failwith "Handle_nack is being called with a msg other than a nack."
+
+#+end_src
+
+This can be fixed by just doing a destructure @ the pattern match:
+
+#+begin_src ocaml
+
+
+  let handle_nack node msg =
+    (* process rejection in proposer/acceptor logic *)
+    match msg with
+    | Message.Coordination (Nack {meta; from;proposal;hint}) -> (
+      match node.state.proposer with
+      | State.WaitingForPromises wfp ->
+        let nack:State.nack = ( meta.id, hint, Some proposal) in
+        let updated_nacks = nack :: wfp.nacks_received in
+        let updated_state = State.WaitingForPromises {wfp with nacks_received = updated_nacks} in
+        node.state <- State.set_role node.state State.Proposer updated_state
+
+      | State.ProposerAccepting pa -> ()
+      | _ -> failwith "Met an impossible state when handling nacks -- can only be in states out of [State.WaitingForPromises, State.ProposerAccepting]."
+)
+
+    | _ -> failwith "Handle_nack is being called with a msg other than a nack."
+
+
+#+end_src
+
+#+begin_src md
+
+----
+
+The difference between destructuring in the function parameter list and destructuring inside the function body lies in the way OCaml resolves record field scoping and types.
+
+### Why destructuring works in parameters but not inside the body without more context:
+
+- When you destructure in the **function parameter**, e.g.:
+
+  ```ocaml
+  let handle_permission_request node {meta; from; proposal; value} =
+    (* use meta, from, proposal, value *)
+  ```
+
+  The compiler knows exactly which record type the destructured fields belong to because the whole parameter is matched against a specific, expected type. This gives OCaml full context for field resolution.
+
+- Inside the function body, when you do:
+
+  ```ocaml
+  let {meta; from; proposal; value} = pr in
+  ```
+
+  OCaml needs to know the **exact** record type of `pr` to resolve the field names. If the field type is polymorphic or the module exposing the record type isn't opened or fully qualified, OCaml fails with "Unbound record field".
+
+This happens because in the parameter destructuring case, the pattern is coupled with the function's type signature which tells the compiler exactly what record type is expected.
+
+***
+
+### How to fix or understand this better:
+
+- **Ensure the record type is fully in scope** when destructuring inside the function body, either by opening the module defining the record or fully qualifying the field names.
+
+- Use parameter destructuring whenever possible for succinctness and clarity, letting the compiler use the function's expected type for resolution.
+
+- If you must destructure inside the body, add explicit type annotations or module opens referencing the record type.
+
+***
+
+### Summary
+Destructuring directly in a function parameter benefits from the type signature context, allowing OCaml to resolve fields easily, whereas destructuring inside a function body requires explicit type/module context to resolve record field names.
+
+This is a standard behavior in OCaml’s type and pattern matching system and best practices include preferring pattern match destructuring at the function parameter level when possible.[3][9][11]
+
+[1](https://discuss.ocaml.org/t/including-entire-record-when-pattern-matching-records/4649)
+[2](https://reasonml.github.io/docs/en/destructuring)
+[3](https://ocaml.org/docs/guidelines)
+[4](https://ocaml.org/manual/4.08/coreexamples.html)
+[5](https://stackoverflow.com/questions/36440478/how-to-extract-information-from-a-record-in-ocaml)
+[6](https://www.reddit.com/r/java/comments/12fnanq/record_patterns_point_to_java_language_designers/)
+[7](https://discuss.ocaml.org/t/why-does-the-order-of-fields-in-a-record-type-definition-matter/16131)
+[8](https://stackoverflow.com/questions/17173690/record-type-pattern-matching-in-ocaml)
+[9](https://discourse.elm-lang.org/t/pattern-match-on-record-field-values/7724)
+[10](https://www2.lib.uchicago.edu/keith/ocaml-class/control.html)
+[11](https://stackoverflow.com/questions/63165980/ocaml-pattern-matching-a-variable-with-the-destructured-elements-of-a-tuple)
+
+
+#+end_src
+
+**** [ ] Syntax snags
+   - optional args and the need for unit as one of the args
+
+     OCaml be quirky sometimes:
+
+     what's the diff between the two? Why does one need a =()= but the other does not?
+
+     #+begin_src ocaml
+
+            let handle_message (node: t) (msg: V.t Message.t) =
+                match Message.proposal_id_of msg with
+                | None -> ()
+                | Some key -> let inbox_entry = get_or_create_inbox_entry node key
+                in
+                inbox_entry.messages <- msg::inbox_entry.messages;
+                process_inboxes node
+
+
+            let handle_simulation_control (node: t) (msg: V.t Message.t) =
+                Stdio.printf "---> Node %d being controlled to do something" node.id;
+                match Message.proposal_id_of msg with
+                | None -> ()
+                | Some key -> let inbox_entry = get_or_create_inbox_entry node key
+                in (
+                    inbox_entry.messages <- msg::inbox_entry.messages;
+                    process_inboxes node
+                )
+
+
+
+            #+end_src
+
+     When you have optional arguments with defaults, always add a trailing mandatory argument (e.g., ()) at the end.
+
+    This allows the OCaml compiler to safely handle partial application and erasure of optional arguments.
+
+    This is a common and idiomatic pattern in OCaml.
+   - unclear thoughts == not an enojoyer of pipes
+*** [2] Magic (and quirks) of Ocaml
+**** Magic
+***** [ ] Compiler magic
+****** [ ] how in the world is the compilation so fast?
+****** [ ] thanks compiler for doing exhaustiveness checks
+- if the typing is handled correctly, then the compiler will tell us nicely if we missed something:
+  #+begin_src ocaml
+File "lib/node.ml", lines 503-506, characters 10-72:
+503 | ..........match State.get_role node.state State.Acceptor with
+504 |           (* TODO [FSM]: when will it be inactive? do we transition out to inactive after? *)
+505 |           | State.Idle -> Logger.log_decision node.logger ( Printf.sprintf "Node %d Acceptor was idle/inactive; no current promised / previously accepted to report. Carrying on..." node.id); (None, None)
+506 |           | State.Accepting record -> (record.promised, record.accepted)
+Error (warning 8 [partial-match]): this pattern-matching is not exhaustive.
+Here is an example of a case that is not matched:
+Inactive
+  #+end_src
+
+***** [ ] working with generics and expressiveness of the type system
+
+- how can we quickly try to have a first-taste of the boundaries / limits of the language when it comes to expressiveness?
+
+***** [ ] expressiveness and the magic of GADTs
+- GADT is beautiful for FSM state management and giving peace of mind -- beautiful
+
+  see polymorphic setters and getters replacing the need for dedicated setters and getters
+  #+begin_src ocaml
+    type paxos_assertion_state = {proposal: Types.proposal_id; value: V.t}
+    [@@deriving sexp]
+
+    type waiting_for_promise_state =
+      { assertion: paxos_assertion_state
+      ; promises_received: promise list
+      ; nacks_received: nack list }
+    [@@deriving sexp]
+
+    type proposer_accepting_state =
+      { proposal: Types.proposal_id
+      ; value: V.t
+      ; acks: Types.node_id list
+      ; nacks_received: nack list }
+    [@@deriving sexp]
+
+    type proposer_state =
+      | Inactive (** this state encodes it's unavailability. When a node is inactivated, it is effectively killed -- it must look to its storage to resume partitipation thereafter *)
+      | Idle (** An node may be idle to indicate that it can be a valid participant (by initiating a proposal)*)
+      | Preparing  of paxos_assertion_state (** A node that is initiating a proposal will be in the preparing state. It will be ready to .*)
+      | WaitingForPromises of waiting_for_promise_state (** A node that is gathering responses to their proposal and is waiting to reach a quorum of responses.*)
+      | ProposerAccepting of proposer_accepting_state (** A node that has suggested *)
+      | Decided of V.t
+    [@@deriving sexp]
+
+
+    type acceptor_state = Inactive | Idle | Accepting of Acceptor_record.value [@@deriving sexp]
+    type learner_state = Learned of V.t option [@@deriving sexp]
+
+    type role_state = {
+      proposer: proposer_state;
+      acceptor: acceptor_state;
+      learner: learner_state;
+    } [@@deriving sexp]
+
+    let idle_of () = {
+      proposer = Idle;
+      acceptor = Idle;
+      learner = Learned None;
+    }
+
+    let inactive_of () = {
+      proposer = Inactive;
+      acceptor = Inactive;
+      learner = Learned None;
+    }
+
+    (* Getters and setters *)
+    let get_proposer rs = rs.proposer
+    let set_proposer rs p = { rs with proposer = p }
+    let get_acceptor rs = rs.acceptor
+    let set_acceptor rs a = { rs with acceptor = a }
+    let get_learner rs = rs.learner
+    let set_learner rs l = { rs with learner = l }
+
+    (** GADT to encode which role and its sub-state type
+        This encodes the association between a constructor (Proposer, Acceptor, Learner) and its precise sub-state type.
+    *)
+    type _ role_selector =
+      | Proposer : proposer_state role_selector
+      | Acceptor : acceptor_state role_selector
+      | Learner : learner_state role_selector
+
+    (** Polymorphic role_state accessor *)
+    let get_role : type a. role_state -> a role_selector -> a = fun rs sel ->
+      match sel with
+      | Proposer -> rs.proposer
+      | Acceptor -> rs.acceptor
+      | Learner -> rs.learner
+
+    (** Polymorphic role_state setter *)
+    let set_role : type a. role_state -> a role_selector -> a -> role_state = fun rs sel v ->
+      match sel with
+      | Proposer -> { rs with proposer = v }
+      | Acceptor -> { rs with acceptor = v }
+      | Learner -> { rs with learner = v }
+  #+end_src
+- but hella confusing
+***** [ ] language features with pleasant ergonomics
+- pattern matching like in elixir
+  - we can do param destructuring, so no need long let-binds just to prepare structs for usage within the body + standardisation of field names $\implies$ consistent naming and a focus on the linguistic choices behind variable naming $\implies$ intentional communication behind the chohice of a name
+
+***** [ ] beauty of pipes (though it's not unique to ocaml)
+**** Quirks
+***** [ ] Minor wishlist
+- i wish assert expressions had associated messages that we could use (we could always wrap this and make a custom assertion but still)
+***** [ ] *_of accessors vs pattern-matched destructuring
+
+I notice an overlap in purpose of dedicated accessor functions and how they overlap with pattern-matching destructurers. I realise that the expressiveness of pattern-matching is probably more modern for the language.
+
+I wonder whether this means that dedicated accessor function is more for "only when it's too messy to destructure" and for trivial situations, we should just use pattern-matched destructures
+
+*** [3] What I learnt about myself from this
+**** [ ] Importance of exposure for improving intuition
+
+- e.g. why a pipe-enjoyer? because I've worked on elixir code-bases before and have the intuition that a pipeline / combination pattern / transformations / ecto casts is like casting metal or forging metal. When state of an amorphous nature is given shape and then the shape gets transformed.
+
+**** [ ] Workflow improvements: letting the "design" marinate in your head on purpose
+
+new skill of task switching.
+
+a task has phases, e.g. planning & design -> implmentation -> refactor and testing
+
+chunking can be done at this level of granularity
+
+e.g. I plan how the time should be simulated and where things should be changed and who has responsibility of what. But I don't implement it yet intentionally. I just design it and try to design it well. I then end up task-switching so that this marinates.
+
+this allows me to get the following benefits:
+1. marinating at  the back of my mind == random spontaneous requirements / lemma discovery
+2. deferring the implementation allows me to be excited about "next step"
+3. forces me to prioritise what to do immediately @ every point in time that I need to change tasks
+
+**** [ ] Importance of parables and analogies in explaining things
+
+- they are intentionally reductivist/reductionist at times because being able to communicate HOW they are reductionist helps us appreciate ontological layers better
+
+**** [ ] Importance of impossible challenges
+
+- initial goal was impossible, on hindsight -- but I would like to make this into a body of work that would allow someone in the future to achieve a 2 day learning of things or 2 weekend learning of something.
+
+  it's a refinement of pedagogy that i'm interested in
+*** [4] How I feel about OCaml, what I feel about programming languages
+
+OCaml has genuinely felt like the language thhat resonates with my thhinking style the most. I think a lot and write a lot before coding. It's because when focused, I'm able to visualise mechanisms, boundaries and interfaces well enough.
+
+The process of adhering to static typing, allowing algebraic / abstract nature of behaviours and protocols is very aligned with.
+
+Syntax makes the code I write as a novice easy to read, though I'd consider the same for elixir, when writing elixir code, I ended up thinking in EIP patterns more so than in OCaml. In OCaml, it ends up being more of a type-matching / struct-based focus. I'm not sure whichh I like more yet, but it aligns with my working style where I usually prefer to build bottom up interfaces but design top-down.
+
+The OCaml code reads like pseudocode. that's amazing.
+
+****  programming languages and ecosystem choice as a point of business strategy
+
+- the relationship with conway's laws
+
+- the economic lens into it
+  - however, I think timeframe matters. It's a local minima of cost optimisation imo and that's the reason why I dread working in unstable ecosystems like those more familiar and accessible to the webdev world.
+  - ecosystem support but there's no agency in you when it's work
+
+- i think these help to inform decision-making and strategy when it comes to finding a team working on problems that I want to be exposed to.
+*** [5] Areas of improvement on the code
+**** fat messages with superfluous info
+
+the current messages are have superflous information sometimes (e.g. value doesn't need to always be passed around for every message).
+
+this was intentionally done because it's just easier to visually debug things and verify correctness.
+
+in a more realistic simulation where bandwidth is a resource to be frugal about, these messages can be made leaner
+
 
 * Intentional Shortcuts
 Since I'm keeping this to a 2 day effort, there's a need to be aware of some time-sinks that I will most likely side-step first.
@@ -2100,3 +4350,4 @@ C. Async trap:
 D. Testing complexity:
 
    We will resist property testing or QuickCheck; we will just write hand-driven deterministic cases.
+

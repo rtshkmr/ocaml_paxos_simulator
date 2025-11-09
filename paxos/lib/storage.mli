@@ -24,9 +24,21 @@ module type S = sig
   (** value will typically be a compact record*)
   type value [@@deriving sexp]
 
-  val create : ?config:string -> unit -> t
-  val persist : t -> key -> value -> (unit, Error.t) Result.t
-  val load : t -> key -> (value option, Error.t) Result.t
-  val snapshot : t -> (unit, Error.t) Result.t
-end
+  type payload [@@deriving sexp]
 
+  val create : ?config:string -> unit -> t
+
+  val persist : t -> key -> value -> (unit, Error.t) Result.t
+
+  val load : t -> key -> (value option, Error.t) Result.t
+
+  val snapshot : t -> (unit, Error.t) Result.t
+
+  val get_promised_id : t -> key -> Types.Types.proposal_id option
+
+  val get_accepted_value : t -> key -> payload option
+
+  val update_promise : t -> key -> Types.Types.proposal_id -> unit
+
+  val update_accepted : t -> key -> Types.Types.proposal_id -> payload -> unit
+end

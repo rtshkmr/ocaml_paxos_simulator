@@ -49,19 +49,22 @@ module type Runtime = sig
   val get_nodes : t -> node list
   (** Get the list of registered nodes. *)
 
-  val make_event : int -> int -> (unit -> unit) -> unit -> event
+  val make_event : t -> ?id:int -> time:int -> (unit -> unit) -> unit -> event
   (** Creates an general event that can be scheduled as a simulation event*)
 
-  val make_message_event :
-       int
-    -> int
-    -> ?to_node:node
-    -> topic:Types.Types.topic
-    -> from:node
-    -> msg:msg
-    -> unit
+  val enqueue_thunk :
+       t
+    -> ?id:int
+    -> time:int
+    -> msg Event_bus.Event_bus.enqueuable_thunk
     -> event
-  (** Creates a message passing event between nodes over a particular topic. Optionally specify destination to have a direct message. *)
+
+  type msg_factory =
+    msg_id:int -> from:node -> ?to_node:node -> time:Time.t -> unit -> msg
+
+  val next_msg_id : t -> int
+
+  val next_event_id : t -> int
 
   val schedule_event : t -> event -> unit
 
@@ -79,4 +82,12 @@ module type Runtime = sig
 
   val print_bus_stats : t -> unit
   (** Gives a rudimentary print-dump of the state within the event bus used for the simulation.*)
+
+  val make_node_proposal_event :
+       t
+    -> initiator:node
+    -> proposal:Types.Types.proposal_id
+    -> value:V.t
+    -> time:int
+    -> event
 end
