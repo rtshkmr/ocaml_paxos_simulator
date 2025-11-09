@@ -9,6 +9,11 @@ module type S = sig
 
   type 'a serialiser = 'a -> string
 
+  (** a callback that we can use for communicating via the bus
+      this works because the node would have been bound to the callback, event bus can remain passive about it.
+  *)
+  type 'a bus_registrable_callback = 'a Message.Message.t -> unit
+
   val create : payload_serialiser:'a serialiser -> unit -> 'a t
 
   val subscribe :

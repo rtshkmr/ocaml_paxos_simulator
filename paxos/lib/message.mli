@@ -25,7 +25,9 @@ module Message : sig
   end
 
   type 'v permission_request_msg =
-    {meta: Meta.t; from: Types.node_id; proposal: Types.proposal_id; value: 'v}
+    { meta: Meta.t
+    ; from: Types.node_id
+    ; assertion: 'v Types.paxos_assertion_state }
   [@@deriving sexp, compare, equal]
 
   val sexp_of_last_accepted :
@@ -34,16 +36,20 @@ module Message : sig
   type 'v permission_granted_msg =
     { meta: Meta.t
     ; from: Types.node_id
-    ; proposal: Types.proposal_id
-    ; last_accepted: (Types.proposal_id * 'v) option }
+    ; assertion: 'v Types.paxos_assertion_state
+    ; last_accepted: 'v Types.paxos_promise }
   [@@deriving sexp, compare, equal]
 
   type 'v suggestion_msg =
-    {meta: Meta.t; from: Types.node_id; proposal: Types.proposal_id; value: 'v}
+    { meta: Meta.t
+    ; from: Types.node_id
+    ; assertion: 'v Types.paxos_assertion_state }
   [@@deriving sexp, compare, equal]
 
   type 'v accepted_msg =
-    {meta: Meta.t; from: Types.node_id; proposal: Types.proposal_id; value: 'v}
+    { meta: Meta.t
+    ; from: Types.node_id
+    ; assertion: 'v Types.paxos_assertion_state }
   [@@deriving sexp, compare, equal]
 
   (**  [Nack] variant ([nack_msg] has an optional [hint] which helps to inform about the highest promise seen.
@@ -52,13 +58,10 @@ module Message : sig
        FIXME: the Message.Nack and State.nack don't play well together, they should have similar shapes.*)
   type 'v nack_msg =
     { meta: Meta.t
-    ; proposal: Types.proposal_id
     ; from: Types.node_id
-    ; hint: (Types.proposal_id * 'v) option }
+    ; rejected_assertion: 'v Types.paxos_assertion_state
+    ; hint: 'v Types.paxos_promise }
   [@@deriving sexp, compare, equal]
-
-  val sexp_of_nack_hint :
-    ('a -> Sexp.t) -> (Types.proposal_id * 'a) option -> Sexp.t
 
   (** Messages are parameterized by payload type ['v].
       The Paxos algo defines these 5 variants in its spec for Coordination
@@ -118,10 +121,10 @@ module Message : sig
   val make_permission_granted :
        msg_id:int
     -> topic:Types.topic
-    -> proposal:Types.proposal_id
+    -> assertion:'v Types.paxos_assertion_state
     -> time:Time.t
     -> from:Types.node_id
-    -> last_accepted:(Types.proposal_id * 'v) option
+    -> last_accepted:'v Types.paxos_promise
     -> 'v coordination_message
 
   val make_suggestion :
@@ -147,8 +150,8 @@ module Message : sig
     -> topic:Types.topic
     -> time:Time.t
     -> from:Types.node_id
-    -> proposal:Types.proposal_id
-    -> hint:(Types.proposal_id * 'v) option
+    -> rejected_assertion:'v Types.paxos_assertion_state
+    -> hint:'v Types.paxos_promise
     -> 'v coordination_message
 
   val make_sim_control_idle_node :

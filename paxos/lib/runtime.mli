@@ -29,8 +29,6 @@ module type Runtime = sig
 
   type node
 
-  val id_of_node : node -> int
-
   type event
 
   val create : config:Config.t -> t
@@ -67,16 +65,6 @@ module type Runtime = sig
   val next_msg_id : t -> int
 
   val next_event_id : t -> int
-
-  val create_message_event :
-       t
-    -> topic:Types.Types.topic
-    -> from:node
-    -> ?to_node:node
-    -> ?time:Time.t
-    -> msg_factory:msg_factory
-    -> unit
-    -> event
 
   val schedule_event : t -> event -> unit
 

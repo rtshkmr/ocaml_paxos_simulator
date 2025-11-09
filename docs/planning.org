@@ -3479,18 +3479,26 @@ CLOCK: [2025-11-07 Fri 22:40]--[2025-11-07 Fri 23:56] =>  1:16
   3. make the =simulation= use =Simulator::propose=
 
 ***** [ ] Fix FSM mismatches (bugs)
-1. [ ] need to standardise what a promise is (sent from the acceptor)
+:LOGBOOK:
+CLOCK: [2025-11-09 Sun 06:07]--[2025-11-09 Sun 09:17] =>  3:10
+:END:
+1. [X] need to standardise what a promise is (sent from the acceptor)
    - we need to add in the previously accepted suggestion id and value to the promise
    - it should also send the current suggestion id (proposal id) that is being asserted
    - this should require state improvements as well as likely message type improvements
-     - [ ] promise state changes
-     - [ ] changes to =is_quorum_reached_on_promise_wait=
+     - [X] promise state changes
+     - [X] changes to =is_quorum_reached_on_promise_wait=
 
        here, the best-value accumulation needs to change to consider the previously accepted from promises. Only if ALL of them are none then we set chosen value as the proposer's own value
 
-     - [ ] also the quorum check routine can just return us a (non-optional) chosen value, it will clean up the subsequent parts.
-2. [ ] need to add =current_promised= within =make_nack= even if we are not going to add in the nack optimisation stuff (yet?)
-3. [ ] use the =paxos_assertion_state= where possible
+     - [X] also the quorum check routine can just return us a (non-optional) chosen value, it will clean up the subsequent parts.
+
+       we just directly let it return a chosen value.
+
+2. [X] need to add =current_promised= within =make_nack= even if we are not going to add in the nack optimisation stuff (yet?)
+   - added it as =rejected_assertion= field within the existing record type
+
+3. [X] use the =paxos_assertion_state= where possible
 
 ***** [ ] Broadcast decided state (end state)
 As per our outline, the proposer should be:
@@ -3504,8 +3512,15 @@ As per our outline, the proposer should be:
 #+end_quote
 
 We haven't handled this part yet, we can add this in
-***** [ ] Add in storage helpers
+***** SKIP Add in storage helpers
+I don't really want to focus on this, I'll just add in some stub functions for now.
+
+The kill/respawning of servers is something that we shall slate for v1 extensions
+
 **** TODO Stage 3.5: Ensure happy path works, add basic tests
+Happy path seems to be working well so far.
+
+We should be able to move onto the test-writing stuff. I just wanna demonstrate some basic
 **** TODO Stage 4: Add predefined simulation Demo Case
 :PROPERTIES:
 :EFFORT:   1h
@@ -3539,6 +3554,8 @@ We haven't handled this part yet, we can add this in
   3) Tighten signatures, remove unsafe partial matches.
 
   4) Final documentation pass.
+***** Simulator Logging Improvements
+- [ ] add a rudimentary implementation for log levels, allow the settings to cascade down from one point of setting it (sim)
 ***** Refactoring Goals
 ****** General Refactoring Goals
 - [ ] Avoid long let-binding chains
@@ -4244,6 +4261,11 @@ Inactive
 **** Quirks
 ***** [ ] Minor wishlist
 - i wish assert expressions had associated messages that we could use (we could always wrap this and make a custom assertion but still)
+***** [ ] *_of accessors vs pattern-matched destructuring
+
+I notice an overlap in purpose of dedicated accessor functions and how they overlap with pattern-matching destructurers. I realise that the expressiveness of pattern-matching is probably more modern for the language.
+
+I wonder whether this means that dedicated accessor function is more for "only when it's too messy to destructure" and for trivial situations, we should just use pattern-matched destructures
 
 *** [3] What I learnt about myself from this
 **** [ ] Importance of exposure for improving intuition

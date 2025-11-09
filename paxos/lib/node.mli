@@ -46,6 +46,10 @@ module type S = sig
 
   val role_of_string : string -> role
 
+  type assertion = V.t Types.paxos_assertion_state [@@deriving sexp]
+
+  type promise = assertion option [@@deriving sexp]
+
   (** Acceptor_record module for local acceptor state snapshot *)
   module Acceptor_record : sig
     (** The value a local acceptor holds as part of the Paxos state.
@@ -54,9 +58,7 @@ module type S = sig
           accept proposals less than.
         - [accepted] is the optional last accepted proposal id and value pair.
     *)
-    type value =
-      { promised: Types.proposal_id option
-      ; accepted: (Types.proposal_id * V.t) option }
+    type value = {promised: Types.proposal_id option; accepted: promise}
     [@@deriving sexp]
   end
 
@@ -65,37 +67,22 @@ module type S = sig
       [V.t], ensuring the node's state is parametrically tied to the concrete
       value type chosen in [V]. *)
   module State : sig
-    type promise = Types.node_id * (Types.proposal_id * V.t) option
-    [@@deriving sexp]
-
-    (* nack = source * proposal_id * hint *)
-    (* FIXME: the Message.Nack and State.nack don't play well together, they should have similar shapes.*)
-    type nack =
-      Types.node_id
-      * (Types.proposal_id * V.t) option
-      * Types.proposal_id option
-    [@@deriving sexp]
-
-    type paxos_assertion_state = {proposal: Types.proposal_id; value: V.t}
-    [@@deriving sexp]
+    type nack = {rejected_assertion: assertion; hint: promise} [@@deriving sexp]
 
     type waiting_for_promise_state =
-      { assertion: paxos_assertion_state
+      { assertion: assertion
       ; promises_received: promise list
       ; nacks_received: nack list }
     [@@deriving sexp]
 
     type proposer_accepting_state =
-      { proposal: Types.proposal_id
-      ; value: V.t
-      ; acks: Types.node_id list
-      ; nacks_received: nack list }
+      {assertion: assertion; acks: Types.node_id list; nacks_received: nack list}
     [@@deriving sexp]
 
     type proposer_state =
       | Inactive
       | Idle
-      | Preparing of paxos_assertion_state
+      | Preparing of assertion
       | WaitingForPromises of waiting_for_promise_state
       | ProposerAccepting of proposer_accepting_state
       | Decided of V.t
@@ -117,8 +104,8 @@ module type S = sig
 
     type quorum_result =
       | NotReached
-      | MajorityNacks of (Types.proposal_id * V.t) option
-      | MajorityGrants of (Types.proposal_id * V.t) option
+      | MajorityNacks of promise
+      | MajorityGrants of assertion
 
     val is_quorum_reached : role_state -> int -> quorum_result
   end
@@ -158,9 +145,6 @@ module type S = sig
 
   val set_node_state : t -> State.role_state -> unit
   (** Update the internal state of a node. *)
-
-  val id : t -> Types.node_id
-  (** Return the unique identifier of a node. *)
 
   val roles : t -> roles
   (** Return the roles assigned to a node. *)

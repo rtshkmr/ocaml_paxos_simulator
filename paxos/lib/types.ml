@@ -8,9 +8,14 @@ module Types = struct
   type proposal_id = {seq: int; node: node_id}
   [@@deriving sexp, compare, equal, hash]
 
-  let make_proposal_id ~seq ~node = {seq; node}
+  (** When driving consensus, a node would need to assert their own value first.*)
+  type 'a paxos_assertion_state = {proposal: proposal_id; value: 'a}
+  [@@deriving sexp, compare, equal]
 
-  let next_proposal_id prev ~node = {seq= prev.seq + 1; node}
+  type 'a paxos_promise = 'a paxos_assertion_state option
+  [@@deriving sexp, compare, equal]
+
+  let make_proposal_id ~seq ~node = {seq; node}
 
   type topic =
     | Coordination  (** Consensus coordination messages, e.g., Paxos *)

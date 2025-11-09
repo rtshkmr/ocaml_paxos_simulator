@@ -84,10 +84,12 @@ module LogFormatter = struct
 
   let subscribe topic node_id subscription_id =
     let topic_str = Types.sexp_of_topic topic |> Sexp.to_string_hum ~indent:1 in
-    Printf.sprintf
-      "< +++ Subscribed +++ >:\n  topic=%s, node_id=%d, subscription_id=%d"
+    let tag =
+      Printf.sprintf "<node[%d]::Subscribed @ %s>" node_id topic_str
+      |> green |> bold
+    in
+    Printf.sprintf "%s\n\ttopic=%s, node_id=%d, subscription_id=%d" tag
       topic_str node_id subscription_id
-    |> green |> bold
 
   let unsubscribe topic node_id subscription_id =
     let topic_str = Types.sexp_of_topic topic |> Sexp.to_string_hum ~indent:1 in
@@ -122,8 +124,8 @@ module LogFormatter = struct
     "[event_bus::STATS] Printing statistics..." |> blue |> bold
 
   let format_node_state_change node_id old_state_str new_state_str =
-    Printf.sprintf "Node %d changed state from \n%s to \n%s\n%!" node_id
-      old_state_str new_state_str
+    Printf.sprintf "Node %d changed state from \n%s\n\t\t-----to-------\n%s\n%!"
+      node_id old_state_str new_state_str
 
   (* Unified record type for composability *)
   type 'a formatters =

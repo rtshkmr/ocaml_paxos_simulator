@@ -23,7 +23,6 @@ module Simulator : Runtime = struct
   let payload_serialiser = Message.payload_serialiser_of V.sexp_of_t
   let msg_of_message (m: V.t Message.t): msg = m (* converts structurally equal type to shadow type *)
   type node = NodeImpl.t
-  let id_of_node node = NodeImpl.id node
   let propose node = NodeImpl.propose node
 
   type event = EventScheduler.event
@@ -55,27 +54,6 @@ module Simulator : Runtime = struct
     let thunk () = let msg_id = next_msg_id sim in
       propose initiator ~msg_id ~time ~bus ~proposal ~value in
     make_event sim ~time thunk ()
-
-  let create_message_event
-      (sim : t)
-      ~(topic : Types.Types.topic)
-      ~(from : node)
-      ?to_node
-      ?(time : Time.t = Time.now sim.clock)
-      ~(msg_factory : msg_factory)
-      ()
-    : event =
-    let msg_id = next_msg_id sim in
-    let msg = match to_node with
-      | Some target_node ->  msg_factory ~msg_id ~from ~to_node:target_node ~time ()
-      | None -> msg_factory ~msg_id ~from ~time ()
-    in
-    let to_node_id = match to_node with
-      | None -> None
-      | Some node -> Some (NodeImpl.id node) in
-    let thunk = ((topic, to_node_id), msg) in
-    let action () = Event_bus.enqueue bus thunk  in
-    make_event sim ~time action ()
 
   let create ~config:_ =
     { halted= false

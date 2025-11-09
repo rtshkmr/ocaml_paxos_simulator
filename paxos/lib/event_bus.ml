@@ -14,6 +14,8 @@ module type S = sig
 
   type 'a serialiser = 'a -> string
 
+  type 'a bus_registrable_callback = 'a Message.Message.t -> unit
+
   val create : payload_serialiser:'a serialiser -> unit -> 'a t
 
   val subscribe :
@@ -54,6 +56,7 @@ module Event_bus : S = struct
 
   type 'a serialiser = 'a -> string
 
+  type 'a bus_registrable_callback = 'a Message.Message.t -> unit
 
   type 'a subscription_info =
     {node_id: Types.node_id; sub_handle: sub_handle; callback: 'a callback}
