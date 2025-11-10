@@ -24,4 +24,26 @@ module Types = struct
     | Metrics  (** Telemetry and monitoring data *)
     | Time  (** Logical time simulation & clock sync msgs *)
   [@@deriving sexp, compare, hash, equal]
+
+  let topic_of_str = function
+    | "Coordination" ->
+        Some Coordination
+    | "Simulation_control" ->
+        Some Simulation_control
+    | "Gossip" ->
+        Some Gossip
+    | "Metrics" ->
+        Some Metrics
+    | "Time" ->
+        Some Time
+    | _ ->
+        None
+end
+
+module type Has_spec = sig
+  type t
+
+  type spec
+
+  val of_spec : spec -> t
 end

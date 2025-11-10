@@ -3542,6 +3542,376 @@ We should be able to move onto the test-writing stuff. I just wanna demonstrate 
 - Deliverable:
 
   - End-to-end trace printed via Simulator.print_bus_stats + Node.dump_state.
+***** [X] Add in a cli harness to help choose predefined scenarios
+CLOSED: [2025-11-10 Mon 11:38]
+- CLOSING NOTE [2025-11-10 Mon 11:38] \\
+  a basic skeleton is done for this, we can focus on other parts
+It's just to help make the simulator more fun to use, it's also a QOL thing but it's necessary for basic polish.
+
+- [ ] allow the .exe run to be able to tell the user what are the predefined simulations, what log level they want and so on via cli args
+
+- [ ] use the cli to inject user desires into the simulation.ml, and allow the simulation.ml to orchestrate the rest of the simulation (like before).
+
+***** [ ] Enrich module types with specs for easy fixtures setup
+:LOGBOOK:
+CLOCK: [2025-11-10 Mon 15:11]--[2025-11-10 Mon 21:13] =>  6:02
+CLOCK: [2025-11-10 Mon 12:12]--[2025-11-10 Mon 13:49] =>  1:37
+:END:
+
+I don't like the current ergonomics around how we seed things for a simulation. Before writing code, we need to *rethink how Config expresses simulation topology and timeline ergonomics*, so that we can express examples like the parliament scenario in a few declarative lines.
+
+For example, here's how a 2 node scenario for the parliamentarians parable would probably look based on our current system.
+
+#+begin_src ocaml
+  let base_topics =
+    [Types.Types.Coordination; Types.Types.Simulation_control; Types.Types.Time]
+
+  let make_node_spec ?(roles = ["Proposer"; "Acceptor"])
+      ?(initial_cluster_size = Some 2) ?(topics = base_topics) ~node_id () :
+      Config.node_spec =
+    { node_id
+    ; roles
+    ; initial_cluster_size
+    ; topics
+    ; initial_state= None
+    ; storage_config= None }
+
+  let node_spec_1 = make_node_spec ~node_id:1 ()
+
+  let node_spec_2 = make_node_spec ~node_id:2 ()
+
+  let sim_config =
+    { Config.max_ticks= Some 100
+    ; deterministic_seed= Some 181
+    ; default_cluster_size= Some 3
+    ; initial_nodes= [node_spec_1; node_spec_2]
+    ; log_jsonl= None }
+
+  let sim = Simulator.create ~config:sim_config
+
+  let n1 = Simulator.add_node sim ~node_spec:node_spec_1
+
+  let n2 = Simulator.add_node sim ~node_spec:node_spec_2
+
+ (* ----- New: parliament scenario seeding ----- *)
+  let seed_parliament_scenario sim ~n1 ~n2 =
+    (* Parable mapping:
+       - Speaker = node 1 (proposer)
+       - Opposition leader = node 2 (proposer)
+       We'll create a few timed events that represent the "parliament" flow:
+         t=1 Speaker proposes Law A
+         t=2 Opp proposes Law B (competing)
+         t=3 Speaker gathers promises and suggests Law A
+         t=4 Opp sees hint/nack and tries to bump (demonstrates hint)
+    *)
+    let p_speaker = Types.Types.make_proposal_id ~node:1 ~seq:1 in
+    let p_opp = Types.Types.make_proposal_id ~node:2 ~seq:2 in
+    let v s = V.t_of_sexp (Sexplib.Sexp.Atom s) in
+    let events =
+      [ Simulator.make_node_proposal_event sim ~time:1 ~initiator:n1 ~proposal:p_speaker ~value:(v "CleanAirBill")
+      ; Simulator.make_node_proposal_event sim ~time:2 ~initiator:n2 ~proposal:p_opp ~value:(v "TaxRelief")
+      ; Simulator.make_event sim ~time:3 (fun () -> Simulator.print_bus_stats sim) ()
+      ; Simulator.make_event sim ~time:5 (fun () -> Stdio.printf "Parliament scenario finished\n%!") ()
+      ]
+    in
+    List.iter events ~f:(fun e -> e |> Simulator.schedule_event sim)
+#+end_src
+
+There needs to be a better way for us to define timelines.
+
+Instead of defining imperative setup code, we move toward a data-driven declarative config.
+
+This enables “fixtures” (like parliament.json) to define entire simulations with no code.
+
+General options:
+
+1. having a singular config module that takes charge of this, including the specs and the transformations from plaintext spec to the actual struct (fixture setup)
+
+2. subsystems being in-charge of their own specs.
+
+   Each subsystem (Node, Simulator, Bus, etc.) should define its own Spec module containing its declarative record type and associated parsing / defaults. The global Config module should just compose them — that is, load, transform, and hand them off to the respective create functions.
+
+   top-level Config now becomes just a composition and ingestion layer — no business logic, no deep domain knowledge.
+
+   a) benefits of this approach :
+
+      | aspect                          | benefits                                                                                                          |
+      |                                 |                                                                                                                   |
+      |---------------------------------+-------------------------------------------------------------------------------------------------------------------|
+      | colocation of code              | The spec lives beside the logic that interprets it, so the design stays local and coherent.                       |
+      |                                 | Adding new features to Node or Simulator means extending their own Spec, not touching a monolithic global config. |
+      |                                 |                                                                                                                   |
+      | type safety                     | Each module owns its own config type; only the top-level Config module glues them together.                       |
+      |                                 |                                                                                                                   |
+      | extensibility / future-proofing | Later, if we support TOML/JSON/YAML configs, each Spec can define of_yojson/to_yojson locally                     |
+      |                                 | — useful for serialization and validation.                                                                        |
+      |                                 |                                                                                                                   |
+      | isolation                       | Each subsystem can test its own config interpretation independently.                                              |
+      |                                 |                                                                                                                   |
+
+   b) naming of converter helpers:
+
+      - =of_spec= → for pure transformation
+
+      - =init_from_spec= → for stateful initialization
+
+      - =load_spec= → for file / CLI ingestion
+
+        so CLI =load_spec= → Simulator =init_from_spec= → Node =of_spec=
+
+****** [ ] Improving the usefulness of config
+
+Currently, config.ml is just a rudimentary separation of concerns. The idea is that config will define plaintext specs that we can use to create the other structs like nodes, simulation, scenarios and so on. It's also important to be able to define simulation events properly so that we essentially have the entire simulation timeline defined in plaintext, adhering to specs that will be easy to create sophisticated scenarios.
+
+eventually in a later iteration, I would want to just define json files or some plaintext serialised seeder file that I can just use to set up the entire simulation fixture.
+
+This means that the config specs should play well with the creation functions of the structs they will be creating and so on.
+
+I'm don't have a good imagination around how this can be done simply and with the least effort yet.
+
+****** [ ] Add alias to nodes for story telling purposes
+
+This is a QOL thing, so that the simulaation outputs look good.
+
+
+****** implementaion notes:
+ 1. this is a good case study on showing somehow how type constraint sharing can be done.
+
+****** stupid nominal type gotcha that i just couldn't see for very long
+:PROPERTIES:
+:CUSTOM_ID: nominal_typing_gotcha
+:END:
+#+begin_src md
+Nice — love the energy. 🎉 Below I’ll walk through a **comprehensive, concrete** explanation of the “fresh types / functor instantiation” gotcha using your original code and small code snippets to show *why* it happens and *how* to fix or avoid it in different ways.
+
+I’ll cover:
+
+1. What actually happened in your code (step-by-step)
+2. Why OCaml treats those types as incompatible
+3. Several robust ways to fix it (with small patches/snippets)
+4. Recommendations & patterns to avoid this in future
+
+---
+
+# 1) What actually happened (walk-through using your code)
+
+You have two files/modules that both instantiate the same functor:
+
+ `simulator.ml` contains:
+
+```ocaml
+module V = Value_string.Value_string
+module S = Storage_mem.Storage_mem (V)
+module B = Event_bus
+module NodeImpl = Node.Make_node (V) (S) (B)
+```
+
+ `simulation.ml` originally contained:
+
+```ocaml
+module V = Simulator.V
+module S = Storage_mem.Storage_mem (V)
+module B = Event_bus.Event_bus
+module NodeImpl = Node.Make_node (V) (S) (B)
+```
+
+Even though both `NodeImpl` definitions use the same functor application `Node.Make_node (V) (S) (B)`, they are **two separate instantiations**. OCaml treats each functor application as producing a *fresh, distinct* module value at compile time. That means:
+
+ `simulator.ml` has a module `NodeImpl` whose `spec` type is nominally `Simulator.NodeImpl.spec`.
+ `simulation.ml` has a (different) module `NodeImpl` whose `spec` type is nominally `Simulation.NodeImpl.spec`.
+
+So when `simulation.ml` writes:
+
+```ocaml
+let node_spec_1 : NodeImpl.spec = { ... }
+let n1 = node_spec_1 |> Simulator.add_node_to_sim sim
+```
+
+the compiler sees `node_spec_1` as `Simulation.NodeImpl.spec` but `Simulator.add_node_to_sim` expects a value of type `Simulator.NodeImpl.spec`. They *look the same structurally* but they are different *nominal types* — hence the error:
+
+```
+The value node_spec_1 has type NodeImpl.spec
+but an expression was expected of type Simulator.NodeImpl.spec
+```
+
+---
+
+# 2) Why OCaml does this (terse theory)
+
+ **Nominal typing for type identity**: OCaml uses *nominal* identity for type names produced by module/functor instantiations. Even if two record types have identical fields, if they were declared as separate type definitions (or produced by separate functor instantiations), they are different types.
+ **Each functor application is a fresh module**: `Node.Make_node (...)` evaluated twice creates two distinct modules, each with their own abstract type components (like `spec`, `t`, etc.). OCaml does not automatically unify these.
+ **This is intended**: it prevents accidental mixing of types from different runtime configurations (helps soundness / modularity). But it bites when you expected a single shared implementation-type across different files.
+
+Important nuance: it’s not about structural equality of record layout at runtime; it’s about *compile-time nominal identity* for type-checking.
+
+---
+
+# 3) Ways to fix / design patterns (with concrete code)
+
+Below are several practical solutions. Pick the one that best matches your design goals.
+
+## Fix A — **Share one NodeImpl module instance** (my earlier recommended fix)
+
+Make `simulation.ml` reuse the `NodeImpl` from `Simulator` rather than instantiating the functor again.
+
+**Change in `simulation.ml`:**
+
+```ocaml
+(* before *)
+(* module NodeImpl = Node.Make_node (V) (S) (B) *)
+
+(* after: reuse the simulator's NodeImpl *)
+module NodeImpl = Simulator.NodeImpl
+```
+
+Why this works: Both files now refer to *the same* module value, so `NodeImpl.spec` is the same nominal type everywhere.
+
+---
+
+## Fix B — **Expose NodeImpl from Simulator and use it everywhere**
+
+In `simulator.ml`:
+
+```ocaml
+module NodeImpl = Node.Make_node (V) (S) (B)
+module N = NodeImpl    (* alias exposed in the module *)
+```
+
+Then in `simulation.ml`:
+
+```ocaml
+module NodeImpl = Simulator.N
+```
+
+or refer as `Simulator.N.spec`. This is the same idea as Fix A but makes the `Simulator` API explicit about exposing the concrete node module.
+
+---
+
+## Fix C — **Parameterise by the Node module (functorize the Simulation driver)**
+
+If you want multiple runtime backends, make `Simulation` a functor that accepts the runtime implementation:
+
+```ocaml
+module Make_simulation (R : sig
+  module V : Value.S
+  module NodeImpl : Node.S
+  val add_node_to_sim : R.t -> NodeImpl.spec -> NodeImpl.t
+  ... (* other needed functions *)
+end) = struct
+  module V = R.V
+  module NodeImpl = R.NodeImpl
+  ...
+end
+```
+
+Then instantiate `Make_simulation (Simulator)` where `Simulator` is a module exposing the required components. This avoids re-instantiating `Node.Make_node`.
+
+---
+
+## Fix D — **Use a single module file that instantiates the functor and is shared**
+
+Create a file `node_impl.ml`:
+
+```ocaml
+(* node_impl.ml *)
+module V = Value_string.Value_string
+module S = Storage_mem.Storage_mem (V)
+module B = Event_bus
+module NodeImpl = Node.Make_node (V) (S) (B)
+```
+
+Then `simulator.ml` and `simulation.ml` open or refer to `NodeImpl` from that file (`Node_impl.NodeImpl`). This centralizes the instantiation.
+
+---
+
+## Fix E — **First-class modules** (more advanced; less ergonomic)
+
+You can create a first-class module value and pass it around; this avoids compile-time nominal mismatch but is more verbose:
+
+```ocaml
+let node_impl_module : (module Node.S) =
+  (module Node.Make_node (V) (S) (B) : Node.S)
+```
+
+Then unpack `(module M : Node.S) = node_impl_module` where needed. Use only when you need runtime selection between implementations.
+
+---
+
+## Fix F — **Use manifest types in .mli to force equality** (if practical)
+
+If you have an interface that must expose the concrete `spec` type to be the same, you can put a manifest in `simulator.mli`:
+
+```ocaml
+module NodeImpl : Node.S with type spec = ... (* concrete type expression *)
+```
+
+This is fiddly because you must write the concrete type expression exactly. Usually less pleasant than sharing the module.
+
+---
+
+# 4) Practical small check-list to avoid this in future
+
+ If two modules need to share types produced by a functor instantiation, **instantiate the functor exactly once** and reuse that module (Option A or D).
+ If you want swappable backends, **parameterize** the code via functors or first-class modules rather than instantiating the same functor twice.
+ When writing `.mli` signatures, **expose the module** (or alias) you want other code to use — that enforces a single canonical identity.
+ Avoid naming collisions like `module NodeImpl = Node.Make_node ...` in multiple files unless you intentionally want independent instantiations.
+
+---
+
+# 5) Small diagnostics & tips
+
+ If you see an error that says “value has type X but expression expected type Y”, check whether `X` and `Y` are the same name in the same module path. If the paths differ (e.g. `NodeImpl.spec` vs `Simulator.NodeImpl.spec`), they are separate types.
+ Ask the compiler to print inferred types for small expressions (in utop, use `#show` or `#show_module`?), or compile a small file to see the error location — the mismatch path usually tells you which module instance each type belongs to.
+ Grep your workspace for `Make_node (` to see how many instantiations you create. If there’s more than one, you'll likely see this error.
+
+---
+
+# 6) Example of the single-line patch that fixed your code
+
+From your working solution, you did the equivalent of:
+
+```ocaml
+(* simulation.ml *)
+module NodeImpl = Simulator.NodeImpl
+```
+
+This resolves the mismatch because now there’s exactly one `NodeImpl` module (the one in `Simulator`), and both `simulation.ml` and `simulator.ml` refer to it.
+
+---
+
+# 7) Final thoughts & recommended pattern
+
+For many projects I recommend:
+
+ Instantiate core functors in a single *composition* module (e.g., `runtime_impl.ml` or `node_impl.ml`) and **export** the concrete module(s) from there.
+ Have higher-level code/fuzzers/tests import that concrete module rather than re-instantiating the functor repeatedly.
+ When you need test-specific variants, use functor-based factories that *explicitly* return a module matching a module type, and then pass that module around — i.e., make dependency wiring explicit.
+
+---
+
+If you want, I can:
+
+ show a concrete small repo-like layout (3–4 files) with the “correct” wiring and `.mli` boundaries; or
+ transform your current code snippets into one canonical refactor (single `node_impl.ml` and updated `simulator.ml` + `simulation.ml`) and paste the exact patch.
+
+Which do you prefer?
+
+
+#+end_src
+
+***** [ ] Wire up global and module-specific logging to avoid dirty log statements
+
+the problem i'm facing looks like this:
+
+1. my custom logger implementation is too unpolished and so when using it, readability is taking a hit.
+
+   solution: for sim-actions, we need to move the printing into the predefined events for some things.
+
+2. the terminal output sometimes can be really verbose.
+
+   solution: log levels
+
+
 **** TODO Stage 5: Refinements & Cleanup
 :PROPERTIES:
 :EFFORT:   1h
@@ -3832,6 +4202,10 @@ let bus =
 ```
 
 #+end_src
+***** [ ] still falling for the nominal typing gotcha, exacerbated by silly naming
+
+See [[#nominal_typing_gotcha][here]]
+
 ***** [ ] type unionisation, parameter binding: sharing constraints vs destructive substitution
 
 I faced significant hurdles trying to extract out an inline signature for my node module, because it was inlined in a functor that depended on the injected polymorphic types from 3 other modules
@@ -4082,7 +4456,7 @@ The difference between destructuring in the function parameter list and destruct
 
 This happens because in the parameter destructuring case, the pattern is coupled with the function's type signature which tells the compiler exactly what record type is expected.
 
-***
+**
 
 ### How to fix or understand this better:
 
@@ -4264,11 +4638,156 @@ Inactive
 **** Quirks
 ***** [ ] Minor wishlist
 - i wish assert expressions had associated messages that we could use (we could always wrap this and make a custom assertion but still)
+- wish param destructures could be done for named parameters
+  #+begin_quote
+If you want to destructure topics directly in the function argument (destructuring a record within a named parameter), OCaml syntax doesn't support destructuring named parameters in the argument list directly. You have to destructure inside the function body.
+  #+end_quote
+
+
 ***** [ ] *_of accessors vs pattern-matched destructuring
 
 I notice an overlap in purpose of dedicated accessor functions and how they overlap with pattern-matching destructurers. I realise that the expressiveness of pattern-matching is probably more modern for the language.
 
 I wonder whether this means that dedicated accessor function is more for "only when it's too messy to destructure" and for trivial situations, we should just use pattern-matched destructures
+***** [ ] labelled arg destructuring is odd
+
+compare the two below:
+#+begin_src ocaml
+(* # correct: *)
+  (** Represents the act of a node driving the first step of the paxos process (asking for permission).
+      This means that the node's state as a Proposer will change from [ Idle ] to [ Peparing ], as we create the message then dispatch it. Once done dispatching,
+      the node will change its state to [ WaitingForPromises ], marking it ready to receive responses (both grants and nacks) for that proposal.
+
+      As such, every paxos process can be uniquely identified via its [proposal_id]
+   *)
+  let propose t ~msg_id ~time ~bus ~(assertion : V.t Types.paxos_assertion_state)
+      =
+    let proposal = assertion.proposal in
+    let value = assertion.value in
+    match t.state.proposer with
+    | State.Idle ->
+        {value; proposal} |> State.Preparing
+        |> transition_role_state t State.Proposer ;
+        let perm_request_msg =
+          Message.make_permission_request ~msg_id ~topic:Types.Coordination
+            ~from:t.id ~proposal ~value ~time
+        in
+        let msg = Message.Coordination perm_request_msg in
+        let thunk = ((Types.Coordination, None), msg) in
+        Bus.enqueue bus thunk ;
+        let assertion : assertion = {value; proposal} in
+        {assertion; promises_received= []; nacks_received= []}
+        |> State.WaitingForPromises
+        |> transition_role_state t State.Proposer
+    | _ ->
+        assert false (* we can only propose if we are currently idle *)
+
+
+
+
+(* # wrong: *)
+
+  (** Represents the act of a node driving the first step of the paxos process (asking for permission).
+      This means that the node's state as a Proposer will change from [ Idle ] to [ Peparing ], as we create the message then dispatch it. Once done dispatching,
+      the node will change its state to [ WaitingForPromises ], marking it ready to receive responses (both grants and nacks) for that proposal.
+
+      As such, every paxos process can be uniquely identified via its [proposal_id]
+   *)
+  let propose t ~msg_id ~time ~bus ~(assertion : V.t Types.paxos_assertion_state)
+      =
+    let {value; proposal} = assertion in
+    match t.state.proposer with
+    | State.Idle ->
+        {value; proposal} |> State.Preparing
+        |> transition_role_state t State.Proposer ;
+        let perm_request_msg =
+          Message.make_permission_request ~msg_id ~topic:Types.Coordination
+            ~from:t.id ~proposal ~value ~time
+        in
+        let msg = Message.Coordination perm_request_msg in
+        let thunk = ((Types.Coordination, None), msg) in
+        Bus.enqueue bus thunk ;
+        let assertion : assertion = {value; proposal} in
+        {assertion; promises_received= []; nacks_received= []}
+        |> State.WaitingForPromises
+        |> transition_role_state t State.Proposer
+    | _ ->
+        assert false (* we can only propose if we are currently idle *)
+
+
+#+end_src
+
+
+#+begin_src md
+The main reason you cannot use destructuring like
+
+```ocaml
+let { value; proposal } = assertion in
+```
+
+in your "incorrect" example, and get the error
+
+```
+Error: Unbound record field value
+```
+
+while the "correct" example works fine with direct field access, is that **OCaml requires the type of the record be fully known at the point of pattern matching/destructuring**.
+
+***
+
+### Explanation
+
+- To destructure a record `{ value; proposal }` via pattern matching, OCaml needs to know the exact **record type** of `assertion`.
+- If `assertion` is of a **polymorphic, abstract, or GADT type** without a known concrete record type at that scope, the compiler cannot resolve the field names `value` and `proposal`.
+- Your "correct" example uses direct field access `assertion.proposal` and `assertion.value` which can sometimes work even if the type is abstract but comes from an object or module exposing the field.
+- The destructuring requires concrete knowledge of the type definition.
+
+***
+
+### What to do
+
+1. **Ensure the type of `assertion` is explicitly annotated as the known record type before destructuring**
+
+For example:
+
+```ocaml
+let (assertion : assertion) = assertion in
+let {value; proposal} = assertion in
+```
+
+or directly annotate `assertion`'s argument with a concrete known type (the record type) in the function parameters.
+
+2. If `assertion` is a GADT or polymorphic variant with no fixed record shape, you cannot destructure it with `{ ... }`.
+
+3. Using `match` against record constructors rather than variable destructuring is sometimes more reliable.
+
+***
+
+### Summary:
+
+- OCaml's record destructuring `let {field; ...} = expr` works only when the type of `expr` is known to be exactly a record type with those fields.
+- If the type is abstract, polymorphic, or a GADT, the compiler cannot find field names — it throws "Unbound record field" error.
+- Annotate the type explicitly or avoid destructuring, using field access `expr.field` or pattern-match on constructors if applicable.
+
+***
+
+This is why your "correct" version with `assertion.proposal` and `assertion.value` works, but the destructuring fails.
+
+If you want, I can help you rewrite the code safely to support destructuring with explicit typing or better patterns.
+
+[1](https://stackoverflow.com/questions/63165980/ocaml-pattern-matching-a-variable-with-the-destructured-elements-of-a-tuple)
+[2](https://www2.lib.uchicago.edu/keith/ocaml-class/pattern-matching.html)
+[3](https://ocaml.org/manual/4.08/coreexamples.html)
+[4](https://www-users.cse.umn.edu/~kauffman/2041/06-pattern-matching.pdf)
+[5](https://ocaml.org/docs/tour-of-ocaml)
+[6](https://discuss.ocaml.org/t/non-exhaustive-destructuring-binding/8341)
+[7](https://ocaml.org/docs/guidelines)
+[8](https://reasonml.github.io/docs/en/destructuring)
+[9](https://reasonml.chat/t/destructuring-array-or-list/1848)
+[10](https://www.reddit.com/r/ProgrammingLanguages/comments/f4gfum/pattern_matching_in_your_language/)
+
+#+end_src
+
 
 *** [3] What I learnt about myself from this
 **** [ ] Importance of exposure for improving intuition

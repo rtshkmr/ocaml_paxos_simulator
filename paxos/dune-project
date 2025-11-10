@@ -18,7 +18,8 @@
 (package
  (name paxos)
  (synopsis "Learning paxos algo(s) using ocaml.")
- (description "A summary exercise at the end of a head-first dive into learning ocaml, this package just has some learning examples. ")
+ (description
+  "A summary exercise at the end of a head-first dive into learning ocaml, this package just has some learning examples. ")
  (depends ocaml)
  (tags
   ("add topics" "to describe" your project)))

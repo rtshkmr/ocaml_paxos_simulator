@@ -1,6 +1,6 @@
 (library
  (name paxos)
- (libraries base stdio unix core)
+ (libraries base stdio unix core core_unix.command_unix)
  (preprocess
   (pps ppx_jane))
  (modules_without_implementation runtime event value storage))

@@ -176,9 +176,9 @@ module Message = struct
     let meta = make_meta msg_id time topic in
     PermissionGranted {meta; from; assertion; last_accepted}
 
-  let make_suggestion ~msg_id ~topic ~time ~from ~proposal ~value =
+  let make_suggestion ~msg_id ~topic ~time ~from ~assertion =
     let meta = make_meta msg_id time topic in
-    Suggestion {meta; from; assertion= {proposal; value}}
+    Suggestion {meta; from; assertion}
 
   let make_accepted ~msg_id ~topic ~time ~from ~proposal ~value =
     let meta = make_meta msg_id time topic in

@@ -19,6 +19,11 @@ open Message
 open Event_bus
 
 module type S = sig
+  (** Abstract type representing a node instance. Concrete shape is opaque. *)
+  type t
+
+  include Has_spec with type t := t
+
   (** The value module determines the concrete type of values used in
       proposals and messages throughout the node. This is injected as a functor
       parameter but re-exposed here as a module for internal use to ensure all
@@ -44,7 +49,7 @@ module type S = sig
   (** A list of [role]s representing the roles assigned to a node. *)
   type roles = role list
 
-  val role_of_string : string -> role
+  val role_of_str : string -> role option
 
   type assertion = V.t Types.paxos_assertion_state [@@deriving sexp]
 
@@ -111,40 +116,18 @@ module type S = sig
   end
 
   (** Configuration for simulation semantics, including mutable cluster_size tracking. *)
-  type simulation_config = {mutable cluster_size: int option ref}
+  type runtime_config = {mutable cluster_size: int option ref}
 
   (** Node runtime configuration consisting of simulation settings, assigned roles,
       and a persistence storage backend. The types here are tied to the [Storage]
       module injected. *)
   type config =
-    { simulation: simulation_config
+    { runtime: runtime_config
     ; roles: roles
     ; storage: Storage.t
     ; topics: Types.topic list }
 
-  (** Abstract type representing a node instance. Concrete shape is opaque. *)
-  type t
-
-  val create :
-       ?state:State.role_state
-    -> id:Types.node_id
-    -> config:config
-    -> bus:V.t Message.t Bus.t
-    -> unit
-    -> t
-  (** [create ~id ~config ~bus ?topics ?state ()] creates a new node.
-      - [id]: unique identifier for the node.
-      - [config]: configuration including roles and storage.
-      - [bus]: event bus for inter-node communication, parametrized over
-        messages of type [V.t Message.t].
-      - [topics]: optional list of topics to subscribe to.
-      - [state]: optional initial internal state of the node.
-
-      Note: The types of [bus] and messages depend on the injected [V] and [Bus]
-      modules, ensuring tight coupling between node messaging and value representation. *)
-
-  val set_node_state : t -> State.role_state -> unit
-  (** Update the internal state of a node. *)
+  val register_node_with_bus : V.t Message.t Bus.t -> t -> t
 
   val roles : t -> roles
   (** Return the roles assigned to a node. *)
@@ -165,8 +148,7 @@ module type S = sig
     -> msg_id:int
     -> time:int
     -> bus:V.t Message.t Bus.t
-    -> proposal:Types.proposal_id
-    -> value:V.t
+    -> assertion:V.t Types.paxos_assertion_state
     -> unit
 
   val suggest :
@@ -174,8 +156,7 @@ module type S = sig
     -> time:int
     -> bus:V.t Message.t Bus.t
     -> t
-    -> proposal:Types.proposal_id
-    -> value:V.t
+    -> assertion:V.t Types.paxos_assertion_state
     -> unit
 
   val sexp_of_role_state : t -> Sexp.t
@@ -202,6 +183,16 @@ module type S = sig
 
   val get_cluster_size : t -> int
   (** convenience cluster size getter *)
+
+  type spec =
+    { node_id: int
+    ; node_alias: string
+    ; topic_strs: string list
+    ; initial_cluster_size: int
+    ; initial_state: string option
+    ; storage_config: string option }
+
+  val of_spec : spec -> t
 end
 
 (** The functor for constructing node implementations parameterized by:

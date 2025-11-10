@@ -7,6 +7,10 @@ open Message
 open Log
 
 module type S = sig
+  type t
+
+  include Has_spec with type t := t
+
   module V : Value.S
 
   module Storage : Storage.S
@@ -19,7 +23,7 @@ module type S = sig
 
   type roles = role list
 
-  val role_of_string : string -> role
+  val role_of_str : string -> role option
 
   type assertion = V.t Types.paxos_assertion_state [@@deriving sexp]
 
@@ -37,7 +41,6 @@ module type S = sig
     [@@deriving sexp]
   end
 
-  (* -- TODO: actually implement the FSM state changes for simple paxos. Refer to the notes in this response for a rough starting ground: https://www.perplexity.ai/search/i-m-writing-out-this-functor-i-yCdty5gmQjelAtQTW4J97g#15 *)
   module State : sig
     type nack = {rejected_assertion: assertion; hint: promise} [@@deriving sexp]
 
@@ -82,26 +85,15 @@ module type S = sig
     val is_quorum_reached : role_state -> int -> quorum_result
   end
 
-  (* TODO [REFACTOR] probably should be called "runtime_config" instead of "simulation_config" *)
-  type simulation_config = {mutable cluster_size: int option ref}
+  type runtime_config = {mutable cluster_size: int option ref}
 
   type config =
-    { simulation: simulation_config
+    { runtime: runtime_config
     ; roles: roles
     ; storage: Storage.t
     ; topics: Types.topic list }
 
-  type t
-
-  val create :
-       ?state:State.role_state
-    -> id:Types.node_id
-    -> config:config
-    -> bus:V.t Message.t Bus.t
-    -> unit
-    -> t
-
-  val set_node_state : t -> State.role_state -> unit
+  val register_node_with_bus : V.t Message.t Bus.t -> t -> t
 
   val roles : t -> roles
 
@@ -118,8 +110,7 @@ module type S = sig
     -> msg_id:int
     -> time:int
     -> bus:V.t Message.t Bus.t
-    -> proposal:Types.proposal_id
-    -> value:V.t
+    -> assertion:V.t Types.paxos_assertion_state
     -> unit
 
   val suggest :
@@ -127,8 +118,7 @@ module type S = sig
     -> time:int
     -> bus:V.t Message.t Bus.t
     -> t
-    -> proposal:Types.proposal_id
-    -> value:V.t
+    -> assertion:V.t Types.paxos_assertion_state
     -> unit
 
   val sexp_of_role_state : t -> Sexp.t
@@ -149,6 +139,16 @@ module type S = sig
     -> unit
 
   val get_cluster_size : t -> int
+
+  type spec =
+    { node_id: int
+    ; node_alias: string
+    ; topic_strs: string list
+    ; initial_cluster_size: int
+    ; initial_state: string option
+    ; storage_config: string option }
+
+  val of_spec : spec -> t
 end
 
 module Make_node
@@ -163,22 +163,22 @@ struct
 
   type roles = role list
 
+  let role_of_str = function
+    | "Proposer" ->
+        Some Proposer
+    | "Acceptor" ->
+        Some Acceptor
+    | "Learner" ->
+        Some Learner
+    | _s ->
+        None
+
   (** v0: for simple paxos, we shall just keep it to proposal id, can expand to (proposal_id, node_id) for multi-paxos *)
-  type proposal_key = Types.proposal_id
+  type proposal_key = Types.proposal_id [@@deriving sexp_of]
 
   type inbox_entry = {mutable messages: V.t Message.t list} [@@deriving sexp_of]
 
   type inbox = (proposal_key, inbox_entry) Hashtbl.t
-
-  let role_of_string = function
-    | "Proposer" ->
-        Proposer
-    | "Acceptor" ->
-        Acceptor
-    | "Learner" ->
-        Learner
-    | s ->
-        failwith ("Unknown role: " ^ s)
 
   type assertion = V.t Types.paxos_assertion_state [@@deriving sexp]
 
@@ -377,16 +377,17 @@ struct
     (* "We can only check for quorum reached on a nodes if that nodes is one of the states: [WaitingForPromises, ProposerAccepting]" *)
   end
 
-  type simulation_config = {mutable cluster_size: int option ref}
+  type runtime_config = {mutable cluster_size: int option ref}
 
   type config =
-    { simulation: simulation_config
+    { runtime: runtime_config
     ; roles: roles
     ; storage: Storage.t
     ; topics: Types.topic list }
 
   type t =
     { id: Types.node_id
+    ; alias: string
     ; config: config
     ; inbox: inbox
     ; mutable state: State.role_state
@@ -417,7 +418,7 @@ struct
         bus
 
   let get_cluster_size t =
-    Option.value !(t.config.simulation.cluster_size) ~default:0
+    Option.value !(t.config.runtime.cluster_size) ~default:0
 
   let sexp_of_role_state t = State.sexp_of_role_state t.state
 
@@ -466,24 +467,16 @@ struct
     Logger.log_node_state_change node.logger node.id old_state_str new_state_str ;
     node.state <- new_role_state
 
-  (* TODO DEPRECATED [FAT INTERFACE]: there's no point in having this anymore *)
-  let set_node_state (node : t) (new_state : State.role_state) : unit =
-    let old_state_str =
-      Sexplib.Sexp.to_string (State.sexp_of_role_state node.state)
-    in
-    let new_state_str =
-      Sexplib.Sexp.to_string (State.sexp_of_role_state new_state)
-    in
-    Logger.log_node_state_change node.logger node.id old_state_str new_state_str ;
-    node.state <- new_state
-
   (** Represents the act of a node driving the first step of the paxos process (asking for permission).
       This means that the node's state as a Proposer will change from [ Idle ] to [ Peparing ], as we create the message then dispatch it. Once done dispatching,
       the node will change its state to [ WaitingForPromises ], marking it ready to receive responses (both grants and nacks) for that proposal.
 
       As such, every paxos process can be uniquely identified via its [proposal_id]
    *)
-  let propose t ~msg_id ~time ~bus ~proposal ~value =
+  let propose t ~msg_id ~time ~bus ~(assertion : V.t Types.paxos_assertion_state)
+      =
+    let proposal = assertion.proposal in
+    let value = assertion.value in
     match t.state.proposer with
     | State.Idle ->
         {value; proposal} |> State.Preparing
@@ -503,10 +496,10 @@ struct
         assert false (* we can only propose if we are currently idle *)
 
   (* TODO: [FSM] need to have a state change within the node after suggesting? This should allow us to capture the incoming accepted or something *)
-  let suggest ~msg_id ~time ~bus t ~proposal ~value =
+  let suggest ~msg_id ~time ~bus t ~assertion =
     let coord_msg =
       Message.make_suggestion ~msg_id ~time ~topic:Types.Coordination ~from:t.id
-        ~proposal ~value
+        ~assertion
     in
     let msg = Message.Coordination coord_msg in
     let thunk = ((Types.Coordination, None), msg) in
@@ -665,7 +658,7 @@ struct
           Sexp.to_string_hum
             (Types.sexp_of_paxos_assertion_state V.sexp_of_t assertion)
     in
-    let msg =
+    let log_msg =
       Printf.sprintf
         "... node %d received permission granted from %d with proposal=%s for \
          last_accepted=(%s)"
@@ -673,7 +666,7 @@ struct
         (Sexp.to_string_hum (Types.sexp_of_proposal_id proposal))
         last_accepted_str
     in
-    Logger.log_subroutine_flow node.logger Stdlib.__FUNCTION__ ~msg () ;
+    Logger.log_subroutine_flow node.logger Stdlib.__FUNCTION__ ~msg:log_msg () ;
     let msg_id = 1 + id in
     let time = 1 + timestamp in
     match node.state.proposer with
@@ -702,7 +695,7 @@ struct
                 (Sexp.to_string_hum (Types.sexp_of_proposal_id proposal))
             in
             Logger.log_decision node.logger log_msg ;
-            suggest ~msg_id ~time ~bus node ~proposal ~value:assertion.value ;
+            suggest ~msg_id ~time ~bus node ~assertion ;
             {assertion; acks= []; nacks_received= []}
             |> State.ProposerAccepting
             |> transition_role_state node State.Proposer
@@ -844,7 +837,7 @@ struct
         let msg_id = 1 + id in
         let time = 1 + timestamp in
         let bus = bus_for_topic node topic in
-        suggest ~msg_id ~time ~bus node ~proposal ~value:best.value ;
+        suggest ~msg_id ~time ~bus node ~assertion ;
         {assertion; acks= []; nacks_received= []}
         |> State.ProposerAccepting
         |> transition_role_state node State.Proposer
@@ -907,12 +900,6 @@ struct
     | _ ->
         ()
 
-  let default_config ~roles ~storage =
-    { roles
-    ; storage
-    ; simulation= {cluster_size= ref None}
-    ; topics= [Types.Coordination; Types.Time; Types.Simulation_control] }
-
   (** this allows us to choose handlers based on the topic *)
   let get_handler_for_topic (node : t) (topic : Types.topic) :
       V.t Event_bus.bus_registrable_callback =
@@ -931,17 +918,7 @@ struct
     | _ ->
         failwith "Unsupported topic for message passing"
 
-  let create ?(state = State.idle_of ()) ~id ~config ~bus () =
-    let topics = config.topics in
-    let node =
-      { id
-      ; state
-      ; config
-      ; subs= Hashtbl.Poly.create ()
-      ; inbox= Hashtbl.Poly.create ()
-      ; transitions= ref []
-      ; logger= Logger.create () }
-    in
+  let register_node_with_bus bus ({config= {topics; _}; id; _} as node) =
     List.iter topics ~f:(fun topic ->
         let topic_table =
           match Hashtbl.find node.subs topic with
@@ -953,8 +930,9 @@ struct
               table
         in
         let callback msg = get_handler_for_topic node topic msg in
-        let node_id = node.id in
-        let subscription_handle = Bus.subscribe bus ~topic ~node_id callback in
+        let subscription_handle =
+          callback |> Bus.subscribe bus ~topic ~node_id:id
+        in
         Hashtbl.add_exn topic_table ~key:subscription_handle ~data:bus ) ;
     node
 
@@ -968,5 +946,38 @@ struct
       | _ ->
           invalid_arg "cluster_size must be > 0 or None"
     in
-    {topics; simulation= {cluster_size= ref cluster_size_opt}; roles; storage}
+    {topics; runtime= {cluster_size= ref cluster_size_opt}; roles; storage}
+
+  type spec =
+    { node_id: int
+    ; node_alias: string
+    ; topic_strs: string list
+    ; initial_cluster_size: int
+    ; initial_state: string option
+    ; storage_config: string option }
+
+  let of_spec
+      { node_id
+      ; node_alias
+      ; topic_strs
+      ; initial_cluster_size
+      ; initial_state
+      ; storage_config } =
+    (* TODO: allow initial_state to be injected; *)
+    let default_state = State.idle_of () in
+    let config =
+      { runtime= {cluster_size= ref (Some initial_cluster_size)}
+      ; roles=
+          ["Acceptor"; "Learner"; "Proposer"] |> List.filter_map ~f:role_of_str
+      ; storage= Storage.create ()
+      ; topics= topic_strs |> List.filter_map ~f:Types.topic_of_str }
+    in
+    { id= node_id
+    ; alias= node_alias
+    ; state= default_state
+    ; config
+    ; subs= Hashtbl.Poly.create ()
+    ; inbox= Hashtbl.Poly.create ()
+    ; transitions= ref []
+    ; logger= Logger.create () }
 end

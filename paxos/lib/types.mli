@@ -37,4 +37,15 @@ module Types : sig
 
   val make_proposal_id : seq:int -> node:node_id -> proposal_id
   (** Convenience builder helpers *)
+
+  val topic_of_str : string -> topic option
+end
+
+(** Modules that satisfy this interface define a specific spec type which can be used to generate structs of that module.*)
+module type Has_spec = sig
+  type t
+
+  type spec
+
+  val of_spec : spec -> t
 end

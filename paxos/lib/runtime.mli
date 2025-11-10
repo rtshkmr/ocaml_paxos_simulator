@@ -1,4 +1,5 @@
 open Time
+open Types
 
 (**
   Defines the abstract interface for a simulation runtime.
@@ -7,35 +8,15 @@ open Time
 module type Runtime = sig
   type t
 
-  (* here, we expose the modules that will be used to create a node *)
+  include Has_spec with type t := t
+
   module V : Value.S
 
-  module B : Event_bus.S
+  module N : Node.S
 
-  module S : Storage.S
-
-  type msg
-
-  val msg_of_message : V.t Message.Message.t -> msg
-  (** [msg_of_message] returns a Runtime.msg nominal type.
-
-    FIXME SMELL: this is a hack, possible code smell because we have structural type equality but the nominal types are different.
-
-    We can observe this in the simulation setup where our [send_message] expects the message to be [type Simulator.msg], but using the
-    Constructor for [Message.Coordination] gives us type [V.t Message.Message.t].
-
-    Seems like some sort of type definition drift. This feels like a smell in the design of things.
-   *)
-
-  type node
+  type msg = V.t Message.Message.t
 
   type event
-
-  val create : config:Config.t -> t
-  (** Create a new (simulation) runtime from configuration. *)
-
-  val add_node : t -> node_spec:Config.node_spec -> node
-  (** Add a new node to the simulation. Returns the created node. *)
 
   val start : t -> unit
   (** Start continuous simulation until stopped. *)
@@ -46,7 +27,7 @@ module type Runtime = sig
   val step : t -> unit
   (** Execute one simulation tick (advance time, run due events). *)
 
-  val get_nodes : t -> node list
+  val get_nodes : t -> N.t list
   (** Get the list of registered nodes. *)
 
   val make_event : t -> ?id:int -> time:int -> (unit -> unit) -> unit -> event
@@ -58,9 +39,6 @@ module type Runtime = sig
     -> time:int
     -> msg Event_bus.Event_bus.enqueuable_thunk
     -> event
-
-  type msg_factory =
-    msg_id:int -> from:node -> ?to_node:node -> time:Time.t -> unit -> msg
 
   val next_msg_id : t -> int
 
@@ -85,9 +63,13 @@ module type Runtime = sig
 
   val make_node_proposal_event :
        t
-    -> initiator:node
-    -> proposal:Types.Types.proposal_id
-    -> value:V.t
+    -> initiator:N.t
+    -> assertion:V.t Types.paxos_assertion_state
     -> time:int
     -> event
+
+  type spec =
+    {max_ticks: int option; deterministic_seed: int option; log_jsonl: bool}
+
+  val of_spec : spec -> t
 end

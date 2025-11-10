@@ -132,8 +132,7 @@ module Message : sig
     -> topic:Types.topic
     -> time:Time.t
     -> from:Types.node_id
-    -> proposal:Types.proposal_id
-    -> value:'v
+    -> assertion:'v Types.paxos_assertion_state
     -> 'v coordination_message
 
   val make_accepted :
