@@ -1,6 +1,13 @@
 (library
  (name paxos)
- (libraries base stdio unix core core_unix.command_unix)
+ (libraries
+  base
+  stdio
+  unix
+  core
+  core_unix.command_unix
+  yojson
+  ppx_deriving_yojson.runtime)
  (preprocess
-  (pps ppx_jane))
- (modules_without_implementation runtime event value storage))
+  (pps ppx_jane ppx_deriving_yojson))
+ (modules_without_implementation runtime value storage))

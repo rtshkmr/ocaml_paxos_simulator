@@ -22,6 +22,10 @@ module type S = sig
   (** Abstract type representing a node instance. Concrete shape is opaque. *)
   type t
 
+  val id_of : t -> Types.node_id
+
+  val alias_of : t -> string
+
   include Has_spec with type t := t
 
   (** The value module determines the concrete type of values used in
@@ -85,7 +89,7 @@ module type S = sig
     [@@deriving sexp]
 
     type proposer_state =
-      | Inactive
+      | ProposerInactive
       | Idle
       | Preparing of assertion
       | WaitingForPromises of waiting_for_promise_state
@@ -93,7 +97,10 @@ module type S = sig
       | Decided of V.t
     [@@deriving sexp]
 
-    type acceptor_state = Inactive | Idle | Accepting of Acceptor_record.value
+    type acceptor_state =
+      | AcceptorInactive
+      | Idle
+      | Accepting of Acceptor_record.value
 
     type learner_state = Learned of V.t option [@@deriving sexp]
 
@@ -191,6 +198,7 @@ module type S = sig
     ; initial_cluster_size: int
     ; initial_state: string option
     ; storage_config: string option }
+  [@@deriving sexp, yojson]
 
   val of_spec : spec -> t
 end

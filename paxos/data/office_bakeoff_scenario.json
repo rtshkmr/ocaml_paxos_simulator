@@ -1,0 +1,71 @@
+{
+  "preamble": "Fun office bakeoff with nodes going inactive\nand reactivating.\nTesting system resilience and reconfiguration.",
+  "simulator": {
+    "max_ticks": 181,
+    "deterministic_seed": 987,
+    "log_jsonl": false
+  },
+  "nodes": [
+    {
+      "node_id": 1,
+      "node_alias": "BakeBoii",
+      "topic_strs": ["Coordination", "Simulation_control", "Time"],
+      "initial_cluster_size": 3,
+      "initial_state": null,
+      "storage_config": null
+    },
+    {
+      "node_id": 2,
+      "node_alias": "PastryGurl",
+      "topic_strs": ["Coordination", "Simulation_control", "Time"],
+      "initial_cluster_size": 3,
+      "initial_state": null,
+      "storage_config": null
+    },
+    {
+      "node_id": 3,
+      "node_alias": "CookieQueen",
+      "topic_strs": ["Coordination", "Simulation_control", "Time"],
+      "initial_cluster_size": 3,
+      "initial_state": null,
+      "storage_config": null
+    }
+  ],
+  "events": [
+    {
+      "id": null,
+      "time": 2,
+      "kind": "proposal",
+      "target": "BakeBoii",
+      "data": "Office bakeoff starting proposal"
+    },
+    {
+      "id": null,
+      "time": 3,
+      "kind": "control",
+      "target": "CookieQueen",
+      "data": "deactivate"
+    },
+    {
+      "id": null,
+      "time": 5,
+      "kind": "control",
+      "target": "CookieQueen",
+      "data": "reactivate"
+    },
+    {
+      "id": null,
+      "time": 9,
+      "kind": "proposal",
+      "target": "PastryGurl",
+      "data": "PastryGurl makes a late proposal"
+    },
+    {
+      "id": null,
+      "time": 1,
+      "kind": "metric",
+      "target": null,
+      "data": "print_bus_stats"
+    }
+  ]
+}

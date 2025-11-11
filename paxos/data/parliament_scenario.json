@@ -1,0 +1,23 @@
+{
+  "preamble": "Parliament simulation with multiple nodes paving\npaths to consensus.\nInspired by Leslie Lamport's original Paxos parable.",
+  "simulator": {
+    "max_ticks": 500,
+    "deterministic_seed": 1234,
+    "log_jsonl": false
+  },
+  "nodes": [
+    { "node_id": 1, "node_alias": "Speaker", "topic_strs": ["Coordination", "Simulation_control", "Time"], "initial_cluster_size": 5, "initial_state": null, "storage_config": null },
+    { "node_id": 2, "node_alias": "MemberA", "topic_strs": ["Coordination", "Simulation_control", "Time"], "initial_cluster_size": 5, "initial_state": null, "storage_config": null },
+    { "node_id": 3, "node_alias": "MemberB", "topic_strs": ["Coordination", "Simulation_control", "Time"], "initial_cluster_size": 5, "initial_state": null, "storage_config": null },
+    { "node_id": 4, "node_alias": "MemberC", "topic_strs": ["Coordination", "Simulation_control", "Time"], "initial_cluster_size": 5, "initial_state": null, "storage_config": null },
+    { "node_id": 5, "node_alias": "MemberD", "topic_strs": ["Coordination", "Simulation_control", "Time"], "initial_cluster_size": 5, "initial_state": null, "storage_config": null }
+  ],
+  "events": [
+    {"id": null, "time": 1, "kind": "proposal", "target": "Speaker", "data": "Opening remarks and initial proposal."},
+    {"id": null, "time": 10, "kind": "proposal", "target": "MemberA", "data": "MemberA proposes alternative."},
+    {"id": null, "time": 20, "kind": "proposal", "target": "MemberB", "data": "MemberB joins consensus."},
+    {"id": null, "time": 30, "kind": "control", "target": "MemberC", "data": "deactivate"},
+    {"id": null, "time": 50, "kind": "control", "target": "MemberC", "data": "reactivate"},
+    {"id": null, "time": 100, "kind": "metric", "target": null, "data": "print_bus_stats"}
+  ]
+}

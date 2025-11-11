@@ -3,7 +3,7 @@
 #+OPTIONS: toc:nil
 #+OPTIONS: H:8
 #+OPTIONS: num:nil
-#+STARTUP: inlineimages
+#+STARTUP: inlineimages show2levels
 #+HTML_HEAD: <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/rtshkmr/dotfiles@main/styles/tufte.css"/>
 #+HTML_HEAD: <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/rtshkmr/dotfiles@main/styles/fonts/Fira_Code_v6.2/fira_code.css"/>
 #+HTML_HEAD: <script src="https://cdn.jsdelivr.net/gh/rtshkmr/dotfiles@main/styles/collapsible.js"></script>
@@ -821,6 +821,7 @@ we won't be doing this, but just to dump it here:
 CLOCK: [2025-10-30 Thu 20:29]--[2025-10-30 Thu 20:43] =>  0:14
 CLOCK: [2025-10-30 Thu 19:30]--[2025-10-30 Thu 20:29] =>  0:59
 :END:
+
 Time should be logical and not absolute. This allows us to have a layer of indirection for time and map it to absolute offsets almost. That layer of indirection would be powerful because then we can add in time-sync (make time go slower, faster w.r.t actual clocks) and perhaps even explore the nuances that time-synchro problems have as this demo-project evolves over time.
 
 I think Simulator should be the owner of time most likely. Ticking should happen there, and there should be a way to manage the time there. I suspect that there's a need to have a separate Time that is distinct in the near future. That timer's responsibility can likely be a logical to absolute converter. In so doing, the rest of the system (simulator, bus, ...) can just be separated from time-keeping duties (?)
@@ -996,7 +997,8 @@ Here's a plausible order of rolling this out:
 6) Use event log to record (message, time) tuples.
 
 7) (optional) Add local clocks to nodes for drift simulation.
-
+***** References
+1. [[https://doc.photonengine.com/fusion/current/concepts-and-patterns/network-simulation-loop][game engine network time simulations]]
 
 *** TODO Design Simulator Interface
 
@@ -2259,7 +2261,9 @@ For our implementation:
 
 ******** recipient
 
-All nodes that are not =Inactive=.
+All nodes that are NOT =Inactive=.
+
+NOTE: inactive notes won't even reply.
 
 This is because every node will simultaneously have state management for all 3 roles: Proposer, Acceptor, Learner. The sub-states are all independently managed.
 
@@ -2368,6 +2372,55 @@ All nodes that are not =Inactive= for their =Acceptor= state.
 
 
 One thing to note is that we don't really reset the state. This is because simple paxos is about running one instance of the paxos process. So the final state is the decided sate.
+
+NOTE: at the moment, we don't have the decided value being broadcasted. If this is added in, what's the role of the learners?
+******* TODO Behaviour of inactive nodes
+- Inactive nodes must ignore all Paxos messages related to proposals (prepare/accept requests) because they cannot participate safely.
+
+- In our implementation, this means if the node’s acceptor and proposer states are Inactive, the handlers like =handle_permission_request= should no-op or return early.
+
+  We'll just log something out.
+
+- They should not send promises, accepts, or any responses while inactive.
+
+- Inactivation simulates a node failure, network partition, or crash without stopping the simulation.
+
+- Inactivation requires no immediate persistence; the current state can be persisted at any state change.
+
+- On reactivation, node state *should be reloaded from persistent storage transparently*, restoring its last known state.
+
+- Reactivation moves the node from Inactive to Idle or appropriate state so it can resume participation.
+
+  * as a first-pass, we'll just do a state dump of the entire node and recover it again.
+
+******* TODO Learner role
+
+The Learner role is not implemented yet, I'm guessing it should just be sufficient to broadcast a learner message / decided message which doesn't do any collection of ACKs, it just broadcasts that messages to everyone and ther own learners will probably get updated as well. I'm guessing we can just keep a list of payloads within learner just to be curious what they store?
+
+- Learners do not participate in making proposals or accepting; they *only learn decided values*.
+
+- On receiving Accept messages, learners update their local learned state if consensus is reached.
+
+- When a consensus value is finally decided by proposer/acceptor quorum, a decided message should be broadcast to all learners.
+
+- Learners update their local state (e.g., store decided value) on receiving these broadcasts.
+
+- Learners can maintain a list/history of decided values or only track the latest.
+
+- Learners’ role is to provide eventual consistency of the decided state across all nodes.
+
+- Learners' state changes should also be persisted for node recovery.
+
+******* TODO Persistence for Deactivation/Reactivation
+Deactivation is just a corruption / network partition simulation so it's like going offline.
+
+It seems that at all steps / event handlers, when there are state changes, the nodes state should just be persisted.
+
+This means that there's no need to explicitly do persistance at the point in time the node becomes inactive and this inactivation can just be done silently without any worry.
+
+In the case of reactivations, we can just reload the entire state of the node from persistence.
+
+As for what the storage should be, we can do a file dump as sexp or json and then recover it from json by parsing it. The actual logic can be mediated by the Storage struct within node. That way. We can just do modify =Storage_mem= for this for now
 
 ****** Some questions
 1. [X] A node will have multiple states at once, correct?
@@ -3529,6 +3582,8 @@ We should be able to move onto the test-writing stuff. I just wanna demonstrate 
 :EFFORT:   1h
 :END:
 
+We wish to turn simulation setup into a data-driven fixture system—one where we can describe entire topologies and timelines declaratively, instead of writing imperative OCaml that builds them.
+
 - Goal: Demonstrate full cycle in the simulator.
 
 - Tasks:
@@ -3552,7 +3607,10 @@ It's just to help make the simulator more fun to use, it's also a QOL thing but 
 
 - [ ] use the cli to inject user desires into the simulation.ml, and allow the simulation.ml to orchestrate the rest of the simulation (like before).
 
-***** [ ] Enrich module types with specs for easy fixtures setup
+***** [X] Enrich module types with specs for easy fixtures setup
+CLOSED: [2025-11-11 Tue 17:00]
+- CLOSING NOTE [2025-11-11 Tue 17:00] \\
+  Done!
 :LOGBOOK:
 CLOCK: [2025-11-10 Mon 15:11]--[2025-11-10 Mon 21:13] =>  6:02
 CLOCK: [2025-11-10 Mon 12:12]--[2025-11-10 Mon 13:49] =>  1:37
@@ -3658,24 +3716,6 @@ General options:
       - =load_spec= → for file / CLI ingestion
 
         so CLI =load_spec= → Simulator =init_from_spec= → Node =of_spec=
-
-****** [ ] Improving the usefulness of config
-
-Currently, config.ml is just a rudimentary separation of concerns. The idea is that config will define plaintext specs that we can use to create the other structs like nodes, simulation, scenarios and so on. It's also important to be able to define simulation events properly so that we essentially have the entire simulation timeline defined in plaintext, adhering to specs that will be easy to create sophisticated scenarios.
-
-eventually in a later iteration, I would want to just define json files or some plaintext serialised seeder file that I can just use to set up the entire simulation fixture.
-
-This means that the config specs should play well with the creation functions of the structs they will be creating and so on.
-
-I'm don't have a good imagination around how this can be done simply and with the least effort yet.
-
-****** [ ] Add alias to nodes for story telling purposes
-
-This is a QOL thing, so that the simulaation outputs look good.
-
-
-****** implementaion notes:
- 1. this is a good case study on showing somehow how type constraint sharing can be done.
 
 ****** stupid nominal type gotcha that i just couldn't see for very long
 :PROPERTIES:
@@ -3899,7 +3939,276 @@ Which do you prefer?
 
 #+end_src
 
-***** [ ] Wire up global and module-specific logging to avoid dirty log statements
+****** [X] Add alias to nodes for story telling purposes
+CLOSED: [2025-11-11 Tue 09:15]
+
+- CLOSING NOTE [2025-11-11 Tue 09:15] \\
+  Finished this already, though the logging side isn't improved yet
+This is a QOL thing, so that the simulaation outputs look good.
+
+****** [X] Adding context within EventScheduler Events
+CLOSED: [2025-11-11 Tue 15:48]
+- CLOSING NOTE [2025-11-11 Tue 15:48] \\
+  done, we have a =Sim_event= module for this
+:LOGBOOK:
+CLOCK: [2025-11-11 Tue 10:43]--[2025-11-11 Tue 13:07] =>  2:24
+CLOCK: [2025-11-11 Tue 09:03]--[2025-11-11 Tue 09:45] =>  0:42
+:END:
+
+Currently, an event that is scheduled by the =EventScheduler= is just ={time; action; id}=.
+
+It’s opaque — we can’t introspect what kind of event it was (message vs metric vs node control).
+
+In debugging and logging, this becomes painful and we might wishh to do some record replay type behaviour for this simulator in the future. We shall add a =sim_event_type=.
+
+the main benefit that we are trying to reach here: defining event timelines will be cleaner this way
+
+****** [X] Improving the usefulness of +config+ SimLoader
+CLOSED: [2025-11-11 Tue 16:56]
+
+- CLOSING NOTE [2025-11-11 Tue 16:56] \\
+  We have a =Simulation_loader= now
+Currently, config.ml is just a rudimentary separation of concerns. The idea is that config will define plaintext specs that we can use to create the other structs like nodes, simulation, scenarios and so on. It's also important to be able to define simulation events properly so that we essentially have the entire simulation timeline defined in plaintext, adhering to specs that will be easy to create sophisticated scenarios.
+
+eventually in a later iteration, I would want to just define json files or some plaintext serialised seeder file that I can just use to set up the entire simulation fixture.
+
+This means that the config specs should play well with the creation functions of the structs they will be creating and so on.
+
+I'm don't have a good imagination around how this can be done simply and with the least effort yet.
+
+-----
+
+Config can become the orchestrator for injecting data-driven simulation fixture setup
+
+This is where we can do loading of simualtion timelines from json file. I think it's worth the effort to allow people to play around with it.
+
+****** implementation notes:
+ 1. this is a good case study on showing somehow how type constraint sharing can be done.
+
+***** [X] Rewire node controls for sim control events
+CLOSED: [2025-11-11 Tue 20:50]
+- CLOSING NOTE [2025-11-11 Tue 20:50] \\
+  This works, though on deactivation and reactivation, the storage side still needs to be handled.
+:LOGBOOK:
+CLOCK: [2025-11-11 Tue 19:47]--[2025-11-11 Tue 20:50] =>  1:03
+:END:
+  - [X] we need to be able to make the node inactive for our simulations to work
+
++ We can schedule control events like that:
+  #+begin_src json
+    {
+      "id": null,
+      "time": 2,
+      "kind": "control",
+      "target": "BakeBoii",
+      "data": "deactivate"
+    }
+  #+end_src
+***** [X] Define scenarios
+CLOSED: [2025-11-11 Tue 22:08]
+- CLOSING NOTE [2025-11-11 Tue 22:08] \\
+  This is somewhat done, there's some missing logic that has to be added in.
+the following are rough examples, they may have minor errors in theh DSL usage, the actual files are the sources of truth.
+
+1) basic
+   #+begin_src json
+{
+  "preamble": "Basic Paxos demonstration scenario.\nConsensus is reached\nwith two nodes simply proposing and agreeing.",
+  "simulator": {
+    "max_ticks": 181,
+    "deterministic_seed": 181,
+    "log_jsonl": false
+  },
+  "nodes": [
+    {
+      "node_id": 1,
+      "node_alias": "BakeBoii",
+      "topic_strs": ["Coordination", "Simulation_control", "Time"],
+      "initial_cluster_size": 2,
+      "initial_state": null,
+      "storage_config": null
+    },
+    {
+      "node_id": 2,
+      "node_alias": "PastryGurl",
+      "topic_strs": ["Coordination", "Simulation_control", "Time"],
+      "initial_cluster_size": 2,
+      "initial_state": null,
+      "storage_config": null
+    }
+  ],
+  "events": [
+    {
+      "id": null,
+      "time": 2,
+      "kind": "proposal",
+      "target": "BakeBoii",
+      "data": "Initial proposal from BakeBoii"
+    },
+    {
+      "id": null,
+      "time": 9,
+      "kind": "proposal",
+      "target": "PastryGurl",
+      "data": "Follow-up proposal from PastryGurl"
+    },
+    {
+      "id": null,
+      "time": 1,
+      "kind": "metric",
+      "target": null,
+      "data": "print_bus_stats"
+    }
+  ]
+}
+   #+end_src
+2) office_bakeoff
+   #+begin_src json
+{
+  "preamble": "Fun office bakeoff with nodes going inactive\nand reactivating.\nTesting system resilience and reconfiguration.",
+  "simulator": {
+    "max_ticks": 181,
+    "deterministic_seed": 987,
+    "log_jsonl": false
+  },
+  "nodes": [
+    {
+      "node_id": 1,
+      "node_alias": "BakeBoii",
+      "topic_strs": ["Coordination", "Simulation_control", "Time"],
+      "initial_cluster_size": 3,
+      "initial_state": null,
+      "storage_config": null
+    },
+    {
+      "node_id": 2,
+      "node_alias": "PastryGurl",
+      "topic_strs": ["Coordination", "Simulation_control", "Time"],
+      "initial_cluster_size": 3,
+      "initial_state": null,
+      "storage_config": null
+    },
+    {
+      "node_id": 3,
+      "node_alias": "CookieQueen",
+      "topic_strs": ["Coordination", "Simulation_control", "Time"],
+      "initial_cluster_size": 3,
+      "initial_state": null,
+      "storage_config": null
+    }
+  ],
+  "events": [
+    {
+      "id": null,
+      "time": 2,
+      "kind": "proposal",
+      "target": "BakeBoii",
+      "data": "Office bakeoff starting proposal"
+    },
+    {
+      "id": null,
+      "time": 3,
+      "kind": "control",
+      "target": "CookieQueen",
+      "data": "deactivate"
+    },
+    {
+      "id": null,
+      "time": 5,
+      "kind": "control",
+      "target": "CookieQueen",
+      "data": "reactivate"
+    },
+    {
+      "id": null,
+      "time": 9,
+      "kind": "proposal",
+      "target": "PastryGurl",
+      "data": "PastryGurl makes a late proposal"
+    },
+    {
+      "id": null,
+      "time": 1,
+      "kind": "metric",
+      "target": null,
+      "data": "print_bus_stats"
+    }
+  ]
+}
+   #+end_src
+3) parliament
+
+   #+begin_src json
+{
+  "preamble": "Parliament simulation with multiple nodes paving\npaths to consensus.\nInspired by Leslie Lamport's original Paxos parable.",
+  "simulator": {
+    "max_ticks": 500,
+    "deterministic_seed": 1234,
+    "log_jsonl": false
+  },
+  "nodes": [
+    { "node_id": 1, "node_alias": "Speaker", "topic_strs": ["Coordination", "Simulation_control", "Time"], "initial_cluster_size": 5, "initial_state": null, "storage_config": null },
+    { "node_id": 2, "node_alias": "MemberA", "topic_strs": ["Coordination", "Simulation_control", "Time"], "initial_cluster_size": 5, "initial_state": null, "storage_config": null },
+    { "node_id": 3, "node_alias": "MemberB", "topic_strs": ["Coordination", "Simulation_control", "Time"], "initial_cluster_size": 5, "initial_state": null, "storage_config": null },
+    { "node_id": 4, "node_alias": "MemberC", "topic_strs": ["Coordination", "Simulation_control", "Time"], "initial_cluster_size": 5, "initial_state": null, "storage_config": null },
+    { "node_id": 5, "node_alias": "MemberD", "topic_strs": ["Coordination", "Simulation_control", "Time"], "initial_cluster_size": 5, "initial_state": null, "storage_config": null }
+  ],
+  "events": [
+    {"id": null, "time": 1, "kind": "proposal", "target": "Speaker", "data": "Opening remarks and initial proposal."},
+    {"id": null, "time": 10, "kind": "proposal", "target": "MemberA", "data": "MemberA proposes alternative."},
+    {"id": null, "time": 20, "kind": "proposal", "target": "MemberB", "data": "MemberB joins consensus."},
+    {"id": null, "time": 30, "kind": "control", "target": "MemberC", "data": "inactive"},
+    {"id": null, "time": 50, "kind": "control", "target": "MemberC", "data": "reactivate"},
+    {"id": null, "time": 100, "kind": "metric", "target": null, "data": "print_bus_stats"}
+  ]
+}
+   #+end_src
+***** [ ] Handle Learner behaviour & no-op for inactive nodes
+******* TODO Behaviour of inactive nodes
+
+:LOGBOOK:
+CLOCK: [2025-11-11 Tue 22:09]--[2025-11-11 Tue 23:05] =>  0:56
+:END:
+- Inactive nodes must ignore all Paxos messages related to proposals (prepare/accept requests) because they cannot participate safely.
+
+- In our implementation, this means if the node’s acceptor and proposer states are Inactive, the handlers like =handle_permission_request= should no-op or return early.
+
+  We'll just log something out.
+
+- They should not send promises, accepts, or any responses while inactive.
+
+- Inactivation simulates a node failure, network partition, or crash without stopping the simulation.
+
+- Inactivation requires no immediate persistence; the current state can be persisted at any state change.
+
+- On reactivation, node state *should be reloaded from persistent storage transparently*, restoring its last known state.
+
+- Reactivation moves the node from Inactive to Idle or appropriate state so it can resume participation.
+
+  * as a first-pass, we'll just do a state dump of the entire node and recover it again.
+
+******* TODO Learner role
+
+The Learner role is not implemented yet, I'm guessing it should just be sufficient to broadcast a learner message / decided message which doesn't do any collection of ACKs, it just broadcasts that messages to everyone and ther own learners will probably get updated as well. I'm guessing we can just keep a list of payloads within learner just to be curious what they store?
+
+- Learners do not participate in making proposals or accepting; they *only learn decided values*.
+
+- On receiving Accept messages, learners update their local learned state if consensus is reached.
+
+- When a consensus value is finally decided by proposer/acceptor quorum, a decided message should be broadcast to all learners.
+
+- Learners update their local state (e.g., store decided value) on receiving these broadcasts.
+
+- Learners can maintain a list/history of decided values or only track the latest.
+
+- Learners’ role is to provide eventual consistency of the decided state across all nodes.
+
+- Learners' state changes should also be persisted for node recovery.
+
+***** [ ] Add in file storage for persistence
+I really don't want to do this, we shall try skip this if possible
+  - [ ] we also need to add in the storage part
+***** [ ] Logging cleanups: Wire up global and module-specific logging to avoid dirty log statements
 
 the problem i'm facing looks like this:
 
@@ -3910,8 +4219,6 @@ the problem i'm facing looks like this:
 2. the terminal output sometimes can be really verbose.
 
    solution: log levels
-
-
 **** TODO Stage 5: Refinements & Cleanup
 :PROPERTIES:
 :EFFORT:   1h
@@ -3987,7 +4294,6 @@ E. Application-Level Logic
 
    - How the application uses the results of Paxos instances
 
-
 *** TODO Implementation v1 (with async frameworks) [optional -- out of scope for this sprint]
 The tasks here are just documented but won't be in my v0 target. I NEED to arrive at SOME point of completion. Need to move onto other things.
 
@@ -4008,7 +4314,6 @@ That being said, I'll likely come back to this real soon after I do some explain
 **** Command-line interactive harness
 
 - Use Notty/Lwt/Voodoo if you want a terminal UI — not required for demo; skip unless you have spare time.
-
 
 ** Testing
 *** TODO Iterate and test scenarios
@@ -4637,11 +4942,51 @@ Inactive
 ***** [ ] beauty of pipes (though it's not unique to ocaml)
 **** Quirks
 ***** [ ] Minor wishlist
-- i wish assert expressions had associated messages that we could use (we could always wrap this and make a custom assertion but still)
-- wish param destructures could be done for named parameters
-  #+begin_quote
-If you want to destructure topics directly in the function argument (destructuring a record within a named parameter), OCaml syntax doesn't support destructuring named parameters in the argument list directly. You have to destructure inside the function body.
-  #+end_quote
+A) i wish assert expressions had associated messages that we could use (we could always wrap this and make a custom assertion but still)
+
+B) wish param destructures could be done for named parameters
+   #+begin_quote
+ If you want to destructure topics directly in the function argument (destructuring a record within a named parameter), OCaml syntax doesn't support destructuring named parameters in the argument list directly. You have to destructure inside the function body.
+   #+end_quote
+
+C) wish i could destructure @ the pattern match
+
+   like this would be illegal, but is commonplace in elixir:
+   #+begin_src ocaml
+let hydrate_control_event sim ({target; data; id; time; _} : Sim_event.spec) =
+  match (target, data) with
+  | Some alias, Some ("deactivate " ^ target_alias) -> (*<===== not supported in OCaml?*)
+      { Sim_event.id= Option.value id ~default:(Simulator.next_event_id sim)
+      ; time
+      ; kind= Sim_event.Control
+      ; action=
+          (fun () ->
+            Stdio.printf "[sim_control] node=%s control=%s\n%!" alias action_str )
+      }
+  | _ ->
+      failwith "Malformed control event spec"
+   #+end_src
+   #+begin_src elixir
+def hydrate_control_event(%{target: target, data: data, id: id, time: time} = _sim_event) do
+  case {target, data} do
+    {alias, <<"deactivate ", target_alias::binary>>} when is_binary(alias) and is_binary(target_alias) ->
+      %{
+        id: id || next_event_id(),
+        time: time,
+        kind: :control,
+        action: fn ->
+          IO.puts("[sim_control] node=#{alias} control=deactivate #{target_alias}")
+          # your action logic here
+        end
+      }
+
+    _ ->
+      raise "Malformed control event spec"
+  end
+end
+   #+end_src
+
+
 
 
 ***** [ ] *_of accessors vs pattern-matched destructuring

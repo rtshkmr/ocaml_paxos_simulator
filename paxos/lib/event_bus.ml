@@ -103,7 +103,7 @@ module Event_bus : S = struct
     let sub_handle = {topic; id= subscription_id; node_id} in
     let subscription_info = {node_id; sub_handle; callback} in
     Hashtbl.add_exn ts.subs ~key:sub_handle ~data:subscription_info ;
-    Logger.log_subscribe t.logger topic node_id subscription_id;
+    (* Logger.log_subscribe t.logger topic node_id subscription_id; *)
     sub_handle
 
   let unsubscribe t sub_handle =

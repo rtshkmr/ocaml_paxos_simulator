@@ -6,7 +6,7 @@ open Counter
 open Event_bus
 open Node
 open Runtime
-open Event_bus
+open Sim_event
 open Event_scheduler
 open Message
 open Types
@@ -15,17 +15,16 @@ open Types
   Implements the Runtime interface using a discrete-time event scheduler.
 *)
 module Simulator = struct
-  (* concretizing modules *)
   module V = Value_string.Value_string
   module B = Event_bus
   module S = Storage_mem.Storage_mem (V)
   module NodeImpl = Node.Make_node (V) (S) (B)
 
-  type msg = V.t Message.t (* shadow type *)
+  type msg = V.t Message.t
+
+  type event = Sim_event.t
 
   let payload_serialiser = Message.payload_serialiser_of V.sexp_of_t
-
-  type event = EventScheduler.event
 
   let bus = B.create ~payload_serialiser ()
 
@@ -34,7 +33,7 @@ module Simulator = struct
     ; mutable clock: Time.clock
     ; scheduler: EventScheduler.t ref
     ; nodes: NodeImpl.t list ref
-    ; event_callbacks: (event -> unit) list ref
+    ; event_callbacks: (Sim_event.t -> unit) list ref
     ; event_id_counter: Counter.t
     ; msg_id_counter: Counter.t
     ; max_ticks: int option
@@ -45,65 +44,50 @@ module Simulator = struct
 
   let next_msg_id t = Counter.next t.msg_id_counter
 
-  (* TODO [REFACTOR] simulator is a little blown up right now and needs a cleanup. We can do this later. *)
-  let make_event sim ?(id = next_event_id sim) ~time action () =
-    EventScheduler.create_event id time action
-
-  let enqueue_thunk sim ?(id = next_event_id sim) ~time
-      (thunk : msg enqueuable_thunk) =
-    let action = fun () -> Event_bus.enqueue bus thunk in
-    make_event sim ~id ~time action ()
-
-  let make_node_proposal_event sim ~(initiator : NodeImpl.t) ~assertion
-      ~(time : Time.t) =
-    let thunk () =
-      let msg_id = next_msg_id sim in
-      NodeImpl.propose initiator ~msg_id ~time ~bus ~assertion
-    in
-    make_event sim ~time thunk ()
-
-  (** can be coordinated, can be controlled by simulator*)
-  let add_node_to_sim sim (node_spec : NodeImpl.spec) =
-    let overriding_node_id = 1 + List.length !(sim.nodes) in
-    let overriden_spec = {node_spec with node_id= overriding_node_id} in
-    let added_node =
-      overriden_spec |> NodeImpl.of_spec |> NodeImpl.register_node_with_bus bus
-    in
-    sim.nodes := added_node :: !(sim.nodes) ;
-    added_node
-
-  (** This is not scheduled*)
-  let broadcast_heartbeat sim ~msg_id =
-    let time = Time.now sim.clock in
-    let raw_msg = Message.make_heartbeat_msg ~msg_id ~time in
-    let msg = Message.Time raw_msg in
-    let topic = Types.Time in
-    Event_bus.publish_broadcast bus ~topic msg
-
-  let schedule_event sim event = EventScheduler.add_event !(sim.scheduler) event
-
-  let on_event sim f = sim.event_callbacks := f :: !(sim.event_callbacks)
-
   let current_time sim = Time.now sim.clock
 
-  (** This is one step that includes:
-      1. simulator gathers all the events to be dispatched for this step and dispatches them
-      2. we format a tick message for the current tick
-      3. we drain the bus, letting the nodes react independently
-      4. we move to the next tick and broadcast that via message-passing
+  (******************************************)
+  (* Event API                              *)
+  (******************************************)
 
-      We should respect design principles such as:
-      - our [Event_bus] will always be passive and reactive.
-      - [Nodes] in the system will never be directly changed by the simulation, their internal state may only be updated via message passing.
-      - time flows through the system via message-passing
-  *)
+  let seed_event sim ev = EventScheduler.add_event !(sim.scheduler) ev
+
+  let seed_events sim evs = List.iter evs ~f:(fun ev -> ev |> seed_event sim)
+
+  let seed_event_from_spec sim spec =
+    let ev = Sim_event.of_spec spec in
+    EventScheduler.add_event !(sim.scheduler) ev
+
+  let seed_events_from_specs sim specs =
+    List.iter specs ~f:(fun spec -> seed_event_from_spec sim spec)
+
+  let inline_event sim ~time ~kind ~action =
+    let id = next_event_id sim in
+    let ev = {Sim_event.id; time; kind; action} in
+    seed_event sim ev
+
+  let on_event sim callback =
+    sim.event_callbacks := callback :: !(sim.event_callbacks)
+
+  (******************************************)
+  (* Simulation core loop                   *)
+  (******************************************)
+
+  let dispatch_heartbeat sim =
+    Message.make_heartbeat_msg ~msg_id:(next_msg_id sim)
+      ~time:(Time.now sim.clock)
+    |> Message.Time
+    |> Event_bus.publish_broadcast bus ~topic:Types.Time
+
   let step sim =
     let now = current_time sim in
-    let sim_events_due = EventScheduler.pop_due_events !(sim.scheduler) now in
-    List.iter ~f:(fun e -> e.action ()) sim_events_due ;
+    let due_events = EventScheduler.pop_due_events !(sim.scheduler) now in
+    List.iter due_events ~f:(fun ev ->
+        ev.action () ;
+        List.iter !(sim.event_callbacks) ~f:(fun cb -> cb ev) ) ;
     Event_bus.drain bus ;
     Time.tick sim.clock ;
-    broadcast_heartbeat sim ~msg_id:(next_msg_id sim)
+    sim |> dispatch_heartbeat
 
   let start sim =
     sim.halted <- false ;
@@ -122,12 +106,80 @@ module Simulator = struct
     sim.nodes := [] ;
     sim.event_callbacks := []
 
+  (******************************************)
+  (* Node management                        *)
+  (******************************************)
+
+  let add_node_to_sim sim (node_spec : NodeImpl.spec) =
+    let next_id = 1 + List.length !(sim.nodes) in
+    let overriden_spec = {node_spec with node_id= next_id} in
+    let node =
+      overriden_spec |> NodeImpl.of_spec |> NodeImpl.register_node_with_bus bus
+    in
+    sim.nodes := node :: !(sim.nodes) ;
+    node
+
   let get_nodes sim = !(sim.nodes)
 
-  let print_bus_stats t = B.print_stats bus
+  (* Find a node by its integer id *)
+  let get_node_by_id sim id =
+    List.find !(sim.nodes) ~f:(fun (node : NodeImpl.t) ->
+        node |> NodeImpl.id_of = id )
+
+  (* Find a node by its alias string *)
+  let get_node_by_alias sim alias =
+    List.find !(sim.nodes) ~f:(fun (node : NodeImpl.t) ->
+        String.equal (node |> NodeImpl.alias_of) alias )
+
+  let make_node_idle sim ~time alias =
+    match alias |> get_node_by_alias sim with
+    | None ->
+        Stdio.printf
+          "WARNING: Couldn't find any node with alias=(%s); can't make that \
+           idle!\n\
+           %!"
+          alias
+    | Some node ->
+        let node_id = node |> NodeImpl.id_of in
+        let msg_id = sim |> next_msg_id in
+        let msg =
+          Message.make_sim_control_idle_node ~msg_id ~time ~node_id
+          |> Message.Control
+        in
+        let thunk = ((Types.Simulation_control, Some node_id), msg) in
+        thunk |> B.enqueue bus
+
+  let make_node_inactive sim ~time alias =
+    match alias |> get_node_by_alias sim with
+    | None ->
+        Stdio.printf
+          "WARNING: Couldn't find any node with alias=(%s); can't make that \
+           inactive!\n\
+           %!"
+          alias
+    | Some node ->
+        let node_id = node |> NodeImpl.id_of in
+        let msg_id = sim |> next_msg_id in
+        let msg =
+          Message.make_sim_control_inactive_node ~msg_id ~time ~node_id
+          |> Message.Control
+        in
+        let thunk = ((Types.Simulation_control, Some node_id), msg) in
+        thunk |> B.enqueue bus
+
+  (******************************************)
+  (* Debugging / diagnostics                *)
+  (******************************************)
+
+  let print_bus_stats _ = B.print_stats bus
+
+  (******************************************)
+  (* Construction / configuration           *)
+  (******************************************)
 
   type spec =
     {max_ticks: int option; deterministic_seed: int option; log_jsonl: bool}
+  [@@deriving sexp, yojson]
 
   let of_spec {max_ticks; deterministic_seed; log_jsonl} : t =
     { halted= false

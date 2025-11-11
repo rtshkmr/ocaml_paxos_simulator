@@ -55,12 +55,10 @@ let string_of_log_level = function
 
 let describe_simulation_settings ~scenario ~max_log_level ~allow_step =
   let cli_tag = "[CLI]" |> Color.bright_yellow |> Color.bold in
-  Printf.sprintf
-    "%s: running scenario=%s, max_log_level=%s, allow_step=%b\n\n%s" cli_tag
-    (scenario |> Color.bold)
+  Printf.sprintf "%s: running scenario=%s, max_log_level=%s, allow_step=%b\n\n"
+    cli_tag (scenario |> Color.bold)
     (max_log_level |> string_of_log_level |> Color.bold)
     allow_step
-    (scenario |> desc_of_scenario)
   |> Stdio.print_endline
 
 let command_simulate =

@@ -45,7 +45,7 @@ end
 module type Has_spec = sig
   type t
 
-  type spec
+  type spec [@@deriving sexp, yojson]
 
   val of_spec : spec -> t
 end

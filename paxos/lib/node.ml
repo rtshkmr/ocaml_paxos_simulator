@@ -9,6 +9,10 @@ open Log
 module type S = sig
   type t
 
+  val id_of : t -> Types.node_id
+
+  val alias_of : t -> string
+
   include Has_spec with type t := t
 
   module V : Value.S
@@ -55,7 +59,7 @@ module type S = sig
     [@@deriving sexp]
 
     type proposer_state =
-      | Inactive
+      | ProposerInactive
       | Idle
       | Preparing of assertion
       | WaitingForPromises of waiting_for_promise_state
@@ -63,7 +67,10 @@ module type S = sig
       | Decided of V.t
     [@@deriving sexp]
 
-    type acceptor_state = Inactive | Idle | Accepting of Acceptor_record.value
+    type acceptor_state =
+      | AcceptorInactive
+      | Idle
+      | Accepting of Acceptor_record.value
 
     type learner_state = Learned of V.t option [@@deriving sexp]
 
@@ -147,6 +154,7 @@ module type S = sig
     ; initial_cluster_size: int
     ; initial_state: string option
     ; storage_config: string option }
+  [@@deriving sexp, yojson]
 
   val of_spec : spec -> t
 end
@@ -225,8 +233,9 @@ struct
       {assertion: assertion; acks: Types.node_id list; nacks_received: nack list}
     [@@deriving sexp]
 
+    (* TODO FIXME update don't allow the name clash, change to ProposerInactive, AcceptorInactive *)
     type proposer_state =
-      | Inactive
+      | ProposerInactive
           (** this state encodes it's unavailability. When a node is inactivated, it is effectively killed -- it must look to its storage to resume partitipation thereafter *)
       | Idle
           (** An node may be idle to indicate that it can be a valid participant (by initiating a proposal)*)
@@ -240,7 +249,10 @@ struct
           (** A node that has decided on the value that consensus has been achieved for*)
     [@@deriving sexp]
 
-    type acceptor_state = Inactive | Idle | Accepting of Acceptor_record.value
+    type acceptor_state =
+      | AcceptorInactive
+      | Idle
+      | Accepting of Acceptor_record.value
     [@@deriving sexp]
 
     type learner_state = Learned of V.t option [@@deriving sexp]
@@ -254,7 +266,9 @@ struct
     let idle_of () = {proposer= Idle; acceptor= Idle; learner= Learned None}
 
     let inactive_of () =
-      {proposer= Inactive; acceptor= Inactive; learner= Learned None}
+      { proposer= ProposerInactive
+      ; acceptor= AcceptorInactive
+      ; learner= Learned None }
 
     (** GADT to encode which role and its sub-state type
         This encodes the association between a constructor (Proposer, Acceptor, Learner) and its precise sub-state type.
@@ -396,6 +410,19 @@ struct
     ; logger: string Logger.t
     ; transitions: string list ref
           (* TODO [REFACTOR] YAGNI:light-weight history for debugging *) }
+
+  let is_inactive ({state; _} : t) =
+    let acceptor_state = State.Acceptor |> State.get_role state in
+    let proposer_state = State.Proposer |> State.get_role state in
+    match (acceptor_state, proposer_state) with
+    | State.AcceptorInactive, _ | _, State.ProposerInactive ->
+        true
+    | _ ->
+        false
+
+  let id_of t = t.id
+
+  let alias_of t = t.alias
 
   (* TODO: [REFACTOR] I think such accessors are useless, we can pattern-match destructure them anyway. Keep only if we wanna hide the internal state struct @ the interface boundary *)
   let roles t = t.config.roles
@@ -554,6 +581,32 @@ struct
             (Sexp.to_string (Types.sexp_of_proposal_id proposal_id)) ;
           () ) )
 
+  let log_node_state_control ({id; alias; _} : t) directive_msg =
+    let open Printf in
+    let open Color in
+    let tag =
+      sprintf "[%s (node %d):] " alias id
+      |> Color.bold |> Color.bright_red |> Color.underline
+    in
+    let msg =
+      sprintf "I have been controlled:%s" directive_msg
+      |> Color.italic |> Color.bright_magenta
+    in
+    Stdio.print_endline (tag ^ msg)
+
+  let noop_ignore ({id; alias; _} : t) (reason : string) =
+    let open Printf in
+    let open Color in
+    let tag =
+      sprintf "[%s (node %d):] " alias id
+      |> Color.bold |> Color.bright_red |> Color.underline
+    in
+    let decision =
+      sprintf "will be ignoring this msg because: %s" reason
+      |> Color.italic |> Color.bright_magenta
+    in
+    Stdio.print_endline (tag ^ decision)
+
   let is_permissible ~current_promised_opt proposal =
     match current_promised_opt with
     | None ->
@@ -571,7 +624,7 @@ struct
        ; assertion= {proposal; value} as assertion } :
         V.t Message.permission_request_msg ) =
     match State.get_role node.state State.Acceptor with
-    | State.Inactive ->
+    | State.AcceptorInactive ->
         Logger.log_reaction node.logger
           (Printf.sprintf "Node %d is Inactive so it's not going to do anything"
              node.id )
@@ -706,8 +759,7 @@ struct
         | State.NotReached ->
             () )
     | _ ->
-        assert
-          false (* Met an impossible case when handling permission granted. *)
+        "no longer waiting for promises" |> noop_ignore node
 
   let is_acceptable proposal current_promised_opt =
     Option.is_some current_promised_opt
@@ -720,45 +772,48 @@ struct
        ; from
        ; assertion= {proposal; value} as assertion } :
         V.t Message.suggestion_msg ) =
-    let log_msg =
-      Printf.sprintf
-        "... node %d received suggestion from %d with proposal=%s for \
-         value=(%s)"
-        node.id from
-        (Sexp.to_string_hum (Types.sexp_of_proposal_id proposal))
-        (V.to_string value)
-    in
-    Logger.log_subroutine_flow node.logger Stdlib.__FUNCTION__ ~msg:log_msg () ;
-    let msg_id = 1 + id in
-    let time = 1 + timestamp in
-    let current_promised_opt, prev_accepted_opt =
-      match State.get_role node.state State.Acceptor with
-      | State.Idle ->
-          (None, None)
-      | State.Accepting record ->
-          (record.promised, record.accepted)
-      | _ ->
-          assert false
-    in
-    let reply_msg =
-      if is_acceptable proposal current_promised_opt then (
-        let updated_record =
-          { Acceptor_record.promised= Some proposal
-          ; accepted= Some {proposal; value} }
-        in
-        updated_record |> State.Accepting
-        |> transition_role_state node State.Acceptor ;
-        Message.make_accepted ~msg_id ~topic ~time ~from:node.id ~proposal
-          ~value )
-      else
-        (* TODO [FSM] make_nack message needs to include curent_promised *)
-        Message.make_nack ~msg_id ~topic ~time ~from:node.id
-          ~rejected_assertion:assertion
-          ~hint:(prev_accepted_opt |> paxos_promise_of_promise)
-    in
-    let bus = bus_for_topic node topic in
-    let thunk = ((topic, Some from), Message.Coordination reply_msg) in
-    Bus.enqueue bus thunk
+    if node |> is_inactive then
+      "is inactive, so can't receive the suggestion" |> noop_ignore node
+    else
+      let log_msg =
+        Printf.sprintf
+          "... node %d received suggestion from %d with proposal=%s for \
+           value=(%s)"
+          node.id from
+          (Sexp.to_string_hum (Types.sexp_of_proposal_id proposal))
+          (V.to_string value)
+      in
+      Logger.log_subroutine_flow node.logger Stdlib.__FUNCTION__ ~msg:log_msg () ;
+      let msg_id = 1 + id in
+      let time = 1 + timestamp in
+      let current_promised_opt, prev_accepted_opt =
+        match State.get_role node.state State.Acceptor with
+        | State.Idle ->
+            (None, None)
+        | State.Accepting record ->
+            (record.promised, record.accepted)
+        | _ ->
+            assert false
+      in
+      let reply_msg =
+        if is_acceptable proposal current_promised_opt then (
+          let updated_record =
+            { Acceptor_record.promised= Some proposal
+            ; accepted= Some {proposal; value} }
+          in
+          updated_record |> State.Accepting
+          |> transition_role_state node State.Acceptor ;
+          Message.make_accepted ~msg_id ~topic ~time ~from:node.id ~proposal
+            ~value )
+        else
+          (* TODO [FSM] make_nack message needs to include curent_promised *)
+          Message.make_nack ~msg_id ~topic ~time ~from:node.id
+            ~rejected_assertion:assertion
+            ~hint:(prev_accepted_opt |> paxos_promise_of_promise)
+      in
+      let bus = bus_for_topic node topic in
+      let thunk = ((topic, Some from), Message.Coordination reply_msg) in
+      Bus.enqueue bus thunk
 
   let handle_accepted node
       ({meta= {topic; id; timestamp}; from; assertion= {proposal; value}} :
@@ -788,7 +843,7 @@ struct
             (* BUG: seems like on nacks, can't calculate quorum reached properly. *)
             Stdio.print_endline "WALDO looks like can't be decided" )
     | _ ->
-        failwith "Met an impossible case when handling accepted."
+        "no longer waiting for accepted msgs" |> noop_ignore node
 
   (* TODO: [TEMP,REFACTOR] this is temp because the messages need to be better fittign to the state that is kept. *)
   let convert_hint_msg_to_hint_promise (hint_msg : V.t Types.paxos_promise) :
@@ -846,9 +901,13 @@ struct
     | State.NotReached ->
         ()
 
-  let handle_coordination node msg =
-    Logger.log_subroutine_flow node.logger Stdlib.__FUNCTION__
-      ~msg:"...coordination is happening" () ;
+  let handle_coordination ({id; alias; logger; _} as node : t) msg =
+    if node |> is_inactive then
+      "inactive right now and can't be reached to get coordinated..."
+      |> noop_ignore node
+    else
+      Logger.log_subroutine_flow logger Stdlib.__FUNCTION__
+        ~msg:"...coordination is happening" () ;
     match Message.proposal_id_of msg with
     | None ->
         ()
@@ -867,47 +926,48 @@ struct
       | _ ->
           () )
 
-  let handle_simulation_control (node : t) (msg : V.t Message.t) =
+  let handle_simulation_control ({id; alias; logger; _} as node : t)
+      (msg : V.t Message.t) =
     let log_msg =
       Printf.sprintf
-        "node %d received a control command from the simulation. msg=(%s)"
-        node.id
+        "node %d received a control command from the simulation. msg=(%s)" id
         (Sexp.to_string (Message.sexp_of_t V.sexp_of_t msg))
     in
-    Logger.log_subroutine_flow node.logger Stdlib.__FUNCTION__ ~msg:log_msg () ;
+    Logger.log_subroutine_flow logger Stdlib.__FUNCTION__ ~msg:log_msg () ;
     match msg with
-    | Message.Control (MakeNodeIdle {node_id; _}) when node_id = node.id ->
+    | Message.Control (MakeNodeIdle {node_id; _}) when node_id = id ->
+        (* TODO: FIXME after settling storage: to recover from storage *)
         node.state <- State.idle_of () ;
-        Stdio.printf "---> Node %d was made idle\n%!" node.id
-    | Message.Control (MakeNodeInactive {node_id; _}) when node_id = node.id ->
+        "I am now idle" |> log_node_state_control node
+    | Message.Control (MakeNodeInactive {node_id; _}) when node_id = id ->
+        (* TODO: FIXME after settling storage: to store then become inactive *)
         node.state <- State.inactive_of () ;
-        Stdio.printf "---> Node %d was made inactive\n%!" node.id
+        "I am now inactive" |> log_node_state_control node
     | _ ->
-        Stdio.printf
-          "---> Node %d received simulation control but did nothing \n%!"
-          node.id
+        "but I shall do nothing about it and not change state"
+        |> log_node_state_control node
 
   (* TODO: [extension-v1] wire this up to internal clock support *)
-  let handle_time (node : t) (msg : V.t Message.t) =
+  let handle_time ({id; alias; logger; _} : t) (msg : V.t Message.t) =
     match msg with
     | Message.Time (Heartbeat {time; _}) ->
         let log_msg =
-          Printf.sprintf "node %d felt simulation heartbeat for time=(%d)"
-            node.id time
+          Printf.sprintf
+            "[%s (node %d)] felt simulation heartbeat for time=(%d)" alias id
+            time
         in
-        Logger.log_subroutine_flow node.logger Stdlib.__FUNCTION__ ~msg:log_msg
-          ()
+        Logger.log_subroutine_flow logger Stdlib.__FUNCTION__ ~msg:log_msg ()
     | _ ->
         ()
 
   (** this allows us to choose handlers based on the topic *)
-  let get_handler_for_topic (node : t) (topic : Types.topic) :
-      V.t Event_bus.bus_registrable_callback =
+  let get_handler_for_topic ({id; alias; logger; _} as node : t)
+      (topic : Types.topic) : V.t Event_bus.bus_registrable_callback =
     let msg =
       Printf.sprintf "by node %d for topic=(%s)" node.id
         (Sexp.to_string_hum (Types.sexp_of_topic topic))
     in
-    Logger.log_subroutine_flow node.logger Stdlib.__FUNCTION__ ~msg () ;
+    Logger.log_subroutine_flow logger Stdlib.__FUNCTION__ ~msg () ;
     match topic with
     | Types.Coordination ->
         handle_coordination node
@@ -955,6 +1015,7 @@ struct
     ; initial_cluster_size: int
     ; initial_state: string option
     ; storage_config: string option }
+  [@@deriving sexp, yojson]
 
   let of_spec
       { node_id

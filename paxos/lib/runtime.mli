@@ -1,9 +1,10 @@
 open Time
 open Types
+open Sim_event
 
 (**
   Defines the abstract interface for a simulation runtime.
-  A Runtime manages time, nodes, and event scheduling.
+  A Runtime manages nodes, events, and logical time.
 *)
 module type Runtime = sig
   type t
@@ -16,60 +17,82 @@ module type Runtime = sig
 
   type msg = V.t Message.Message.t
 
-  type event
+  (** Simulation events are typed, semantic simulation steps. *)
+  type event = Sim_event.t
+
+  (******************************************)
+  (* Control and simulation loop operations *)
+  (******************************************)
 
   val start : t -> unit
-  (** Start continuous simulation until stopped. *)
+  (** Start the simulation, executing continuously until stopped. *)
 
   val stop : t -> unit
-  (** Stop/pause the simulation loop. *)
+  (** Stop simulation execution (halts loop). *)
+
+  val pause : t -> unit
+  (** Alias for [stop]. *)
 
   val step : t -> unit
-  (** Execute one simulation tick (advance time, run due events). *)
+  (** Execute a single discrete simulation tick (dispatch due events). *)
+
+  val reset : t -> unit
+  (** Reset the simulator to an initial state and empty timeline. *)
+
+  (*******************)
+  (* Node management *)
+  (*******************)
 
   val get_nodes : t -> N.t list
-  (** Get the list of registered nodes. *)
+  (** Obtain the list of active nodes registered in the simulation runtime. *)
 
-  val make_event : t -> ?id:int -> time:int -> (unit -> unit) -> unit -> event
-  (** Creates an general event that can be scheduled as a simulation event*)
+  val add_node_to_sim : t -> N.spec -> N.t
+  (** Register a new node defined by its specification. Also registers the [node] with the [event_bus] *)
 
-  val enqueue_thunk :
-       t
-    -> ?id:int
-    -> time:int
-    -> msg Event_bus.Event_bus.enqueuable_thunk
-    -> event
+  (******************************************)
+  (* Event API: for managing runtime events *)
+  (******************************************)
+
+  val seed_event : t -> Sim_event.t -> unit
+  (** Insert a pre‑built event into the scheduler. *)
+
+  val seed_events : t -> Sim_event.t list -> unit
+  (** Bulk-insert multiple pre‑built events into the scheduler. *)
+
+  val seed_event_from_spec : t -> Sim_event.spec -> unit
+  (** Create and insert an event from its declarative specification. *)
+
+  val seed_events_from_specs : t -> Sim_event.spec list -> unit
+  (** Bulk‑insert multiple events from declarative specifications. *)
+
+  val inline_event :
+    t -> time:int -> kind:Sim_event.kind -> action:(unit -> unit) -> unit
+  (** Convenience helper for programmatically enqueuing immediate events. *)
+
+  val on_event : t -> (Sim_event.t -> unit) -> unit
+  (** Subscribe to run‑time notification of dispatched simulation events. *)
+
+  val current_time : t -> Time.t
+  (** Retrieve the current logical simulation time. *)
+
+  val print_bus_stats : t -> unit
+  (** Print statistics on the simulation event bus for debugging. *)
+
+  (*************************************)
+  (* Identifiers and internal counters *)
+  (*************************************)
 
   val next_msg_id : t -> int
 
   val next_event_id : t -> int
 
-  val schedule_event : t -> event -> unit
-
-  val on_event : t -> (event -> unit) -> unit
-  (** Subscribe to simulation-level events (for logging, metrics, etc.). *)
-
-  val current_time : t -> Time.t
-  (** Get current logical time. *)
-
-  val pause : t -> unit
-  (** Pause the simulation. Alias for [stop]. *)
-
-  val reset : t -> unit
-  (** Reset simulation to initial time and state. *)
-
-  val print_bus_stats : t -> unit
-  (** Gives a rudimentary print-dump of the state within the event bus used for the simulation.*)
-
-  val make_node_proposal_event :
-       t
-    -> initiator:N.t
-    -> assertion:V.t Types.paxos_assertion_state
-    -> time:int
-    -> event
+  (*******************************************)
+  (* Construction / Configuration of runtime *)
+  (*******************************************)
 
   type spec =
     {max_ticks: int option; deterministic_seed: int option; log_jsonl: bool}
+  [@@deriving sexp, yojson]
 
   val of_spec : spec -> t
 end

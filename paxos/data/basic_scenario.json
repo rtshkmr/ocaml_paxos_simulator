@@ -1,0 +1,49 @@
+{
+  "preamble": "Basic Paxos demonstration scenario.\nConsensus is reached\nwith two nodes simply proposing and agreeing.",
+  "simulator": {
+    "max_ticks": 181,
+    "deterministic_seed": 181,
+    "log_jsonl": false
+  },
+  "nodes": [
+    {
+      "node_id": 1,
+      "node_alias": "BakeBoii",
+      "topic_strs": ["Coordination", "Simulation_control", "Time"],
+      "initial_cluster_size": 2,
+      "initial_state": null,
+      "storage_config": null
+    },
+    {
+      "node_id": 2,
+      "node_alias": "PastryGurl",
+      "topic_strs": ["Coordination", "Simulation_control", "Time"],
+      "initial_cluster_size": 2,
+      "initial_state": null,
+      "storage_config": null
+    }
+  ],
+  "events": [
+    {
+      "id": null,
+      "time": 2,
+      "kind": "proposal",
+      "target": "BakeBoii",
+      "data": "Initial proposal from BakeBoii"
+    },
+    {
+      "id": null,
+      "time": 9,
+      "kind": "proposal",
+      "target": "PastryGurl",
+      "data": "Follow-up proposal from PastryGurl"
+    },
+    {
+      "id": null,
+      "time": 1,
+      "kind": "metric",
+      "target": null,
+      "data": "print_bus_stats"
+    }
+  ]
+}
