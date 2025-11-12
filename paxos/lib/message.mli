@@ -63,6 +63,12 @@ module Message : sig
     ; hint: 'v Types.paxos_promise }
   [@@deriving sexp, compare, equal]
 
+  type 'v decided_msg =
+    { meta: Meta.t
+    ; from: Types.node_id
+    ; decided_assertion: 'v Types.paxos_assertion_state }
+  [@@deriving sexp, compare, equal]
+
   (** Messages are parameterized by payload type ['v].
       The Paxos algo defines these 5 variants in its spec for Coordination
   *)
@@ -72,6 +78,7 @@ module Message : sig
     | Suggestion of 'v suggestion_msg
     | Accepted of 'v accepted_msg
     | Nack of 'v nack_msg
+    | Decided of 'v decided_msg
   [@@deriving sexp, compare, equal]
 
   and 'v time_message =
@@ -151,6 +158,14 @@ module Message : sig
     -> from:Types.node_id
     -> rejected_assertion:'v Types.paxos_assertion_state
     -> hint:'v Types.paxos_promise
+    -> 'v coordination_message
+
+  val make_decided :
+       msg_id:int
+    -> topic:Types.topic
+    -> time:int
+    -> from:int
+    -> decided_assertion:'v Types.paxos_assertion_state
     -> 'v coordination_message
 
   val make_sim_control_idle_node :

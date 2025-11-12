@@ -40,14 +40,20 @@ module Message = struct
   [@@deriving sexp, compare, equal]
 
   (**  [Nack] variant ([nack_msg] has an optional [hint] which helps to inform about the highest promise seen.
-       this is intended for future use for nack optimisations @ the accepting stage.
-
+       this is intended for future use for nack optimisations @ the accepting stage. *)
+  (**
        FIXME: the Message.Nack and State.nack don't play well together, they should have similar shapes.*)
   type 'v nack_msg =
     { meta: Meta.t
     ; from: Types.node_id
     ; rejected_assertion: 'v Types.paxos_assertion_state
     ; hint: 'v Types.paxos_promise }
+  [@@deriving sexp, compare, equal]
+
+  type 'v decided_msg =
+    { meta: Meta.t
+    ; from: Types.node_id
+    ; decided_assertion: 'v Types.paxos_assertion_state }
   [@@deriving sexp, compare, equal]
 
   (** Messages are parameterized by payload type ['v].
@@ -59,6 +65,7 @@ module Message = struct
     | Suggestion of 'v suggestion_msg
     | Accepted of 'v accepted_msg
     | Nack of 'v nack_msg
+    | Decided of 'v decided_msg
   [@@deriving sexp, compare, equal]
 
   and 'v time_message =
@@ -97,6 +104,7 @@ module Message = struct
       | PermissionGranted {meta; _}
       | Suggestion {meta; _}
       | Accepted {meta; _}
+      | Decided {meta; _}
       | Nack {meta; _} ->
           meta )
     | Control msg -> (
@@ -124,6 +132,7 @@ module Message = struct
       | PermissionGranted {from; _}
       | Suggestion {from; _}
       | Accepted {from; _}
+      | Decided {from; _}
       | Nack {from; _} ->
           from )
     | Control _ ->
@@ -140,6 +149,8 @@ module Message = struct
       | Accepted {assertion= {proposal; _}; _} ->
           Some proposal
       | PermissionGranted {assertion= {proposal; _}; _} ->
+          Some proposal
+      | Decided {decided_assertion= {proposal; _}; _} ->
           Some proposal
       | Nack {rejected_assertion= {proposal; _}; _} ->
           Some proposal )
@@ -189,4 +200,9 @@ module Message = struct
     let id = msg_id in
     let meta = make_meta id time topic in
     Nack {meta; from; rejected_assertion; hint}
+
+  let make_decided ~msg_id ~topic ~time ~from ~decided_assertion =
+    let id = msg_id in
+    let meta = make_meta id time topic in
+    Decided {meta; from; decided_assertion}
 end

@@ -72,7 +72,7 @@ module type S = sig
       | Idle
       | Accepting of Acceptor_record.value
 
-    type learner_state = Learned of V.t option [@@deriving sexp]
+    type learner_state = Learned of assertion list [@@deriving sexp]
 
     type role_state =
       { proposer: proposer_state
@@ -255,7 +255,7 @@ struct
       | Accepting of Acceptor_record.value
     [@@deriving sexp]
 
-    type learner_state = Learned of V.t option [@@deriving sexp]
+    type learner_state = Learned of assertion list [@@deriving sexp]
 
     type role_state =
       { proposer: proposer_state
@@ -263,12 +263,14 @@ struct
       ; learner: learner_state }
     [@@deriving sexp]
 
-    let idle_of () = {proposer= Idle; acceptor= Idle; learner= Learned None}
+    (* TODO: idle routine to be done *)
+    let idle_of () = {proposer= Idle; acceptor= Idle; learner= Learned []}
 
+    (* TODO: inactivate routine *)
     let inactive_of () =
       { proposer= ProposerInactive
       ; acceptor= AcceptorInactive
-      ; learner= Learned None }
+      ; learner= Learned [] }
 
     (** GADT to encode which role and its sub-state type
         This encodes the association between a constructor (Proposer, Acceptor, Learner) and its precise sub-state type.
@@ -493,6 +495,7 @@ struct
     in
     Logger.log_node_state_change node.logger node.id old_state_str new_state_str ;
     node.state <- new_role_state
+  (* TODO: do the state snapshotting hhere  *)
 
   (** Represents the act of a node driving the first step of the paxos process (asking for permission).
       This means that the node's state as a Proposer will change from [ Idle ] to [ Peparing ], as we create the message then dispatch it. Once done dispatching,
@@ -521,6 +524,22 @@ struct
         |> transition_role_state t State.Proposer
     | _ ->
         assert false (* we can only propose if we are currently idle *)
+
+  let announce_decision ({id; alias; logger; _} as t : t) ~msg_id ~time
+      (decided_assertion : V.t Types.paxos_assertion_state) =
+    match t.state.proposer with
+    | State.Decided _decided_val ->
+        let topic = Types.Coordination in
+        let decided_msg =
+          Message.make_decided ~msg_id ~topic ~time ~from:id ~decided_assertion
+        in
+        let msg = Message.Coordination decided_msg in
+        let bus = topic |> bus_for_topic t in
+        let thunk = ((Types.Coordination, None), msg) in
+        thunk |> Bus.enqueue bus
+    | _ ->
+        assert false
+  (* a node can only announce what it has learned when it has decided *)
 
   (* TODO: [FSM] need to have a state change within the node after suggesting? This should allow us to capture the incoming accepted or something *)
   let suggest ~msg_id ~time ~bus t ~assertion =
@@ -562,6 +581,7 @@ struct
                 true
             | Message.PermissionRequest _
             | Message.Suggestion _
+            | Message.Decided _
             | Message.Nack _ ->
                 false )
           | Message.Control _ ->
@@ -836,11 +856,10 @@ struct
         match State.is_quorum_reached node.state (get_cluster_size node) with
         | State.MajorityGrants assertion ->
             assertion.value |> State.Decided
-            |> transition_role_state node State.Proposer
-            (* TODO: [FSM] determine if we should be broadcasting that the state is decided?? *)
-            (* TODO: handle NACK optimisation later*)
+            |> transition_role_state node State.Proposer ;
+            assertion
+            |> announce_decision node ~msg_id:(id + 1) ~time:(timestamp + 1)
         | _ ->
-            (* BUG: seems like on nacks, can't calculate quorum reached properly. *)
             Stdio.print_endline "WALDO looks like can't be decided" )
     | _ ->
         "no longer waiting for accepted msgs" |> noop_ignore node
@@ -849,6 +868,15 @@ struct
   let convert_hint_msg_to_hint_promise (hint_msg : V.t Types.paxos_promise) :
       promise =
     hint_msg |> promise_of_paxos_promise
+
+  let handle_decided node
+      ({ meta= {topic; id; timestamp}
+       ; decided_assertion= {proposal; _} as new_assertion
+       ; from } :
+        V.t Message.decided_msg ) =
+    let (Learned curr_assertions) = State.get_role node.state State.Learner in
+    Learned (new_assertion :: curr_assertions)
+    |> transition_role_state node State.Learner
 
   let handle_nack node
       ({ meta= {topic; id; timestamp}
@@ -923,6 +951,8 @@ struct
           handle_accepted node a
       | Message.Coordination (Nack n) ->
           handle_nack node n
+      | Message.Coordination (Decided d) ->
+          handle_decided node d
       | _ ->
           () )
 

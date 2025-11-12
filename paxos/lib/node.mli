@@ -102,7 +102,7 @@ module type S = sig
       | Idle
       | Accepting of Acceptor_record.value
 
-    type learner_state = Learned of V.t option [@@deriving sexp]
+    type learner_state = Learned of assertion list [@@deriving sexp]
 
     type role_state =
       { proposer: proposer_state

@@ -4164,6 +4164,35 @@ the following are rough examples, they may have minor errors in theh DSL usage, 
 }
    #+end_src
 ***** [ ] Handle Learner behaviour & no-op for inactive nodes
+******* DONE Noop on Messages arriving after quorum is reached
+CLOSED: [2025-11-12 Wed 08:34]
+
+- CLOSING NOTE [2025-11-12 Wed 08:34]
+For messages that arrive AFTER the quorum has already been reached, we will no-op ignore it.
+
+Those incoming messages shall be deemed as unnecessary
+
+******* DONE Broadcast Learner role
+CLOSED: [2025-11-12 Wed 13:42]
+
+- CLOSING NOTE [2025-11-12 Wed 13:42] \\
+  Broadcasting works, it's beautiful
+The Learner role is not implemented yet, I'm guessing it should just be sufficient to broadcast a learner message / decided message which doesn't do any collection of ACKs, it just broadcasts that messages to everyone and ther own learners will probably get updated as well. I'm guessing we can just keep a list of payloads within learner just to be curious what they store?
+
+- Learners do not participate in making proposals or accepting; they *only learn decided values*.
+
+- On receiving Accept messages, learners update their local learned state if consensus is reached.
+
+- When a consensus value is finally decided by proposer/acceptor quorum, a decided message should be broadcast to all learners.
+
+- Learners update their local state (e.g., store decided value) on receiving these broadcasts.
+
+- Learners can maintain a list/history of decided values or only track the latest.
+
+- Learners’ role is to provide eventual consistency of the decided state across all nodes.
+
+- Learners' state changes should also be persisted for node recovery.
+
 ******* TODO Behaviour of inactive nodes
 
 :LOGBOOK:
@@ -4186,26 +4215,8 @@ CLOCK: [2025-11-11 Tue 22:09]--[2025-11-11 Tue 23:05] =>  0:56
 - Reactivation moves the node from Inactive to Idle or appropriate state so it can resume participation.
 
   * as a first-pass, we'll just do a state dump of the entire node and recover it again.
-
-******* TODO Learner role
-
-The Learner role is not implemented yet, I'm guessing it should just be sufficient to broadcast a learner message / decided message which doesn't do any collection of ACKs, it just broadcasts that messages to everyone and ther own learners will probably get updated as well. I'm guessing we can just keep a list of payloads within learner just to be curious what they store?
-
-- Learners do not participate in making proposals or accepting; they *only learn decided values*.
-
-- On receiving Accept messages, learners update their local learned state if consensus is reached.
-
-- When a consensus value is finally decided by proposer/acceptor quorum, a decided message should be broadcast to all learners.
-
-- Learners update their local state (e.g., store decided value) on receiving these broadcasts.
-
-- Learners can maintain a list/history of decided values or only track the latest.
-
-- Learners’ role is to provide eventual consistency of the decided state across all nodes.
-
-- Learners' state changes should also be persisted for node recovery.
-
 ***** [ ] Add in file storage for persistence
+We can just add in snapshotting @ the =transition_role_state= function.
 I really don't want to do this, we shall try skip this if possible
   - [ ] we also need to add in the storage part
 ***** [ ] Logging cleanups: Wire up global and module-specific logging to avoid dirty log statements
