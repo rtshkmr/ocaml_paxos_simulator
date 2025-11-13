@@ -1,4 +1,3 @@
-
 (* module type Value = sig *)
 (*   type t [@@deriving sexp, compare, equal, hash] *)
 (*   val to_string : t -> string *)
@@ -15,6 +14,9 @@
   - Provide to_string for logging.
 *)
 module type S = sig
-  type t [@@deriving sexp, compare, equal, hash]
+  type t [@@deriving sexp, compare, equal, hash, yojson]
+
+  include Types.Has_spec with type t := t
+
   val to_string : t -> string
 end

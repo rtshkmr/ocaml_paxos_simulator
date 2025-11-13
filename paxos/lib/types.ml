@@ -1,16 +1,16 @@
 open Base
 
 module Types = struct
-  type node_id = int [@@deriving sexp, compare, equal, hash]
+  type node_id = int [@@deriving sexp, compare, equal, hash, yojson]
 
   type slot = int [@@deriving sexp, compare, equal]
 
   type proposal_id = {seq: int; node: node_id}
-  [@@deriving sexp, compare, equal, hash]
+  [@@deriving sexp, compare, equal, hash, yojson]
 
   (** When driving consensus, a node would need to assert their own value first.*)
   type 'a paxos_assertion_state = {proposal: proposal_id; value: 'a}
-  [@@deriving sexp, compare, equal]
+  [@@deriving sexp, compare, equal, yojson]
 
   type 'a paxos_promise = 'a paxos_assertion_state option
   [@@deriving sexp, compare, equal]

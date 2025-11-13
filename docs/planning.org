@@ -4163,6 +4163,114 @@ the following are rough examples, they may have minor errors in theh DSL usage, 
   ]
 }
    #+end_src
+***** [ ] Add in file storage for persistence
+:LOGBOOK:
+CLOCK: [2025-11-12 Wed 19:36]--[2025-11-12 Wed 20:30] =>  0:54
+:END:
+
+For the paxos protocol, we may consider cases where network partitioning / corruption / crashes ... make the peer node inactive.
+
+At that point, the node will not be able to participate in the process and at least in the basic paxos scenario, there's no leader to automagically update the cluster size and update what it takes to reach quorum.
+
+Eventually, the node may recover and participate again.
+
+So for inactive to recovered state, there should be some persistence we can rely on to return to the last state the node was at before it went down.
+
+Since we have storage module associated to node modules, we can always do snapshotting of the node state whenever we have a state transition.
+
+We can just add in snapshotting @ the =transition_role_state= function.
+
+At the moment, our interface for storage hasn't really been used so much of it can be changed to suit our needs. At the least, we should have:
+
+1. snapshotting capability where the entire node's state is "persisted"
+
+2. I just want to be able to store in json / sexp / both and then recover it and create the whole runtime state again.
+
+   I forsee this to be similar to how we use the simulation_loader to load from a file then hydrate the state. I forsee some overlaps here
+
+   for this v0, we shall ignore the fact that there are "side-effects" that won't be stored and needs "rehydration":
+
+   - callback registrations when a node is subscribed to topics on the event bus
+
+
+3. Til now we just had a =Storage_mem.ml=, maybe we can explore a file storage where the module just stores on a file at tmp/ or something it would be nice for the IO (e.g. file IO) to be as fast as possible. Cool to explore performance
+
+
+I really don't want to do this, we shall try skip this if possible
+  - [ ] we also need to add in the storage part
+****** DONE extract node state out of node
+******* GOTCHA: destructive substitution actually destroys things
+
+this "Bug" burned away half a day man. What the heck.
+
+So I first extracted out the =Acceptor_record= and created a signature for it. Since the record depends on the value that consensus is being achieved, it makes sense to write a functor for it so I had =Make_acceptor_record=. Naturally, we'd have a type within the functor to have a handle for the value type we're using and this can abstract. Eventually, we'd need to indicate that the injected module's type and the value type are the same.
+
+Then, I extracted out the =Node_state= and it too depends on =Value= and also =Acceptor_record=. I wanted them to share constraints since both =Acceptor_record= and =Node_state= actually use the "same" value type. Therefore, the functor was defined something like so:
+#+begin_src ocaml
+module Make_node_state (A : Acceptor_record.S) :
+  S with module Acceptor_record := A = struct
+  module V = A.V
+
+  type assertion = A.assertion [@@deriving sexp, yojson]
+
+  type promise = A.promise [@@deriving sexp, yojson]
+
+...
+#+end_src
+
+Finally, the intention was to just use the two functors within =node.ml= like so:
+
+#+begin_src ocaml
+module Make_node
+    (V : Value.S)
+    (Storage : Storage.S)
+    (Bus : sig
+      include module type of Event_bus
+    end) :
+  S with module V := V with module Storage := Storage with module Bus := Bus =
+struct
+  module Acceptor_record = Make_acceptor_record (V)
+  module State = Make_node_state (Acceptor_record)
+
+  type role = Proposer | Acceptor | Learner
+
+  type roles = role list
+
+...
+#+end_src
+
+I had not understood destructive substitution properly. The thing is when we write =module Make_acceptor_record(V: Value.S): S with module V:== =V=. The destructive substitution removes the =module V= from the signature entirely (that's probably why the struct for destructively substituted modules don't have the module indicated as an abstract module within the struct but DO have it within the signature).
+
+So when my =Make_node_state= was attempting to access =A.V=, this fails.
+
+Fixing this has 2 options:
+
+1. not using destructive substitution and just using plain constraint sharing
+   - we ended up doing this.
+
+2. injecting =V= into the =Make_node_state= functor as well.
+   - this is a little odd and doesn't feel right because our intention was to do the constraint sharing.
+
+
+Why it was difficult to figure out this problem:
+
+1. No mental model of how destructive substitution works $\implies$ ended up exploring unrelated possbilities for the source of error
+
+2. the compiler's outputs were too generic.
+
+
+takeaways:
+
+    - Substituting a type name within a signature: t := SomeModule.t changes how t is seen downstream.
+
+    - Substituting submodules can affect access to nested members; ensure downstream code references the correct substituted paths.
+
+    - Local substitutions give more control and reduce unintended leakage of original bindings.
+
+
+JUST PLAIN UNFORTUNATE HOW LONG THIS TOOK
+
+
 ***** [ ] Handle Learner behaviour & no-op for inactive nodes
 ******* DONE Noop on Messages arriving after quorum is reached
 CLOSED: [2025-11-12 Wed 08:34]
@@ -4215,10 +4323,6 @@ CLOCK: [2025-11-11 Tue 22:09]--[2025-11-11 Tue 23:05] =>  0:56
 - Reactivation moves the node from Inactive to Idle or appropriate state so it can resume participation.
 
   * as a first-pass, we'll just do a state dump of the entire node and recover it again.
-***** [ ] Add in file storage for persistence
-We can just add in snapshotting @ the =transition_role_state= function.
-I really don't want to do this, we shall try skip this if possible
-  - [ ] we also need to add in the storage part
 ***** [ ] Logging cleanups: Wire up global and module-specific logging to avoid dirty log statements
 
 the problem i'm facing looks like this:
@@ -4273,6 +4377,36 @@ the problem i'm facing looks like this:
   #+end_src
 
 - [ ] add assertions to communicate invariants
+
+- [ ] more idiomatic handling of optionals
+  - use Option.map where possible
+
+    Here's an example:
+    #+begin_src diff
+-  let of_spec
+-      {promised: proposal_id_spec option; accepted: assertion_spec option} :
+-      value =
+-    let promised =
+-      match promised with
+-      | None ->
+-          None
+-      | Some spec ->
+-          Some (spec |> proposal_of_spec)
+-    in
+-    let accepted =
+-      match accepted with
+-      | None ->
+-          None
+-      | Some spec ->
+-          Some (spec |> assertion_of_spec)
+-    in
++  let of_spec ({promised; accepted} : spec) : value =
++    let promised = promised |> Option.map ~f:proposal_of_spec in
++    let accepted = accepted |> Option.map ~f:assertion_of_spec in
+     {promised; accepted}
+
+    #+end_src
+
 
 ****** Runtime and Simulator
 - simulator is very blown up and there's a lot of unnecessary functions exposed.
@@ -4803,6 +4937,79 @@ This is a standard behavior in OCaml’s type and pattern matching system and be
 
 
 #+end_src
+***** [ ] destructive substitution is actually destructive
+****** GOTCHA: destructive substitution actually destroys things
+
+this "Bug" burned away half a day man. What the heck.
+
+So I first extracted out the =Acceptor_record= and created a signature for it. Since the record depends on the value that consensus is being achieved, it makes sense to write a functor for it so I had =Make_acceptor_record=. Naturally, we'd have a type within the functor to have a handle for the value type we're using and this can abstract. Eventually, we'd need to indicate that the injected module's type and the value type are the same.
+
+Then, I extracted out the =Node_state= and it too depends on =Value= and also =Acceptor_record=. I wanted them to share constraints since both =Acceptor_record= and =Node_state= actually use the "same" value type. Therefore, the functor was defined something like so:
+#+begin_src ocaml
+module Make_node_state (A : Acceptor_record.S) :
+  S with module Acceptor_record := A = struct
+  module V = A.V
+
+  type assertion = A.assertion [@@deriving sexp, yojson]
+
+  type promise = A.promise [@@deriving sexp, yojson]
+
+...
+#+end_src
+
+Finally, the intention was to just use the two functors within =node.ml= like so:
+
+#+begin_src ocaml
+module Make_node
+    (V : Value.S)
+    (Storage : Storage.S)
+    (Bus : sig
+      include module type of Event_bus
+    end) :
+  S with module V := V with module Storage := Storage with module Bus := Bus =
+struct
+  module Acceptor_record = Make_acceptor_record (V)
+  module State = Make_node_state (Acceptor_record)
+
+  type role = Proposer | Acceptor | Learner
+
+  type roles = role list
+
+...
+#+end_src
+
+I had not understood destructive substitution properly. The thing is when we write =module Make_acceptor_record(V: Value.S): S with module V:== =V=. The destructive substitution removes the =module V= from the signature entirely (that's probably why the struct for destructively substituted modules don't have the module indicated as an abstract module within the struct but DO have it within the signature).
+
+So when my =Make_node_state= was attempting to access =A.V=, this fails.
+
+Fixing this has 2 options:
+
+1. not using destructive substitution and just using plain constraint sharing
+   - we ended up doing this.
+
+2. injecting =V= into the =Make_node_state= functor as well.
+   - this is a little odd and doesn't feel right because our intention was to do the constraint sharing.
+
+
+Why it was difficult to figure out this problem:
+
+1. No mental model of how destructive substitution works $\implies$ ended up exploring unrelated possbilities for the source of error
+
+2. the compiler's outputs were too generic.
+
+
+takeaways:
+
+    - Substituting a type name within a signature: t := SomeModule.t changes how t is seen downstream.
+
+    - Substituting submodules can affect access to nested members; ensure downstream code references the correct substituted paths.
+
+    - Local substitutions give more control and reduce unintended leakage of original bindings.
+
+
+JUST PLAIN UNFORTUNATE HOW LONG THIS TOOK
+
+
 
 **** [ ] Syntax snags
    - optional args and the need for unit as one of the args

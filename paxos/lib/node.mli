@@ -19,15 +19,6 @@ open Message
 open Event_bus
 
 module type S = sig
-  (** Abstract type representing a node instance. Concrete shape is opaque. *)
-  type t
-
-  val id_of : t -> Types.node_id
-
-  val alias_of : t -> string
-
-  include Has_spec with type t := t
-
   (** The value module determines the concrete type of values used in
       proposals and messages throughout the node. This is injected as a functor
       parameter but re-exposed here as a module for internal use to ensure all
@@ -47,6 +38,19 @@ module type S = sig
     include module type of Event_bus
   end
 
+  module Acceptor_record : Acceptor_record.S
+
+  module State : Node_state.S
+
+  (** Abstract type representing a node instance. Concrete shape is opaque. *)
+  type t
+
+  val id_of : t -> Types.node_id
+
+  val alias_of : t -> string
+
+  include Has_spec with type t := t
+
   (** Roles a node can play in the Paxos protocol. *)
   type role = Proposer | Acceptor | Learner
 
@@ -58,69 +62,6 @@ module type S = sig
   type assertion = V.t Types.paxos_assertion_state [@@deriving sexp]
 
   type promise = assertion option [@@deriving sexp]
-
-  (** Acceptor_record module for local acceptor state snapshot *)
-  module Acceptor_record : sig
-    (** The value a local acceptor holds as part of the Paxos state.
-
-        - [promised] is the highest proposal id this acceptor has promised not to
-          accept proposals less than.
-        - [accepted] is the optional last accepted proposal id and value pair.
-    *)
-    type value = {promised: Types.proposal_id option; accepted: promise}
-    [@@deriving sexp]
-  end
-
-  (** Internal ADT representing the various states of a node during the Paxos
-      consensus process. Each constructor optionally carries data typed using
-      [V.t], ensuring the node's state is parametrically tied to the concrete
-      value type chosen in [V]. *)
-  module State : sig
-    type nack = {rejected_assertion: assertion; hint: promise} [@@deriving sexp]
-
-    type waiting_for_promise_state =
-      { assertion: assertion
-      ; promises_received: promise list
-      ; nacks_received: nack list }
-    [@@deriving sexp]
-
-    type proposer_accepting_state =
-      {assertion: assertion; acks: Types.node_id list; nacks_received: nack list}
-    [@@deriving sexp]
-
-    type proposer_state =
-      | ProposerInactive
-      | Idle
-      | Preparing of assertion
-      | WaitingForPromises of waiting_for_promise_state
-      | ProposerAccepting of proposer_accepting_state
-      | Decided of V.t
-    [@@deriving sexp]
-
-    type acceptor_state =
-      | AcceptorInactive
-      | Idle
-      | Accepting of Acceptor_record.value
-
-    type learner_state = Learned of assertion list [@@deriving sexp]
-
-    type role_state =
-      { proposer: proposer_state
-      ; acceptor: acceptor_state
-      ; learner: learner_state }
-    [@@deriving sexp]
-
-    val idle_of : unit -> role_state
-
-    val inactive_of : unit -> role_state
-
-    type quorum_result =
-      | NotReached
-      | MajorityNacks of promise
-      | MajorityGrants of assertion
-
-    val is_quorum_reached : role_state -> int -> quorum_result
-  end
 
   (** Configuration for simulation semantics, including mutable cluster_size tracking. *)
   type runtime_config = {mutable cluster_size: int option ref}

@@ -10,18 +10,18 @@ open Base
   - Keep this module minimal and stable: other interfaces will refer to it.
 *)
 module Types : sig
-  type node_id = int [@@deriving sexp, compare, equal, hash]
+  type node_id = int [@@deriving sexp, compare, equal, hash, yojson]
 
   (** Slots are for future multi-paxos implementations*)
   type slot = int [@@deriving sexp, compare, equal]
 
   (** A proposal id is a pair (counter, node) that gives a total ordering. *)
   type proposal_id = {seq: int  (** sequence counter*); node: node_id}
-  [@@deriving sexp, compare, equal, hash]
+  [@@deriving sexp, compare, equal, hash, yojson]
 
   (** When driving consensus, a node would need to assert their own value first.*)
   type 'a paxos_assertion_state = {proposal: proposal_id; value: 'a}
-  [@@deriving sexp, compare, equal]
+  [@@deriving sexp, compare, equal, yojson]
 
   type 'a paxos_promise = 'a paxos_assertion_state option
   [@@deriving sexp, compare, equal]

@@ -28,6 +28,7 @@ module Simulator = struct
 
   let bus = B.create ~payload_serialiser ()
 
+  (* TODO: [Refactor] keep static config aspects within its own record type for clearer separation (simulator_config record type) *)
   type t =
     { mutable halted: bool
     ; mutable clock: Time.clock

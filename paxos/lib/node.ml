@@ -5,16 +5,10 @@ open Event_bus
 open Types
 open Message
 open Log
+open Acceptor_record
+open Node_state
 
 module type S = sig
-  type t
-
-  val id_of : t -> Types.node_id
-
-  val alias_of : t -> string
-
-  include Has_spec with type t := t
-
   module V : Value.S
 
   module Storage : Storage.S
@@ -22,6 +16,18 @@ module type S = sig
   module Bus : sig
     include module type of Event_bus
   end
+
+  module Acceptor_record : Acceptor_record.S
+
+  module State : Node_state.S
+
+  type t
+
+  include Has_spec with type t := t
+
+  val id_of : t -> Types.node_id
+
+  val alias_of : t -> string
 
   type role = Proposer | Acceptor | Learner
 
@@ -32,65 +38,6 @@ module type S = sig
   type assertion = V.t Types.paxos_assertion_state [@@deriving sexp]
 
   type promise = assertion option [@@deriving sexp]
-
-  (** Acceptor_record module for local acceptor state snapshot *)
-  module Acceptor_record : sig
-    (** The value a local acceptor holds as part of the Paxos state.
-
-        - [promised] is the highest proposal id this acceptor has promised not to
-          accept proposals less than.
-        - [accepted] is the optional last accepted proposal id and value pair.
-    *)
-    type value = {promised: Types.proposal_id option; accepted: promise}
-    [@@deriving sexp]
-  end
-
-  module State : sig
-    type nack = {rejected_assertion: assertion; hint: promise} [@@deriving sexp]
-
-    type waiting_for_promise_state =
-      { assertion: assertion
-      ; promises_received: promise list
-      ; nacks_received: nack list }
-    [@@deriving sexp]
-
-    type proposer_accepting_state =
-      {assertion: assertion; acks: Types.node_id list; nacks_received: nack list}
-    [@@deriving sexp]
-
-    type proposer_state =
-      | ProposerInactive
-      | Idle
-      | Preparing of assertion
-      | WaitingForPromises of waiting_for_promise_state
-      | ProposerAccepting of proposer_accepting_state
-      | Decided of V.t
-    [@@deriving sexp]
-
-    type acceptor_state =
-      | AcceptorInactive
-      | Idle
-      | Accepting of Acceptor_record.value
-
-    type learner_state = Learned of assertion list [@@deriving sexp]
-
-    type role_state =
-      { proposer: proposer_state
-      ; acceptor: acceptor_state
-      ; learner: learner_state }
-    [@@deriving sexp]
-
-    val idle_of : unit -> role_state
-
-    val inactive_of : unit -> role_state
-
-    type quorum_result =
-      | NotReached
-      | MajorityNacks of promise
-      | MajorityGrants of assertion
-
-    val is_quorum_reached : role_state -> int -> quorum_result
-  end
 
   type runtime_config = {mutable cluster_size: int option ref}
 
@@ -167,6 +114,9 @@ module Make_node
     end) :
   S with module V := V with module Storage := Storage with module Bus := Bus =
 struct
+  module Acceptor_record = Make_acceptor_record (V)
+  module State = Make_node_state (Acceptor_record)
+
   type role = Proposer | Acceptor | Learner
 
   type roles = role list
@@ -213,185 +163,6 @@ struct
         None
     | Some paxos_a ->
         Some (assertion_of_paxos_assertion paxos_a)
-
-  module Acceptor_record = struct
-    (** Local acceptor state snapshot for Paxos *)
-    type value = {promised: Types.proposal_id option; accepted: promise}
-    [@@deriving sexp]
-  end
-
-  module State = struct
-    type nack = {rejected_assertion: assertion; hint: promise} [@@deriving sexp]
-
-    type waiting_for_promise_state =
-      { assertion: assertion
-      ; promises_received: promise list
-      ; nacks_received: nack list }
-    [@@deriving sexp]
-
-    type proposer_accepting_state =
-      {assertion: assertion; acks: Types.node_id list; nacks_received: nack list}
-    [@@deriving sexp]
-
-    (* TODO FIXME update don't allow the name clash, change to ProposerInactive, AcceptorInactive *)
-    type proposer_state =
-      | ProposerInactive
-          (** this state encodes it's unavailability. When a node is inactivated, it is effectively killed -- it must look to its storage to resume partitipation thereafter *)
-      | Idle
-          (** An node may be idle to indicate that it can be a valid participant (by initiating a proposal)*)
-      | Preparing of assertion
-          (** A node that is initiating a proposal will be in the preparing state. It will be ready to .*)
-      | WaitingForPromises of waiting_for_promise_state
-          (** A node that is gathering responses to their proposal and is waiting to reach a quorum of responses.*)
-      | ProposerAccepting of proposer_accepting_state
-          (** A node that has suggested *)
-      | Decided of V.t
-          (** A node that has decided on the value that consensus has been achieved for*)
-    [@@deriving sexp]
-
-    type acceptor_state =
-      | AcceptorInactive
-      | Idle
-      | Accepting of Acceptor_record.value
-    [@@deriving sexp]
-
-    type learner_state = Learned of assertion list [@@deriving sexp]
-
-    type role_state =
-      { proposer: proposer_state
-      ; acceptor: acceptor_state
-      ; learner: learner_state }
-    [@@deriving sexp]
-
-    (* TODO: idle routine to be done *)
-    let idle_of () = {proposer= Idle; acceptor= Idle; learner= Learned []}
-
-    (* TODO: inactivate routine *)
-    let inactive_of () =
-      { proposer= ProposerInactive
-      ; acceptor= AcceptorInactive
-      ; learner= Learned [] }
-
-    (** GADT to encode which role and its sub-state type
-        This encodes the association between a constructor (Proposer, Acceptor, Learner) and its precise sub-state type.
-    *)
-    type _ role_selector =
-      | Proposer : proposer_state role_selector
-      | Acceptor : acceptor_state role_selector
-      | Learner : learner_state role_selector
-
-    (** Polymorphic role_state accessor *)
-    let get_role : type a. role_state -> a role_selector -> a =
-     fun rs sel ->
-      match sel with
-      | Proposer ->
-          rs.proposer
-      | Acceptor ->
-          rs.acceptor
-      | Learner ->
-          rs.learner
-
-    (** Polymorphic role_state setter *)
-    let set_role : type a. role_state -> a role_selector -> a -> role_state =
-     fun rs sel v ->
-      match sel with
-      | Proposer ->
-          {rs with proposer= v}
-      | Acceptor ->
-          {rs with acceptor= v}
-      | Learner ->
-          {rs with learner= v}
-
-    type quorum_result =
-      | NotReached
-      | MajorityNacks of promise
-      | MajorityGrants of assertion
-
-    (* TODO Verify this quorum determination below for the WaitingForPromises is correct *)
-
-    (** Consider the highest proposal_id from all promises received.
-          case 1: it's None, use proposers own value
-          case 2: it's Some, pick associated value for highest proposal id
-    *)
-    let is_quorum_reached_on_promise_wait
-        {promises_received; nacks_received; assertion} cluster_size =
-      let threshold = (cluster_size / 2) + 1 in
-      if List.length promises_received >= threshold then
-        let chosen_value =
-          List.fold ~init:assertion
-            ~f:(fun acc promise_rcvd ->
-              match (acc, promise_rcvd) with
-              | acc, None ->
-                  acc
-              | ( {proposal= best_proposal; value= best_val}
-                , Some
-                    ( { proposal= prev_accepted_proposal
-                      ; value= prev_accepted_val } as prev_promise ) ) ->
-                  if
-                    Types.compare_proposal_id prev_accepted_proposal
-                      best_proposal
-                    > 0
-                  then prev_promise
-                  else acc )
-            promises_received
-        in
-        MajorityGrants chosen_value
-      else if List.length nacks_received >= threshold then
-        let hint =
-          List.fold ~init:None
-            ~f:(fun acc {rejected_assertion; hint} ->
-              match (acc, hint) with
-              | _, None ->
-                  acc
-              | None, Some prev_accepted_assertion ->
-                  hint
-              | Some acc_assertion, Some prev_accepted_assertion ->
-                  if
-                    Types.compare_proposal_id prev_accepted_assertion.proposal
-                      acc_assertion.proposal
-                    > 0
-                  then hint
-                  else acc )
-            nacks_received
-        in
-        MajorityNacks hint
-      else NotReached
-
-    let is_quorum_reached_on_proposer_accepting_wait
-        {acks; nacks_received; assertion} cluster_size =
-      let threshold = (cluster_size / 2) + 1 in
-      if List.length acks >= threshold then MajorityGrants assertion
-      else if List.length nacks_received >= threshold then
-        let hint =
-          List.fold ~init:None
-            ~f:(fun acc {rejected_assertion; hint} ->
-              match (acc, hint) with
-              | _, None ->
-                  acc
-              | None, Some prev_accepted_assertion ->
-                  hint
-              | Some acc_assertion, Some prev_accepted_assertion ->
-                  if
-                    Types.compare_proposal_id prev_accepted_assertion.proposal
-                      acc_assertion.proposal
-                    > 0
-                  then hint
-                  else acc )
-            nacks_received
-        in
-        MajorityNacks hint
-      else NotReached
-
-    let is_quorum_reached rs cluster_size =
-      match get_role rs Proposer with
-      | WaitingForPromises wfp ->
-          is_quorum_reached_on_promise_wait wfp cluster_size
-      | ProposerAccepting pa ->
-          is_quorum_reached_on_proposer_accepting_wait pa cluster_size
-      | _ ->
-          assert false
-    (* "We can only check for quorum reached on a nodes if that nodes is one of the states: [WaitingForPromises, ProposerAccepting]" *)
-  end
 
   type runtime_config = {mutable cluster_size: int option ref}
 
@@ -678,8 +449,8 @@ struct
         let reply_msg =
           if is_permissible ~current_promised_opt proposal then (
             let updated_record =
-              { Acceptor_record.promised= Some proposal
-              ; accepted= prev_accepted_opt }
+              ( {promised= Some proposal; accepted= prev_accepted_opt}
+                : Acceptor_record.value )
             in
             updated_record |> State.Accepting
             |> transition_role_state node State.Acceptor ;
@@ -818,8 +589,8 @@ struct
       let reply_msg =
         if is_acceptable proposal current_promised_opt then (
           let updated_record =
-            { Acceptor_record.promised= Some proposal
-            ; accepted= Some {proposal; value} }
+            ( {promised= Some proposal; accepted= Some {proposal; value}}
+              : Acceptor_record.value )
           in
           updated_record |> State.Accepting
           |> transition_role_state node State.Acceptor ;
