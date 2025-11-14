@@ -25,11 +25,6 @@ module type S = sig
       value-dependent types consistently refer to the same underlying type. *)
   module V : Value.S
 
-  (** The storage module provides the persistence backend for acceptor records.
-      Like [V], it is re-exposed here to ensure all internal types using [Storage.t]
-      are consistent with the injected module. *)
-  module Storage : Storage.S
-
   (** The event bus module provides communication mechanisms. This module includes
       the generic polymorphic type ['a t] representing buses parameterized by
       the message type, along with operations on buses. It is re-exposed to
@@ -38,9 +33,9 @@ module type S = sig
     include module type of Event_bus
   end
 
-  module Acceptor_record : Acceptor_record.S
-
   module State : Node_state.S
+
+  module Storage : Storage.S with type snapshot_payload = State.role_state
 
   (** Abstract type representing a node instance. Concrete shape is opaque. *)
   type t
@@ -69,11 +64,7 @@ module type S = sig
   (** Node runtime configuration consisting of simulation settings, assigned roles,
       and a persistence storage backend. The types here are tied to the [Storage]
       module injected. *)
-  type config =
-    { runtime: runtime_config
-    ; roles: roles
-    ; storage: Storage.t
-    ; topics: Types.topic list }
+  type config = {runtime: runtime_config; roles: roles; topics: Types.topic list}
 
   val register_node_with_bus : V.t Message.t Bus.t -> t -> t
 
@@ -109,17 +100,8 @@ module type S = sig
 
   val sexp_of_role_state : t -> Sexp.t
 
-  val make_config :
-       topics:Types.topic list
-    -> roles:roles
-    -> storage:Storage.t
-    -> cluster_size:int option
-    -> config
-  (** Construct a configuration record for the node.
-      - [roles]: list of roles to assign.
-      - [storage]: storage backend instance.
-      - [cluster_size]: optional cluster_size, must be positive if given. *)
-
+  (* TODO: rename: nodes are made idle by other actors (just the orchestrator (simulator)), so a better name for this should be "recover" or something *)
+  (* TODO: needs a similar one but for becoming inactive "terminate" *)
   val make_node_idle :
        msg_id:int
     -> time:int
@@ -160,8 +142,7 @@ end
 *)
 module Make_node : functor
   (V : Value.S)
-  (Storage : Storage.S)
   (Bus : sig
      include module type of Event_bus
    end)
-  -> S with module V := V with module Storage := Storage with module Bus := Bus
+  -> S with module V := V with module Bus := Bus

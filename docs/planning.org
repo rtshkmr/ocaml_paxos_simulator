@@ -3556,7 +3556,10 @@ CLOCK: [2025-11-09 Sun 06:07]--[2025-11-09 Sun 09:17] =>  3:10
 
 3. [X] use the =paxos_assertion_state= where possible
 
-***** [ ] Broadcast decided state (end state)
+***** [X] Broadcast decided state (end state)
+CLOSED: [2025-11-14 Fri 12:33]
+- CLOSING NOTE [2025-11-14 Fri 12:33] \\
+  this is handled already
 As per our outline, the proposer should be:
 
 #+begin_quote
@@ -3568,12 +3571,7 @@ As per our outline, the proposer should be:
 #+end_quote
 
 We haven't handled this part yet, we can add this in
-***** SKIP Add in storage helpers
-I don't really want to focus on this, I'll just add in some stub functions for now.
-
-The kill/respawning of servers is something that we shall slate for v1 extensions
-
-**** TODO Stage 3.5: Ensure happy path works, add basic tests
+**** TODO Stage 3.5: Ensure happy path works
 Happy path seems to be working well so far.
 
 We should be able to move onto the test-writing stuff. I just wanna demonstrate some basic
@@ -4163,6 +4161,43 @@ the following are rough examples, they may have minor errors in theh DSL usage, 
   ]
 }
    #+end_src
+***** [ ] Cleanup dependency issues by refactoring [1/3]
+
+This is blocking. The current state dependency tree is messy and we can't proceed with the file persistence aspects.
+
+So I ended up [[https://excalidraw.com/#room=4731e06144a5b25147e7,LQlsAo6VkSRE6E2tYHoZ7Q][digramming it out on excalidraw]] and have the following decisions that relate to refactoring.
+
+****** [X] Refactoring: use better names
+CLOSED: [2025-11-14 Fri 17:58]
+:PROPERTIES:
+:EFFORT:   30min
+:END:
+- CLOSING NOTE [2025-11-14 Fri 17:58] \\
+  nice small wins will snowball
+:LOGBOOK:
+CLOCK: [2025-11-14 Fri 17:45]--[2025-11-14 Fri 17:58] =>  0:13
+:END:
+- [X] =Storage_mem= to be named =Make_mem_storage= instead since it's a functor and I want to standardise the naming.
+- [X] =Color= to =Ansi_formatter=
+
+****** [ ] Fix Separation of Concern issues
+:LOGBOOK:
+CLOCK: [2025-11-14 Fri 18:32]--[2025-11-14 Fri 18:37] =>  0:05
+:END:
+- [X] Hydration helpers to be brought back into simulator instead of being within the loader.
+******* [ ] Type Dependency Refactors
+:LOGBOOK:
+CLOCK: [2025-11-14 Fri 21:50]
+CLOCK: [2025-11-14 Fri 20:27]--[2025-11-14 Fri 21:37] =>  1:10
+CLOCK: [2025-11-14 Fri 18:37]--[2025-11-14 Fri 19:30] =>  0:53
+:END:
+- [X] Kill =Acceptor_record= module Keep =Acceptor_record= local to =Node_state=, make it a record type instead of a submodule
+  1. update the =Make_node_state= functor to receive =Value= module as the param, instead of =Acceptor_record=
+- [X] Keep =Storage= within =Node=
+- [ ] Update the storage interface
+  1. Storage interface needs to keep =node_state= $\implies$ =Make_*_storage=
+- [ ] Update the simulator states
+
 ***** [ ] Add in file storage for persistence
 :LOGBOOK:
 CLOCK: [2025-11-12 Wed 19:36]--[2025-11-12 Wed 20:30] =>  0:54
@@ -4198,6 +4233,16 @@ At the moment, our interface for storage hasn't really been used so much of it c
 
 I really don't want to do this, we shall try skip this if possible
   - [ ] we also need to add in the storage part
+****** TODO Change the Storage interface
+
+Right now storage will be kept local to =Node_state=. This is to encourage every peer to take charge of their own storage.
+
+
+What to store?
+
+Ans: we shall Update the storage interface to have node state. We will do constraint sharing for this at the functor, so we can name the internal module type something more relevant to storage (e.g. =snapshot_payload=, =consensus_payload=)
+
+
 ****** DONE extract node state out of node
 ******* GOTCHA: destructive substitution actually destroys things
 
@@ -4269,8 +4314,6 @@ takeaways:
 
 
 JUST PLAIN UNFORTUNATE HOW LONG THIS TOOK
-
-
 ***** [ ] Handle Learner behaviour & no-op for inactive nodes
 ******* DONE Noop on Messages arriving after quorum is reached
 CLOSED: [2025-11-12 Wed 08:34]

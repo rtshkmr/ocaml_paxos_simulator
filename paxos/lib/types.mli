@@ -24,7 +24,19 @@ module Types : sig
   [@@deriving sexp, compare, equal, yojson]
 
   type 'a paxos_promise = 'a paxos_assertion_state option
-  [@@deriving sexp, compare, equal]
+  [@@deriving sexp, compare, equal, yojson]
+
+  type proposal_id_spec = {seq: int; node: int} [@@deriving sexp, yojson]
+
+  type 'a assertion_spec = {proposal: proposal_id_spec; value: 'a}
+  [@@deriving sexp, yojson]
+
+  val assertion_of_spec :
+    ('b -> 'a) -> 'b assertion_spec -> 'a paxos_assertion_state
+
+  type 'a promise_spec = 'a assertion_spec option [@@deriving sexp, yojson]
+
+  val promise_of_spec : ('b -> 'a) -> 'b promise_spec -> 'a paxos_promise
 
   (** Explicit topics for which nodes communicate*)
   type topic =

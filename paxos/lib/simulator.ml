@@ -1,11 +1,7 @@
-[@@@ocaml.warning "-27-33-69"]
-
 open Base
 open Time
 open Counter
 open Event_bus
-open Node
-open Runtime
 open Sim_event
 open Event_scheduler
 open Message
@@ -17,8 +13,7 @@ open Types
 module Simulator = struct
   module V = Value_string.Value_string
   module B = Event_bus
-  module S = Storage_mem.Storage_mem (V)
-  module NodeImpl = Node.Make_node (V) (S) (B)
+  module NodeImpl = Node.Make_node (V) (B)
 
   type msg = V.t Message.t
 
@@ -32,7 +27,7 @@ module Simulator = struct
   type t =
     { mutable halted: bool
     ; mutable clock: Time.clock
-    ; scheduler: EventScheduler.t ref
+    ; scheduler: Event_scheduler.t ref
     ; nodes: NodeImpl.t list ref
     ; event_callbacks: (Sim_event.t -> unit) list ref
     ; event_id_counter: Counter.t
@@ -51,13 +46,13 @@ module Simulator = struct
   (* Event API                              *)
   (******************************************)
 
-  let seed_event sim ev = EventScheduler.add_event !(sim.scheduler) ev
+  let seed_event sim ev = Event_scheduler.add_event !(sim.scheduler) ev
 
   let seed_events sim evs = List.iter evs ~f:(fun ev -> ev |> seed_event sim)
 
   let seed_event_from_spec sim spec =
     let ev = Sim_event.of_spec spec in
-    EventScheduler.add_event !(sim.scheduler) ev
+    Event_scheduler.add_event !(sim.scheduler) ev
 
   let seed_events_from_specs sim specs =
     List.iter specs ~f:(fun spec -> seed_event_from_spec sim spec)
@@ -82,7 +77,7 @@ module Simulator = struct
 
   let step sim =
     let now = current_time sim in
-    let due_events = EventScheduler.pop_due_events !(sim.scheduler) now in
+    let due_events = Event_scheduler.pop_due_events !(sim.scheduler) now in
     List.iter due_events ~f:(fun ev ->
         ev.action () ;
         List.iter !(sim.event_callbacks) ~f:(fun cb -> cb ev) ) ;
@@ -103,7 +98,7 @@ module Simulator = struct
   let reset sim =
     sim.halted <- false ;
     sim.clock <- Time.create_clock () ;
-    sim.scheduler := EventScheduler.create () ;
+    sim.scheduler := Event_scheduler.create () ;
     sim.nodes := [] ;
     sim.event_callbacks := []
 
@@ -174,6 +169,82 @@ module Simulator = struct
 
   let print_bus_stats _ = B.print_stats bus
 
+  (********************************************)
+  (* Hydration of specs into runtime entities *)
+  (********************************************)
+
+  (** convenience routine for converting string to V.t *)
+  let make_val s = V.t_of_sexp (Sexplib.Sexp.Atom s)
+
+  let hydrate_proposal_event sim ({id; target; data; time; _} : Sim_event.spec)
+      =
+    match (target, data) with
+    | Some alias, Some value_str -> (
+      match get_node_by_alias sim alias with
+      | Some node ->
+          let assertion : V.t Types.paxos_assertion_state =
+            { Types.proposal=
+                Types.make_proposal_id ~node:(NodeImpl.id_of node) ~seq:1
+            ; value= make_val value_str }
+          in
+          let action () =
+            let msg_id = sim |> next_msg_id in
+            NodeImpl.propose node ~msg_id ~time ~bus ~assertion
+          in
+          { Sim_event.id= Option.value id ~default:(next_event_id sim)
+          ; time
+          ; kind= Sim_event.Custom "proposal"
+          ; action }
+      | None ->
+          failwith ("Unknown node alias: " ^ alias) )
+    | _ ->
+        failwith "Malformed proposal event spec"
+
+  let hydrate_metric_event sim ({data; id; time; _} : Sim_event.spec) =
+    match data with
+    | Some "print_bus_stats" ->
+        { Sim_event.id= Option.value id ~default:(next_event_id sim)
+        ; time
+        ; kind= Sim_event.Metric
+        ; action= (fun () -> print_bus_stats sim) }
+    | _ ->
+        failwith ("Unknown metric data: " ^ Option.value ~default:"" data)
+
+  let hydrate_control_event sim ({target; data; id; time; _} : Sim_event.spec) =
+    let action =
+      match (target, data) with
+      | Some alias, Some "deactivate" ->
+          fun () -> alias |> make_node_inactive sim ~time
+      | Some alias, Some "activate" | Some alias, Some "reactivate" ->
+          fun () -> alias |> make_node_idle sim ~time
+      | _ ->
+          failwith "Malformed control event spec"
+    in
+    { Sim_event.id= Option.value id ~default:(next_event_id sim)
+    ; time
+    ; kind= Sim_event.Control
+    ; action }
+
+  let hydrate_fallback sim (spec : Sim_event.spec) =
+    let other = spec.kind in
+    { Sim_event.id= Option.value spec.id ~default:(next_event_id sim)
+    ; time= spec.time
+    ; kind= Sim_event.Custom other
+    ; action=
+        (* TODO: fix the sim control series of steps *)
+        (fun () -> Stdio.printf "[Sim_event] Unhandled kind %s\n%!" other ) }
+
+  let hydrate_event sim (spec : Sim_event.spec) =
+    match spec.kind with
+    | "proposal" ->
+        hydrate_proposal_event sim spec
+    | "metric" ->
+        hydrate_metric_event sim spec
+    | "control" ->
+        hydrate_control_event sim spec
+    | _other ->
+        hydrate_fallback sim spec
+
   (******************************************)
   (* Construction / configuration           *)
   (******************************************)
@@ -185,7 +256,7 @@ module Simulator = struct
   let of_spec {max_ticks; deterministic_seed; log_jsonl} : t =
     { halted= false
     ; clock= Time.create_clock ()
-    ; scheduler= ref (EventScheduler.create ())
+    ; scheduler= ref (Event_scheduler.create ())
     ; nodes= ref []
     ; event_callbacks= ref []
     ; event_id_counter= Counter.create 1

@@ -1,6 +1,6 @@
 open Core
 open Command.Let_syntax
-open Color
+open Ansi.Formatter
 
 let scenario_arg =
   Command.Arg_type.create (function
@@ -14,15 +14,15 @@ let scenario_arg =
         failwithf "Unknown scenario: %s" s () )
 
 let desc_of_scenario scenario =
-  let fence = "\t" ^ String.make 40 '%' |> Color.bright_blue |> Color.bold in
+  let fence = "\t" ^ String.make 40 '%' |> bright_blue |> bold in
   let desc =
     match scenario with
     | "basic" ->
-        "This is a basic paxos scenario.. TODO" |> Color.bright_yellow
+        "This is a basic paxos scenario.. TODO" |> bright_yellow
     | "office_bakeoff" ->
-        "This is a office bakeoff paxos scenario.. TODO" |> Color.bright_yellow
+        "This is a office bakeoff paxos scenario.. TODO" |> bright_yellow
     | "parliament" ->
-        "This is a parliament paxos scenario.. TODO" |> Color.bright_yellow
+        "This is a parliament paxos scenario.. TODO" |> bright_yellow
     | s ->
         failwithf "Unknown scenario: %s" s ()
   in
@@ -54,20 +54,18 @@ let string_of_log_level = function
       failwithf "Unknown log level: %d" n ()
 
 let describe_simulation_settings ~scenario ~max_log_level ~allow_step =
-  let cli_tag = "[CLI]" |> Color.bright_yellow |> Color.bold in
+  let cli_tag = "[CLI]" |> bright_yellow |> bold in
   Printf.sprintf "%s: running scenario=%s, max_log_level=%s, allow_step=%b\n\n"
-    cli_tag (scenario |> Color.bold)
-    (max_log_level |> string_of_log_level |> Color.bold)
+    cli_tag (scenario |> bold)
+    (max_log_level |> string_of_log_level |> bold)
     allow_step
   |> Stdio.print_endline
 
 let command_simulate =
-  let welcome =
-    "Welcome to our OCaml Paxos demo!" |> Color.bold |> Color.bright_magenta
-  in
+  let welcome = "Welcome to our OCaml Paxos demo!" |> bold |> bright_magenta in
   let curr_action_msg =
     "For now, please choose a scenario and runtime options from below:"
-    |> Color.italic |> Color.underline
+    |> italic |> underline
   in
   let summary =
     welcome

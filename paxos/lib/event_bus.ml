@@ -54,6 +54,7 @@ module Event_bus : S = struct
 
   type 'a callback = 'a -> unit
 
+  (* TODO rename to payload_serialiser *)
   type 'a serialiser = 'a -> string
 
   type 'a bus_registrable_callback = 'a Message.Message.t -> unit

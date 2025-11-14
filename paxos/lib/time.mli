@@ -2,7 +2,7 @@ open Base
 
 module Time : sig
   (* type t = Time.System.t [@@deriving sexp, compare, equal] *)
-  type t = int [@@deriving sexp, compare, equal]
+  type t = int [@@deriving sexp, compare, equal, yojson]
 
   val zero : t
 

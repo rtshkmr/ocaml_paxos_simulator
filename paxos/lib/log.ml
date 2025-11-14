@@ -1,5 +1,5 @@
 module LogFormatter = struct
-  open Color.Color
+  open Ansi.Formatter
   open Types
   open Base
   open Core.Time_float

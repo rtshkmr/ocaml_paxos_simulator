@@ -5,7 +5,7 @@ open Sim_event
 (**
   A deterministic event scheduler holding `Sim_event.t` values, ordered by logical time.
 *)
-module EventScheduler : sig
+module Event_scheduler : sig
   type t
 
   val create : unit -> t

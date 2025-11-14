@@ -5,21 +5,21 @@ open Event_bus
 open Types
 open Message
 open Log
-open Acceptor_record
 open Node_state
+open Ansi.Formatter
+open Make_mem_storage
+open Make_file_storage
 
 module type S = sig
   module V : Value.S
-
-  module Storage : Storage.S
 
   module Bus : sig
     include module type of Event_bus
   end
 
-  module Acceptor_record : Acceptor_record.S
-
   module State : Node_state.S
+
+  module Storage : Storage.S with type snapshot_payload = State.role_state
 
   type t
 
@@ -41,11 +41,7 @@ module type S = sig
 
   type runtime_config = {mutable cluster_size: int option ref}
 
-  type config =
-    { runtime: runtime_config
-    ; roles: roles
-    ; storage: Storage.t
-    ; topics: Types.topic list }
+  type config = {runtime: runtime_config; roles: roles; topics: Types.topic list}
 
   val register_node_with_bus : V.t Message.t Bus.t -> t -> t
 
@@ -77,13 +73,6 @@ module type S = sig
 
   val sexp_of_role_state : t -> Sexp.t
 
-  val make_config :
-       topics:Types.topic list
-    -> roles:roles
-    -> storage:Storage.t
-    -> cluster_size:int option
-    -> config
-
   val make_node_idle :
        msg_id:int
     -> time:int
@@ -108,14 +97,14 @@ end
 
 module Make_node
     (V : Value.S)
-    (Storage : Storage.S)
     (Bus : sig
       include module type of Event_bus
-    end) :
-  S with module V := V with module Storage := Storage with module Bus := Bus =
-struct
-  module Acceptor_record = Make_acceptor_record (V)
-  module State = Make_node_state (Acceptor_record)
+    end) : S with module V = V with module Bus := Bus = struct
+  module V = V
+  module State = Make_node_state (V)
+
+  (* module Storage = Make_mem_storage (State) *)
+  module Storage = Make_file_storage (State)
 
   type role = Proposer | Acceptor | Learner
 
@@ -166,11 +155,7 @@ struct
 
   type runtime_config = {mutable cluster_size: int option ref}
 
-  type config =
-    { runtime: runtime_config
-    ; roles: roles
-    ; storage: Storage.t
-    ; topics: Types.topic list }
+  type config = {runtime: runtime_config; roles: roles; topics: Types.topic list}
 
   type t =
     { id: Types.node_id
@@ -181,6 +166,7 @@ struct
     ; mutable subs:
         (Types.topic, (Bus.sub_handle, V.t Message.t Bus.t) Hashtbl.t) Hashtbl.t
     ; logger: string Logger.t
+    ; storage: Storage.t ref
     ; transitions: string list ref
           (* TODO [REFACTOR] YAGNI:light-weight history for debugging *) }
 
@@ -252,7 +238,7 @@ struct
       - The function can only accept or return values consistent with ['a] as determined by the GADT constructor.
       - This is what makes GADT-based functions type-safe and flexible without unsafe casts or polymorphic variants.
   *)
-  let transition_role_state node (type a) (sel : a State.role_selector)
+  let transition_role_state node time (type a) (sel : a State.role_selector)
       (new_substate : a) =
     let curr = node.state in
     let new_role_state = State.set_role curr sel new_substate in
@@ -265,8 +251,17 @@ struct
         ~indent:4
     in
     Logger.log_node_state_change node.logger node.id old_state_str new_state_str ;
-    node.state <- new_role_state
-  (* TODO: do the state snapshotting hhere  *)
+    node.state <- new_role_state ;
+    let updated_storage =
+      match Storage.persist_snapshot !(node.storage) time node.state with
+      | Ok updated_storage ->
+          updated_storage
+      | Error e ->
+          Stdio.eprintf "Warning: failed to persist snapshot: %s\n%!"
+            (Error.to_string_hum e) ;
+          !(node.storage)
+    in
+    node.storage := updated_storage
 
   (** Represents the act of a node driving the first step of the paxos process (asking for permission).
       This means that the node's state as a Proposer will change from [ Idle ] to [ Peparing ], as we create the message then dispatch it. Once done dispatching,
@@ -281,7 +276,7 @@ struct
     match t.state.proposer with
     | State.Idle ->
         {value; proposal} |> State.Preparing
-        |> transition_role_state t State.Proposer ;
+        |> transition_role_state t time State.Proposer ;
         let perm_request_msg =
           Message.make_permission_request ~msg_id ~topic:Types.Coordination
             ~from:t.id ~proposal ~value ~time
@@ -292,7 +287,7 @@ struct
         let assertion : assertion = {value; proposal} in
         {assertion; promises_received= []; nacks_received= []}
         |> State.WaitingForPromises
-        |> transition_role_state t State.Proposer
+        |> transition_role_state t time State.Proposer
     | _ ->
         assert false (* we can only propose if we are currently idle *)
 
@@ -374,27 +369,23 @@ struct
 
   let log_node_state_control ({id; alias; _} : t) directive_msg =
     let open Printf in
-    let open Color in
     let tag =
-      sprintf "[%s (node %d):] " alias id
-      |> Color.bold |> Color.bright_red |> Color.underline
+      sprintf "[%s (node %d):] " alias id |> bold |> bright_red |> underline
     in
     let msg =
       sprintf "I have been controlled:%s" directive_msg
-      |> Color.italic |> Color.bright_magenta
+      |> italic |> bright_magenta
     in
     Stdio.print_endline (tag ^ msg)
 
   let noop_ignore ({id; alias; _} : t) (reason : string) =
     let open Printf in
-    let open Color in
     let tag =
-      sprintf "[%s (node %d):] " alias id
-      |> Color.bold |> Color.bright_red |> Color.underline
+      sprintf "[%s (node %d):] " alias id |> bold |> bright_red |> underline
     in
     let decision =
       sprintf "will be ignoring this msg because: %s" reason
-      |> Color.italic |> Color.bright_magenta
+      |> italic |> bright_magenta
     in
     Stdio.print_endline (tag ^ decision)
 
@@ -406,8 +397,9 @@ struct
       > Upon receipt of a Permission Request message:
       > The peer must grant permission for requests with Suggestion IDs equal to or higher than any they have previously granted permission for. In doing so, the peer implicitly promises to reject all Permission Request and Suggestion messages with lower Suggestion IDs. Consequently, requests with IDs less than the ID last granted permission to must be ignored or responded to with a Nack message.
     *)*)
-    | Some promised ->
-        Types.compare_proposal_id proposal promised >= 0
+    | Some ({proposal= promised_proposal; _} : V.t Types.paxos_assertion_state)
+      ->
+        Types.compare_proposal_id proposal promised_proposal >= 0
 
   let handle_permission_request node
       ({ meta= {topic; id; timestamp}
@@ -449,16 +441,16 @@ struct
         let reply_msg =
           if is_permissible ~current_promised_opt proposal then (
             let updated_record =
-              ( {promised= Some proposal; accepted= prev_accepted_opt}
-                : Acceptor_record.value )
+              ( {promised= Some assertion; accepted= prev_accepted_opt}
+                : State.acceptor_record )
             in
             updated_record |> State.Accepting
-            |> transition_role_state node State.Acceptor ;
+            |> transition_role_state node time State.Acceptor ;
             let log_msg =
               Printf.sprintf
                 "the permission request is permissible. new_state: (%s)"
                 (Sexp.to_string_hum
-                   (Acceptor_record.sexp_of_value updated_record) )
+                   (State.sexp_of_acceptor_record updated_record) )
             in
             Logger.log_decision node.logger log_msg ;
             Message.make_permission_granted ~msg_id ~topic ~assertion ~time
@@ -479,11 +471,10 @@ struct
 
   (** TODO: figure out how to abort.*)
   let abort node =
-    let open Color in
     (* TODO [FSM] Figuring out what aborting a paxos process means *)
     let log_msg =
       "the permission request is NOT permissible. we shall send a NACK with \
-       hint" |> Color.red
+       hint" |> red
     in
     Logger.log_decision node.logger log_msg
 
@@ -526,7 +517,7 @@ struct
         let new_promise_rcvd = last_accepted |> promise_of_paxos_promise in
         {wfp with promises_received= new_promise_rcvd :: wfp.promises_received}
         |> State.WaitingForPromises
-        |> transition_role_state node State.Proposer ;
+        |> transition_role_state node time State.Proposer ;
         match State.is_quorum_reached node.state (get_cluster_size node) with
         | State.MajorityGrants assertion ->
             let bus = bus_for_topic node topic in
@@ -542,7 +533,7 @@ struct
             suggest ~msg_id ~time ~bus node ~assertion ;
             {assertion; acks= []; nacks_received= []}
             |> State.ProposerAccepting
-            |> transition_role_state node State.Proposer
+            |> transition_role_state node time State.Proposer
         | State.MajorityNacks _ ->
             Logger.log_decision node.logger
               "We reached a quorum and got majority nacks... time to abort" ;
@@ -552,11 +543,14 @@ struct
     | _ ->
         "no longer waiting for promises" |> noop_ignore node
 
-  let is_acceptable proposal current_promised_opt =
-    Option.is_some current_promised_opt
-    && Types.compare_proposal_id proposal
-         (Option.value_exn current_promised_opt)
-       >= 0
+  let is_acceptable ~current_promised_opt proposal =
+    match current_promised_opt with
+    | None ->
+        failwith
+          "Impossible case, there should always be a value for this state"
+    | Some ({proposal= promised_proposal; _} : V.t Types.paxos_assertion_state)
+      ->
+        Types.compare_proposal_id proposal promised_proposal >= 0
 
   let handle_suggestion node
       ({ meta= {topic; id; timestamp}
@@ -587,13 +581,13 @@ struct
             assert false
       in
       let reply_msg =
-        if is_acceptable proposal current_promised_opt then (
+        if is_acceptable proposal ~current_promised_opt then (
           let updated_record =
-            ( {promised= Some proposal; accepted= Some {proposal; value}}
-              : Acceptor_record.value )
+            ( {promised= Some assertion; accepted= Some {proposal; value}}
+              : State.acceptor_record )
           in
           updated_record |> State.Accepting
-          |> transition_role_state node State.Acceptor ;
+          |> transition_role_state node time State.Acceptor ;
           Message.make_accepted ~msg_id ~topic ~time ~from:node.id ~proposal
             ~value )
         else
@@ -623,11 +617,11 @@ struct
           if List.mem a.acks from ~equal:( = ) then a.acks else from :: a.acks
         in
         {a with acks= new_acks} |> State.ProposerAccepting
-        |> transition_role_state node State.Proposer ;
+        |> transition_role_state node timestamp State.Proposer ;
         match State.is_quorum_reached node.state (get_cluster_size node) with
         | State.MajorityGrants assertion ->
             assertion.value |> State.Decided
-            |> transition_role_state node State.Proposer ;
+            |> transition_role_state node timestamp State.Proposer ;
             assertion
             |> announce_decision node ~msg_id:(id + 1) ~time:(timestamp + 1)
         | _ ->
@@ -645,9 +639,13 @@ struct
        ; decided_assertion= {proposal; _} as new_assertion
        ; from } :
         V.t Message.decided_msg ) =
+    (* Printf.sprintf "new decided to be prepended: %s" *)
+    (*   (Sexp.to_string_hum *)
+    (*      (Types.sexp_of_paxos_assertion_state V.sexp_of_t new_assertion) ) *)
+    (* |> Logger.log_decision node.logger ; *)
     let (Learned curr_assertions) = State.get_role node.state State.Learner in
     Learned (new_assertion :: curr_assertions)
-    |> transition_role_state node State.Learner
+    |> transition_role_state node timestamp State.Learner
 
   let handle_nack node
       ({ meta= {topic; id; timestamp}
@@ -683,7 +681,7 @@ struct
         assert false
         (* we should only be receiving nacks proposer is in state WaitingForPromises or ProposerAccepting *)
     )
-    |> transition_role_state node State.Proposer ;
+    |> transition_role_state node timestamp State.Proposer ;
     match State.is_quorum_reached node.state (get_cluster_size node) with
     | State.MajorityGrants best ->
         best
@@ -694,7 +692,7 @@ struct
         suggest ~msg_id ~time ~bus node ~assertion ;
         {assertion; acks= []; nacks_received= []}
         |> State.ProposerAccepting
-        |> transition_role_state node State.Proposer
+        |> transition_role_state node time State.Proposer
     | State.MajorityNacks _ ->
         abort node
     | State.NotReached ->
@@ -797,18 +795,6 @@ struct
         Hashtbl.add_exn topic_table ~key:subscription_handle ~data:bus ) ;
     node
 
-  let make_config ~topics ~roles ~storage ~cluster_size : config =
-    let cluster_size_opt =
-      match cluster_size with
-      | None ->
-          None
-      | Some x when x > 0 ->
-          Some x
-      | _ ->
-          invalid_arg "cluster_size must be > 0 or None"
-    in
-    {topics; runtime= {cluster_size= ref cluster_size_opt}; roles; storage}
-
   type spec =
     { node_id: int
     ; node_alias: string
@@ -831,7 +817,6 @@ struct
       { runtime= {cluster_size= ref (Some initial_cluster_size)}
       ; roles=
           ["Acceptor"; "Learner"; "Proposer"] |> List.filter_map ~f:role_of_str
-      ; storage= Storage.create ()
       ; topics= topic_strs |> List.filter_map ~f:Types.topic_of_str }
     in
     { id= node_id
@@ -841,5 +826,6 @@ struct
     ; subs= Hashtbl.Poly.create ()
     ; inbox= Hashtbl.Poly.create ()
     ; transitions= ref []
+    ; storage= ref (Storage.create ~alias:node_alias ())
     ; logger= Logger.create () }
 end

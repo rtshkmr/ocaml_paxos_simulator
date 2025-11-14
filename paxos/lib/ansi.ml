@@ -1,5 +1,5 @@
 (** A custom coloriser, we shall adapt to ocolor next time and this will wrap around ocolor*)
-module Color = struct
+module Formatter = struct
   let reset = "\027[0m"
 
   let black s = "\027[30m" ^ s ^ reset

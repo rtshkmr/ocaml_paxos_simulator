@@ -4,13 +4,14 @@ open Base
 open Types
 
 module type S = sig
-  module Acceptor_record : Acceptor_record.S
-
   module V : Value.S
 
-  type assertion = Acceptor_record.assertion
+  type assertion = V.t Types.paxos_assertion_state
 
-  type promise = Acceptor_record.promise
+  type promise = V.t Types.paxos_promise
+
+  type acceptor_record = {promised: promise; accepted: promise}
+  [@@deriving sexp, yojson]
 
   type nack = {rejected_assertion: assertion; hint: promise} [@@deriving sexp]
 
@@ -30,19 +31,16 @@ module type S = sig
     | Preparing of assertion
     | WaitingForPromises of waiting_for_promise_state
     | ProposerAccepting of proposer_accepting_state
-    | Decided of Acceptor_record.V.t
+    | Decided of V.t
   [@@deriving sexp]
 
-  type acceptor_state =
-    | AcceptorInactive
-    | Idle
-    | Accepting of Acceptor_record.value
+  type acceptor_state = AcceptorInactive | Idle | Accepting of acceptor_record
 
   type learner_state = Learned of assertion list [@@deriving sexp]
 
   type role_state =
     {proposer: proposer_state; acceptor: acceptor_state; learner: learner_state}
-  [@@deriving sexp]
+  [@@deriving sexp, yojson]
 
   type _ role_selector =
     | Proposer : proposer_state role_selector
@@ -67,16 +65,17 @@ module type S = sig
   include Has_spec with type t := role_state
 end
 
-module Make_node_state (A : Acceptor_record.S) :
-  S with module Acceptor_record = A = struct
-  module Acceptor_record = A
-  module V = A.V
+module Make_node_state (V : Value.S) = struct
+  module V = V
 
-  type assertion = A.assertion [@@deriving sexp, yojson]
+  type assertion = V.t Types.paxos_assertion_state [@@deriving sexp, yojson]
 
-  type promise = A.promise [@@deriving sexp, yojson]
+  type promise = V.t Types.paxos_promise [@@deriving sexp, yojson]
 
   type nack = {rejected_assertion: assertion; hint: promise}
+  [@@deriving sexp, yojson]
+
+  type acceptor_record = {promised: promise; accepted: promise}
   [@@deriving sexp, yojson]
 
   type waiting_for_promise_state =
@@ -104,7 +103,7 @@ module Make_node_state (A : Acceptor_record.S) :
         (** A node that has decided on the value that consensus has been achieved for*)
   [@@deriving sexp, yojson]
 
-  type acceptor_state = AcceptorInactive | Idle | Accepting of A.value
+  type acceptor_state = AcceptorInactive | Idle | Accepting of acceptor_record
   [@@deriving sexp, yojson]
 
   type learner_state = Learned of assertion list [@@deriving sexp, yojson]
@@ -239,43 +238,56 @@ module Make_node_state (A : Acceptor_record.S) :
         assert false
   (* "We can only check for quorum reached on a nodes if that nodes is one of the states: [WaitingForPromises, ProposerAccepting]" *)
 
+  type acceptor_record_spec =
+    {promised: V.t Types.promise_spec; accepted: V.t Types.promise_spec}
+  [@@deriving sexp, yojson]
+
+  let acceptor_record_of_spec ({promised; accepted} : acceptor_record_spec) :
+      acceptor_record =
+    { promised= promised |> Types.promise_of_spec Fn.id
+    ; accepted= accepted |> Types.promise_of_spec Fn.id }
+
   (* ==== specs and of_specs *)
-  type nack_spec = {rejected_assertion: A.assertion_spec; hint: A.promise_spec}
+  type nack_spec =
+    {rejected_assertion: V.t Types.assertion_spec; hint: V.t Types.promise_spec}
   [@@deriving sexp, yojson]
 
   let nack_of_spec ({rejected_assertion; hint} : nack_spec) : nack =
-    let ra = rejected_assertion |> A.assertion_of_spec in
-    let h = hint |> A.promise_of_spec in
+    let ra = rejected_assertion |> Types.assertion_of_spec Fn.id in
+    let h = hint |> Types.promise_of_spec Fn.id in
     {rejected_assertion= ra; hint= h}
 
   type waiting_for_promise_state_spec =
-    { assertion: A.assertion_spec
-    ; promises_received: A.promise_spec list
+    { assertion: V.t Types.assertion_spec
+    ; promises_received: V.t Types.promise_spec list
     ; nacks_received: nack_spec list }
   [@@deriving sexp, yojson]
 
   let waiting_for_promise_state_of_spec
       ({assertion; promises_received; nacks_received} :
         waiting_for_promise_state_spec ) : waiting_for_promise_state =
-    { assertion= assertion |> A.assertion_of_spec
-    ; promises_received= promises_received |> List.map ~f:A.promise_of_spec
+    { assertion= assertion |> Types.assertion_of_spec Fn.id
+    ; promises_received=
+        promises_received |> List.map ~f:(Types.promise_of_spec Fn.id)
     ; nacks_received= nacks_received |> List.map ~f:nack_of_spec }
 
   type proposer_accepting_state_spec =
-    {assertion: A.assertion_spec; acks: int list; nacks_received: nack_spec list}
+    { assertion: V.t Types.assertion_spec
+    ; acks: int list
+    ; nacks_received: nack_spec list }
   [@@deriving sexp, yojson]
 
   let proposer_accepting_state_of_spec
       ({assertion; acks; nacks_received} : proposer_accepting_state_spec) :
       proposer_accepting_state =
-    { assertion= assertion |> A.assertion_of_spec
+    { assertion= assertion |> Types.assertion_of_spec Fn.id
     ; acks
     ; nacks_received= nacks_received |> List.map ~f:nack_of_spec }
 
   type proposer_state_spec =
     | ProposerInactive_spec
     | Idle_spec
-    | Preparing_spec of A.assertion_spec
+    | Preparing_spec of V.t Types.assertion_spec
     | WaitingForPromises_spec of waiting_for_promise_state_spec
     | ProposerAccepting_spec of proposer_accepting_state_spec
     | Decided_spec of V.spec
@@ -287,7 +299,7 @@ module Make_node_state (A : Acceptor_record.S) :
     | Idle_spec ->
         Idle
     | Preparing_spec assertion_spec ->
-        Preparing (assertion_spec |> A.assertion_of_spec)
+        Preparing (assertion_spec |> Types.assertion_of_spec Fn.id)
     | WaitingForPromises_spec wfp_spec ->
         WaitingForPromises (wfp_spec |> waiting_for_promise_state_of_spec)
     | ProposerAccepting_spec pas_spec ->
@@ -298,7 +310,7 @@ module Make_node_state (A : Acceptor_record.S) :
   type acceptor_state_spec =
     | AcceptorInactive_spec
     | Idle_spec
-    | Accepting_spec of A.spec
+    | Accepting_spec of acceptor_record_spec
   [@@deriving sexp, yojson]
 
   let acceptor_state_of_spec = function
@@ -307,13 +319,14 @@ module Make_node_state (A : Acceptor_record.S) :
     | Idle_spec ->
         Idle
     | Accepting_spec asp ->
-        Accepting (asp |> A.of_spec)
+        Accepting (asp |> acceptor_record_of_spec)
 
-  type learner_state_spec = Learned_spec of A.assertion_spec list
+  type learner_state_spec = Learned_spec of V.t Types.assertion_spec list
   [@@deriving sexp, yojson]
 
-  let learner_state_of_spec (Learned_spec aspecs : learner_state_spec) =
-    Learned (aspecs |> List.map ~f:A.assertion_of_spec)
+  let learner_state_of_spec
+      (Learned_spec (aspecs : V.t Types.assertion_spec list)) =
+    Learned (aspecs |> List.map ~f:(Types.assertion_of_spec Fn.id))
 
   type role_state_spec =
     { proposer: proposer_state_spec

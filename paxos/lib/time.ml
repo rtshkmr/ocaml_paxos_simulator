@@ -2,7 +2,7 @@ open Base
 open Log
 
 module Time = struct
-  type t = int [@@deriving sexp, compare, equal]
+  type t = int [@@deriving sexp, compare, equal, yojson]
 
   let zero = 0
 

@@ -2,8 +2,7 @@
 
 open Base
 open Simulator
-open Simulation_loader
-open Color
+open Ansi.Formatter
 
 module Simulation = struct
   let print_flush s =
@@ -11,8 +10,8 @@ module Simulation = struct
     Out_channel.flush Stdio.stdout
 
   let format_preamble preamble =
-    let desc = preamble |> Color.italic |> Color.bright_yellow in
-    let fence = "\t" ^ String.make 40 '%' |> Color.bright_blue |> Color.bold in
+    let desc = preamble |> italic |> bright_yellow in
+    let fence = "\t" ^ String.make 40 '%' |> bright_blue |> bold in
     Printf.sprintf "\n\n%s\n%s\n%s\n\n" fence desc fence
 
   let rec run_with_pause sim =
@@ -50,7 +49,9 @@ module Simulation = struct
     nodes
     |> List.iter ~f:(fun node_spec ->
            ignore (Simulator.add_node_to_sim sim node_spec) ) ;
-    events |> List.map ~f:(hydrate_event sim) |> Simulator.seed_events sim ;
+    events
+    |> List.map ~f:(Simulator.hydrate_event sim)
+    |> Simulator.seed_events sim ;
     preamble |> format_preamble |> Stdio.print_endline ;
     run_with_pause sim
 end
