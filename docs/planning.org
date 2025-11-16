@@ -4161,8 +4161,13 @@ the following are rough examples, they may have minor errors in theh DSL usage, 
   ]
 }
    #+end_src
-***** [ ] Cleanup dependency issues by refactoring [1/3]
+***** [X] Cleanup dependency issues by refactoring [0/0]
+CLOSED: [2025-11-16 Sun 20:31]
 
+- CLOSING NOTE [2025-11-16 Sun 20:31] \\
+  The main learning here is that when we feel friction, we should realise that these are signals that something is not designed right. We should respond to the signals by stepping back and taking a bird's eye view to see if the initial intent needs a re-strategising.
+
+  Because I was tired, I ended up just doubling down on bad design and so the last parts took a ridiculous amount of time.
 This is blocking. The current state dependency tree is messy and we can't proceed with the file persistence aspects.
 
 So I ended up [[https://excalidraw.com/#room=4731e06144a5b25147e7,LQlsAo6VkSRE6E2tYHoZ7Q][digramming it out on excalidraw]] and have the following decisions that relate to refactoring.
@@ -4180,25 +4185,45 @@ CLOCK: [2025-11-14 Fri 17:45]--[2025-11-14 Fri 17:58] =>  0:13
 - [X] =Storage_mem= to be named =Make_mem_storage= instead since it's a functor and I want to standardise the naming.
 - [X] =Color= to =Ansi_formatter=
 
-****** [ ] Fix Separation of Concern issues
+****** [X] Fix Separation of Concern issues
+CLOSED: [2025-11-16 Sun 19:42]
+- CLOSING NOTE [2025-11-16 Sun 19:42] \\
+  Finally, this is clear and completed.
+
+
+  we just have to polish the code a little.k
 :LOGBOOK:
 CLOCK: [2025-11-14 Fri 18:32]--[2025-11-14 Fri 18:37] =>  0:05
 :END:
 - [X] Hydration helpers to be brought back into simulator instead of being within the loader.
-******* [ ] Type Dependency Refactors
+******* [X] Type Dependency Refactors
+CLOSED: [2025-11-16 Sun 19:36]
+- CLOSING NOTE [2025-11-16 Sun 19:36] \\
+  This was massive but it made things significantly clearer
 :LOGBOOK:
-CLOCK: [2025-11-14 Fri 21:50]
+CLOCK: [2025-11-16 Sun 17:15]--[2025-11-16 Sun 19:36] =>  2:21
+CLOCK: [2025-11-16 Sun 17:14]--[2025-11-16 Sun 17:15] =>  0:01
+CLOCK: [2025-11-16 Sun 08:07]--[2025-11-16 Sun 09:30] =>  1:23
+CLOCK: [2025-11-16 Sun 08:04]--[2025-11-16 Sun 08:07] =>  0:03
+CLOCK: [2025-11-16 Sun 08:04]--[2025-11-16 Sun 08:07] =>  0:03
+CLOCK: [2025-11-14 Fri 21:50]--[2025-11-15 Sat 02:00] =>  4:10
 CLOCK: [2025-11-14 Fri 20:27]--[2025-11-14 Fri 21:37] =>  1:10
 CLOCK: [2025-11-14 Fri 18:37]--[2025-11-14 Fri 19:30] =>  0:53
 :END:
 - [X] Kill =Acceptor_record= module Keep =Acceptor_record= local to =Node_state=, make it a record type instead of a submodule
   1. update the =Make_node_state= functor to receive =Value= module as the param, instead of =Acceptor_record=
 - [X] Keep =Storage= within =Node=
-- [ ] Update the storage interface
+- [X] Update the storage interface
   1. Storage interface needs to keep =node_state= $\implies$ =Make_*_storage=
-- [ ] Update the simulator states
+- [X] Update the simulator states
+  1) =ActivateNode= message
+  2) =Node.activate=
+  3) update the DSL side, allow it to mean "activate"
 
-***** [ ] Add in file storage for persistence
+***** [X] Add in file storage for persistence
+CLOSED: [2025-11-16 Sun 20:32]
+- CLOSING NOTE [2025-11-16 Sun 20:32] \\
+  Completed via a =Make_file_storage= that is local to a node.
 :LOGBOOK:
 CLOCK: [2025-11-12 Wed 19:36]--[2025-11-12 Wed 20:30] =>  0:54
 :END:
@@ -4232,9 +4257,11 @@ At the moment, our interface for storage hasn't really been used so much of it c
 
 
 I really don't want to do this, we shall try skip this if possible
-  - [ ] we also need to add in the storage part
-****** TODO Change the Storage interface
+****** DONE Change the Storage interface
+CLOSED: [2025-11-16 Sun 19:37]
 
+- CLOSING NOTE [2025-11-16 Sun 19:37] \\
+  Donezo
 Right now storage will be kept local to =Node_state=. This is to encourage every peer to take charge of their own storage.
 
 
@@ -4242,6 +4269,7 @@ What to store?
 
 Ans: we shall Update the storage interface to have node state. We will do constraint sharing for this at the functor, so we can name the internal module type something more relevant to storage (e.g. =snapshot_payload=, =consensus_payload=)
 
+NOTE: i changed this to just =snapshot_payload= and also kept a changelog of states within it.
 
 ****** DONE extract node state out of node
 ******* GOTCHA: destructive substitution actually destroys things
@@ -4314,7 +4342,10 @@ takeaways:
 
 
 JUST PLAIN UNFORTUNATE HOW LONG THIS TOOK
-***** [ ] Handle Learner behaviour & no-op for inactive nodes
+***** [X] Handle Learner behaviour & no-op for inactive nodes
+CLOSED: [2025-11-16 Sun 20:34]
+- CLOSING NOTE [2025-11-16 Sun 20:34] \\
+  Works, though we need to use more complex scenarios for it
 ******* DONE Noop on Messages arriving after quorum is reached
 CLOSED: [2025-11-12 Wed 08:34]
 
@@ -4344,8 +4375,13 @@ The Learner role is not implemented yet, I'm guessing it should just be sufficie
 
 - Learners' state changes should also be persisted for node recovery.
 
-******* TODO Behaviour of inactive nodes
+******* DONE Behaviour of inactive nodes
+CLOSED: [2025-11-16 Sun 20:33]
 
+- CLOSING NOTE [2025-11-16 Sun 20:33] \\
+  when deactivated, it will NOT do any peristence.
+
+  Only on reactivation do we attempt a loading from storage.
 :LOGBOOK:
 CLOCK: [2025-11-11 Tue 22:09]--[2025-11-11 Tue 23:05] =>  0:56
 :END:
@@ -5108,6 +5144,7 @@ Error (warning 8 [partial-match]): this pattern-matching is not exhaustive.
 Here is an example of a case that is not matched:
 Inactive
   #+end_src
+****** [ ] how did the compiler go from "complaining" to "whispering"
 
 ***** [ ] working with generics and expressiveness of the type system
 
@@ -5430,7 +5467,7 @@ OCaml has genuinely felt like the language thhat resonates with my thhinking sty
 
 The process of adhering to static typing, allowing algebraic / abstract nature of behaviours and protocols is very aligned with.
 
-Syntax makes the code I write as a novice easy to read, though I'd consider the same for elixir, when writing elixir code, I ended up thinking in EIP patterns more so than in OCaml. In OCaml, it ends up being more of a type-matching / struct-based focus. I'm not sure whichh I like more yet, but it aligns with my working style where I usually prefer to build bottom up interfaces but design top-down.
+Syntax makes the code I write as a novice easy to read, though I'd consider the same for elixir, when writing elixir code, I ended up thinking in EIP patterns more so than in OCaml. In OCaml, it ends up being more of a type-matching / struct-based focus. I'm not sure which I like more yet, but it aligns with my working style where I usually prefer to build bottom up interfaces but design top-down.
 
 The OCaml code reads like pseudocode. that's amazing.
 

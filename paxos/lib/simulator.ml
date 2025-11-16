@@ -163,6 +163,24 @@ module Simulator = struct
         let thunk = ((Types.Simulation_control, Some node_id), msg) in
         thunk |> B.enqueue bus
 
+  let make_node_active sim ~time alias =
+    match alias |> get_node_by_alias sim with
+    | None ->
+        Stdio.printf
+          "WARNING: Couldn't find any node with alias=(%s); can't make that \
+           active!\n\
+           %!"
+          alias
+    | Some node ->
+        let node_id = node |> NodeImpl.id_of in
+        let msg_id = sim |> next_msg_id in
+        let msg =
+          Message.make_sim_control_activate_node ~msg_id ~time ~node_id
+          |> Message.Control
+        in
+        let thunk = ((Types.Simulation_control, Some node_id), msg) in
+        thunk |> B.enqueue bus
+
   (******************************************)
   (* Debugging / diagnostics                *)
   (******************************************)
@@ -213,10 +231,12 @@ module Simulator = struct
   let hydrate_control_event sim ({target; data; id; time; _} : Sim_event.spec) =
     let action =
       match (target, data) with
-      | Some alias, Some "deactivate" ->
+      | Some alias, Some "deactivate" | Some alias, Some "inactivate" ->
           fun () -> alias |> make_node_inactive sim ~time
-      | Some alias, Some "activate" | Some alias, Some "reactivate" ->
+      | Some alias, Some "make_idle" ->
           fun () -> alias |> make_node_idle sim ~time
+      | Some alias, Some "activate" | Some alias, Some "reactivate" ->
+          fun () -> alias |> make_node_active sim ~time
       | _ ->
           failwith "Malformed control event spec"
     in

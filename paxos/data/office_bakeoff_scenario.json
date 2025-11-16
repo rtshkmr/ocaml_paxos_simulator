@@ -48,14 +48,14 @@
     },
     {
       "id": null,
-      "time": 5,
+      "time": 9,
       "kind": "control",
       "target": "CookieQueen",
       "data": "reactivate"
     },
     {
       "id": null,
-      "time": 9,
+      "time": 10,
       "kind": "proposal",
       "target": "PastryGurl",
       "data": "PastryGurl makes a late proposal"

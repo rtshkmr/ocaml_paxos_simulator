@@ -291,6 +291,35 @@ module Make_node
     | _ ->
         assert false (* we can only propose if we are currently idle *)
 
+  let activate time ({id; alias; logger; storage; state; _} as node : t) =
+    match !storage |> Storage.load_snapshot with
+    | Error e ->
+        Stdio.eprintf "Warning: failed to load snapshot: %s\n%!"
+          (Error.to_string_hum e) ;
+        node.state <- State.idle_of ()
+    | Ok None ->
+        Stdio.print_endline
+          "No snapshot to load from, will just idle in a fresh state." ;
+        node.state <- State.idle_of ()
+    | Ok loaded_state ->
+        let new_state =
+          loaded_state |> Option.value_or_thunk ~default:State.idle_of
+        in
+        Stdio.print_endline
+          (Yojson.Safe.pretty_to_string
+             (new_state |> State.role_state_to_yojson) ) ;
+        node.state <- new_state ;
+        let updated_storage =
+          match Storage.persist_snapshot !(node.storage) time node.state with
+          | Ok updated_storage ->
+              updated_storage
+          | Error e ->
+              Stdio.eprintf "Warning: failed to persist snapshot: %s\n%!"
+                (Error.to_string_hum e) ;
+              !(node.storage)
+        in
+        node.storage := updated_storage
+
   let announce_decision ({id; alias; logger; _} as t : t) ~msg_id ~time
       (decided_assertion : V.t Types.paxos_assertion_state) =
     match t.state.proposer with
@@ -406,68 +435,65 @@ module Make_node
        ; from
        ; assertion= {proposal; value} as assertion } :
         V.t Message.permission_request_msg ) =
-    match State.get_role node.state State.Acceptor with
-    | State.AcceptorInactive ->
-        Logger.log_reaction node.logger
-          (Printf.sprintf "Node %d is Inactive so it's not going to do anything"
-             node.id )
-    | _ ->
-        let log_msg =
-          Printf.sprintf
-            "... node %d received permission request from %d with proposal=%s \
-             for value=(%s)"
-            node.id from
-            (Sexp.to_string_hum (Types.sexp_of_proposal_id proposal))
-            (V.to_string value)
-        in
-        Logger.log_subroutine_flow node.logger Stdlib.__FUNCTION__ ~msg:log_msg
-          () ;
-        let msg_id = 1 + id in
-        let time = 1 + timestamp in
-        let current_promised_opt, prev_accepted_opt =
-          match State.get_role node.state State.Acceptor with
-          | State.Idle ->
-              Logger.log_decision node.logger
-                (Printf.sprintf
-                   "Node %d Acceptor was idle; no current promised / \
-                    previously accepted to report. Carrying on..."
-                   node.id ) ;
-              (None, None)
-          | State.Accepting record ->
-              (record.promised, record.accepted)
-          | _ ->
-              assert false
-        in
-        let reply_msg =
-          if is_permissible ~current_promised_opt proposal then (
-            let updated_record =
-              ( {promised= Some assertion; accepted= prev_accepted_opt}
-                : State.acceptor_record )
-            in
-            updated_record |> State.Accepting
-            |> transition_role_state node time State.Acceptor ;
-            let log_msg =
-              Printf.sprintf
-                "the permission request is permissible. new_state: (%s)"
-                (Sexp.to_string_hum
-                   (State.sexp_of_acceptor_record updated_record) )
-            in
-            Logger.log_decision node.logger log_msg ;
-            Message.make_permission_granted ~msg_id ~topic ~assertion ~time
-              ~from:node.id ~last_accepted:prev_accepted_opt )
-          else
-            let log_msg =
-              "the permission request is NOT permissible. we shall send a NACK \
-               with hint"
-            in
-            Logger.log_decision node.logger log_msg ;
-            Message.make_nack ~msg_id ~topic ~time ~from:node.id
-              ~rejected_assertion:assertion
-              ~hint:(prev_accepted_opt |> paxos_promise_of_promise)
-        in
-        let bus = bus_for_topic node topic in
-        let thunk = ((topic, Some from), reply_msg |> Message.Coordination) in
-        Bus.enqueue bus thunk
+    if node |> is_inactive then
+      "we can't handle permission request when we are inactive."
+      |> noop_ignore node
+    else
+      let log_msg =
+        Printf.sprintf
+          "... node %d received permission request from %d with proposal=%s \
+           for value=(%s)"
+          node.id from
+          (Sexp.to_string_hum (Types.sexp_of_proposal_id proposal))
+          (V.to_string value)
+      in
+      Logger.log_subroutine_flow node.logger Stdlib.__FUNCTION__ ~msg:log_msg () ;
+      let msg_id = 1 + id in
+      let time = 1 + timestamp in
+      let current_promised_opt, prev_accepted_opt =
+        match State.get_role node.state State.Acceptor with
+        | State.Idle ->
+            Logger.log_decision node.logger
+              (Printf.sprintf
+                 "Node %d Acceptor was idle; no current promised / previously \
+                  accepted to report. Carrying on..."
+                 node.id ) ;
+            (None, None)
+        | State.Accepting record ->
+            (record.promised, record.accepted)
+        | _ ->
+            assert false
+      in
+      let reply_msg =
+        if is_permissible ~current_promised_opt proposal then (
+          let updated_record =
+            ( {promised= Some assertion; accepted= prev_accepted_opt}
+              : State.acceptor_record )
+          in
+          updated_record |> State.Accepting
+          |> transition_role_state node time State.Acceptor ;
+          let log_msg =
+            Printf.sprintf
+              "the permission request is permissible. new_state: (%s)"
+              (Sexp.to_string_hum
+                 (State.sexp_of_acceptor_record updated_record) )
+          in
+          Logger.log_decision node.logger log_msg ;
+          Message.make_permission_granted ~msg_id ~topic ~assertion ~time
+            ~from:node.id ~last_accepted:prev_accepted_opt )
+        else
+          let log_msg =
+            "the permission request is NOT permissible. we shall send a NACK \
+             with hint"
+          in
+          Logger.log_decision node.logger log_msg ;
+          Message.make_nack ~msg_id ~topic ~time ~from:node.id
+            ~rejected_assertion:assertion
+            ~hint:(prev_accepted_opt |> paxos_promise_of_promise)
+      in
+      let bus = bus_for_topic node topic in
+      let thunk = ((topic, Some from), reply_msg |> Message.Coordination) in
+      Bus.enqueue bus thunk
 
   (** TODO: figure out how to abort.*)
   let abort node =
@@ -702,28 +728,28 @@ module Make_node
     if node |> is_inactive then
       "inactive right now and can't be reached to get coordinated..."
       |> noop_ignore node
-    else
+    else (
       Logger.log_subroutine_flow logger Stdlib.__FUNCTION__
         ~msg:"...coordination is happening" () ;
-    match Message.proposal_id_of msg with
-    | None ->
-        ()
-    | Some proposal_id -> (
-      match msg with
-      | Message.Coordination (PermissionRequest pr) ->
-          handle_permission_request node pr
-      | Message.Coordination (PermissionGranted pg) ->
-          handle_permission_granted node pg
-      | Message.Coordination (Suggestion s) ->
-          handle_suggestion node s
-      | Message.Coordination (Accepted a) ->
-          handle_accepted node a
-      | Message.Coordination (Nack n) ->
-          handle_nack node n
-      | Message.Coordination (Decided d) ->
-          handle_decided node d
-      | _ ->
-          () )
+      match Message.proposal_id_of msg with
+      | None ->
+          ()
+      | Some proposal_id -> (
+        match msg with
+        | Message.Coordination (PermissionRequest pr) ->
+            handle_permission_request node pr
+        | Message.Coordination (PermissionGranted pg) ->
+            handle_permission_granted node pg
+        | Message.Coordination (Suggestion s) ->
+            handle_suggestion node s
+        | Message.Coordination (Accepted a) ->
+            handle_accepted node a
+        | Message.Coordination (Nack n) ->
+            handle_nack node n
+        | Message.Coordination (Decided d) ->
+            handle_decided node d
+        | _ ->
+            () ) )
 
   let handle_simulation_control ({id; alias; logger; _} as node : t)
       (msg : V.t Message.t) =
@@ -734,12 +760,14 @@ module Make_node
     in
     Logger.log_subroutine_flow logger Stdlib.__FUNCTION__ ~msg:log_msg () ;
     match msg with
+    | Message.Control (ActivateNode {node_id; meta= {timestamp; _}; _})
+      when node_id = id ->
+        node |> activate timestamp ;
+        "I'm back in action" |> log_node_state_control node
     | Message.Control (MakeNodeIdle {node_id; _}) when node_id = id ->
-        (* TODO: FIXME after settling storage: to recover from storage *)
         node.state <- State.idle_of () ;
         "I am now idle" |> log_node_state_control node
     | Message.Control (MakeNodeInactive {node_id; _}) when node_id = id ->
-        (* TODO: FIXME after settling storage: to store then become inactive *)
         node.state <- State.inactive_of () ;
         "I am now inactive" |> log_node_state_control node
     | _ ->
