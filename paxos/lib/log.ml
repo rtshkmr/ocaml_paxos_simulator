@@ -82,20 +82,22 @@ module LogFormatter = struct
     Printf.sprintf "%s\n%s via topic %s:\n%s\n%s" header header_msg topic_str
       payload header
 
-  let subscribe topic node_id subscription_id =
+  let subscribe bus_id topic node_id subscription_id =
     let topic_str = Types.sexp_of_topic topic |> Sexp.to_string_hum ~indent:1 in
     let tag =
-      Printf.sprintf "<node[%d]::Subscribed @ %s>" node_id topic_str
+      Printf.sprintf "<bus=(%d) node[%d]::Subscribed to %s>" bus_id node_id
+        topic_str
       |> green |> bold
     in
     Printf.sprintf "%s\n\ttopic=%s, node_id=%d, subscription_id=%d" tag
       topic_str node_id subscription_id
 
-  let unsubscribe topic node_id subscription_id =
+  let unsubscribe bus_id topic node_id subscription_id =
     let topic_str = Types.sexp_of_topic topic |> Sexp.to_string_hum ~indent:1 in
     Printf.sprintf
-      "< --- Unsubscribed --- >:\n  topic=%s, node_id=%d, subscription_id=%d"
-      topic_str node_id subscription_id
+      "< --- Unsubscribed @ bus=(%d) --- >:\n\
+      \  topic=%s, node_id=%d, subscription_id=%d"
+      bus_id topic_str node_id subscription_id
     |> red |> bold
 
   let enqueue topic queue_size =
@@ -131,8 +133,8 @@ module LogFormatter = struct
   type 'a formatters =
     { publish_broadcast: Types.topic -> string -> string
     ; publish_unicast: Types.node_id -> Types.topic -> string -> string
-    ; subscribe: Types.topic -> int -> int -> string
-    ; unsubscribe: Types.topic -> int -> int -> string
+    ; subscribe: int -> Types.topic -> int -> int -> string
+    ; unsubscribe: int -> Types.topic -> int -> int -> string
     ; enqueue: Types.topic -> int -> string
     ; drain_start: int -> string
     ; drain_end: unit -> string
@@ -173,11 +175,12 @@ module Logger = struct
   let log_publish_unicast t node_id topic payload =
     print_endline (t.formatters.publish_unicast node_id topic payload)
 
-  let log_subscribe t topic node_id subscription_id =
-    print_endline (t.formatters.subscribe topic node_id subscription_id)
+  let log_subscribe t bus_id topic node_id subscription_id =
+    print_endline (t.formatters.subscribe bus_id topic node_id subscription_id)
 
-  let log_unsubscribe t topic node_id subscription_id =
-    print_endline (t.formatters.unsubscribe topic node_id subscription_id)
+  let log_unsubscribe t bus_id topic node_id subscription_id =
+    print_endline
+      (t.formatters.unsubscribe bus_id topic node_id subscription_id)
 
   let log_enqueue t topic queue_size =
     print_endline (t.formatters.enqueue topic queue_size)

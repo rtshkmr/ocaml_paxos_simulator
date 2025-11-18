@@ -68,6 +68,8 @@ module type S = sig
 
   val register_node_with_bus : V.t Message.t Bus.t -> t -> t
 
+  val deregister_node_from_bus : V.t Message.t Bus.t -> t -> t
+
   val roles : t -> roles
   (** Return the roles assigned to a node. *)
 

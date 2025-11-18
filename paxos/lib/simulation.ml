@@ -40,18 +40,16 @@ module Simulation = struct
         Simulator.print_bus_stats sim
 
   let run ?(scenario = "basic") ?(max_log_level = 1) ?(allow_step = true) () =
-    let ({preamble; simulator; nodes; events} : Config.simulation_config) =
+    let open Simulator in
+    let open Simulation_loader in
+    let ({preamble; simulator; nodes; events} : simulation_config) =
       scenario
       |> Printf.sprintf "data/%s_scenario.json"
-      |> Simulation_loader.load_simulation_config_from_file
+      |> load_simulation_config_from_file
     in
-    let sim = simulator |> Simulator.of_spec in
-    nodes
-    |> List.iter ~f:(fun node_spec ->
-           ignore (Simulator.add_node_to_sim sim node_spec) ) ;
-    events
-    |> List.map ~f:(Simulator.hydrate_event sim)
-    |> Simulator.seed_events sim ;
+    let sim = simulator |> of_spec in
+    nodes |> List.iter ~f:(fun n -> n |> hydrate_node sim |> seed_node_exn sim) ;
+    events |> List.iter ~f:(fun e -> e |> hydrate_event sim |> seed_event sim) ;
     preamble |> format_preamble |> Stdio.print_endline ;
     run_with_pause sim
 end

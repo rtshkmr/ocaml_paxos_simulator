@@ -9,40 +9,64 @@
     {
       "node_id": 1,
       "node_alias": "BakeBoii",
-      "topic_strs": ["Coordination", "Simulation_control", "Time"],
-      "initial_cluster_size": 2,
-      "initial_state": null,
-      "storage_config": null
+      "topic_strs": [
+        "Coordination",
+        "Simulation_control",
+        "Time"
+      ],
+      "initial_cluster_size": 2
     },
     {
       "node_id": 2,
       "node_alias": "PastryGurl",
-      "topic_strs": ["Coordination", "Simulation_control", "Time"],
-      "initial_cluster_size": 2,
-      "initial_state": null,
-      "storage_config": null
+      "topic_strs": [
+        "Coordination",
+        "Simulation_control",
+        "Time"
+      ],
+      "initial_cluster_size": 2
     }
   ],
   "events": [
     {
-      "id": null,
+      "time": 1,
+      "kind": "control",
+      "target": "PastryGurl",
+      "data": "partition",
+      "args": [
+        "2"
+      ]
+    },
+    {
+      "time": 2,
+      "kind": "metric",
+      "target": null,
+      "data": "print_bus_stats"
+    },
+    {
       "time": 2,
       "kind": "proposal",
       "target": "BakeBoii",
       "data": "Initial proposal from BakeBoii"
     },
     {
-      "id": null,
+      "time": 4,
+      "kind": "control",
+      "target": "PastryGurl",
+      "data": "partition",
+      "args": [
+        "1"
+      ]
+    },
+    {
       "time": 9,
       "kind": "proposal",
       "target": "PastryGurl",
       "data": "Follow-up proposal from PastryGurl"
     },
     {
-      "id": null,
       "time": 1,
       "kind": "metric",
-      "target": null,
       "data": "print_bus_stats"
     }
   ]

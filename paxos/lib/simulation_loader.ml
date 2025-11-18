@@ -1,5 +1,13 @@
 open Base
-open Config
+open Simulator
+open Sim_event
+
+type simulation_config =
+  { preamble: string
+  ; simulator: Simulator.spec
+  ; nodes: Simulator.NodeImpl.spec list
+  ; events: Sim_event.spec list }
+[@@deriving yojson]
 
 let load_simulation_config_from_file file_path =
   Stdio.printf "[Simulation_loader]: loading the simulation from %s\n%!"

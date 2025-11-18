@@ -45,6 +45,8 @@ module type S = sig
 
   val register_node_with_bus : V.t Message.t Bus.t -> t -> t
 
+  val deregister_node_from_bus : V.t Message.t Bus.t -> t -> t
+
   val roles : t -> roles
 
   val state : t -> State.role_state
@@ -271,11 +273,10 @@ module Make_node
    *)
   let propose t ~msg_id ~time ~bus ~(assertion : V.t Types.paxos_assertion_state)
       =
-    let proposal = assertion.proposal in
-    let value = assertion.value in
+    let {proposal; value} : assertion = assertion in
     match t.state.proposer with
     | State.Idle ->
-        {value; proposal} |> State.Preparing
+        assertion |> State.Preparing
         |> transition_role_state t time State.Proposer ;
         let perm_request_msg =
           Message.make_permission_request ~msg_id ~topic:Types.Coordination
@@ -284,10 +285,11 @@ module Make_node
         let msg = Message.Coordination perm_request_msg in
         let thunk = ((Types.Coordination, None), msg) in
         Bus.enqueue bus thunk ;
-        let assertion : assertion = {value; proposal} in
         {assertion; promises_received= []; nacks_received= []}
         |> State.WaitingForPromises
-        |> transition_role_state t time State.Proposer
+        |> transition_role_state t time State.Proposer ;
+        Stdio.printf "WALDO: bus has magic reference @ propose %d\n"
+          (Stdlib.Obj.magic bus * 2)
     | _ ->
         assert false (* we can only propose if we are currently idle *)
 
@@ -805,22 +807,44 @@ module Make_node
     | _ ->
         failwith "Unsupported topic for message passing"
 
-  let register_node_with_bus bus ({config= {topics; _}; id; _} as node) =
+  let register_node_with_bus bus
+      ({config= {topics; _}; id= node_id; subs; _} as node) =
     List.iter topics ~f:(fun topic ->
-        let topic_table =
-          match Hashtbl.find node.subs topic with
-          | Some table ->
-              table
-          | None ->
-              let table = Hashtbl.Poly.create () in
-              Hashtbl.add_exn node.subs ~key:topic ~data:table ;
-              table
-        in
         let callback msg = get_handler_for_topic node topic msg in
+        (* let callback = get_handler_for_topic node topic in *)
         let subscription_handle =
-          callback |> Bus.subscribe bus ~topic ~node_id:id
+          callback |> Bus.subscribe bus ~topic ~node_id
         in
-        Hashtbl.add_exn topic_table ~key:subscription_handle ~data:bus ) ;
+        ( match Hashtbl.find subs topic with
+        | Some table ->
+            table
+        | None ->
+            let table = Hashtbl.Poly.create () in
+            Hashtbl.add_exn subs ~key:topic ~data:table ;
+            table )
+        |> Hashtbl.add_exn ~key:subscription_handle ~data:bus ) ;
+    node
+
+  let deregister_node_from_bus bus ({config= {topics; _}; subs; _} as node) =
+    List.iter topics ~f:(fun topic ->
+        match Hashtbl.find subs topic with
+        | Some table ->
+            let keys_to_remove =
+              Hashtbl.fold table ~init:[]
+                ~f:(fun ~key:sub_handle ~data:sub_bus acc ->
+                  if phys_equal sub_bus bus then sub_handle :: acc else acc )
+            in
+            Stdio.print_endline "...deregistering node, keys:" ;
+            keys_to_remove
+            |> List.map ~f:Event_bus.sexp_of_sub_handle
+            |> List.map ~f:Sexp.to_string_hum
+            |> List.iter ~f:Stdio.print_endline ;
+            List.iter keys_to_remove ~f:(fun sub_handle ->
+                Bus.unsubscribe bus sub_handle ;
+                Hashtbl.remove table sub_handle ) ;
+            if Hashtbl.is_empty table then Hashtbl.remove subs topic
+        | None ->
+            () ) ;
     node
 
   type spec =
@@ -828,8 +852,8 @@ module Make_node
     ; node_alias: string
     ; topic_strs: string list
     ; initial_cluster_size: int
-    ; initial_state: string option
-    ; storage_config: string option }
+    ; initial_state: string option [@default None] [@yojson_drop_default]
+    ; storage_config: string option [@default None] [@yojson_drop_default] }
   [@@deriving sexp, yojson]
 
   let of_spec

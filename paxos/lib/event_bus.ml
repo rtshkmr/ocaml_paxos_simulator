@@ -74,6 +74,7 @@ module Event_bus : S = struct
 
   type 'a t =
     { mutable next_id: int
+        ; id: int
     ; topics: (Types.topic, 'a topic_state) Hashtbl.Poly.t
     ; queue: 'a enqueuable_thunk Queue.t
     ; logger: 'a Logger.t
@@ -81,7 +82,8 @@ module Event_bus : S = struct
     }
 
   let create ~payload_serialiser () =
-    {next_id= 0; topics= Hashtbl.Poly.create (); queue= Queue.create (); logger=Logger.create(); payload_serialiser}
+    let random_id = Random.int 10000 in
+    {id=random_id; next_id= 0; topics= Hashtbl.Poly.create (); queue= Queue.create (); logger=Logger.create(); payload_serialiser}
 
   (** Returns the [topic_state] for [topic] if exists else initialises one for that topic and returns it.
       This allows lazy creation of topic entries.
@@ -104,21 +106,21 @@ module Event_bus : S = struct
     let sub_handle = {topic; id= subscription_id; node_id} in
     let subscription_info = {node_id; sub_handle; callback} in
     Hashtbl.add_exn ts.subs ~key:sub_handle ~data:subscription_info ;
-    (* Logger.log_subscribe t.logger topic node_id subscription_id; *)
+    Logger.log_subscribe t.logger t.id topic node_id subscription_id;
     sub_handle
 
-  let unsubscribe t sub_handle =
-    match Hashtbl.find t.topics sub_handle.topic with
+  let unsubscribe ({id=bus_id;topics; logger; _}) ( {topic; node_id; id} as sub_handle ) =
+    match topic |> Hashtbl.find topics with
     | None ->
       ()
-    | Some ts ->
-      Hashtbl.remove ts.subs sub_handle ;
-      Logger.log_unsubscribe t.logger sub_handle.topic sub_handle.node_id sub_handle.id ;
+    | Some ( {subs; published; queued; delivered} as ts ) ->
+      Hashtbl.remove subs sub_handle ;
+      Logger.log_unsubscribe logger bus_id topic node_id id ;
       if
-        Hashtbl.length ts.subs = 0
-        && ts.published = 0 && ts.queued = 0 && ts.delivered = 0
-      then Hashtbl.remove t.topics sub_handle.topic
-      else Hashtbl.set t.topics ~key:sub_handle.topic ~data:ts
+        Hashtbl.length subs = 0
+        && published = 0 && queued = 0 && delivered = 0
+      then Hashtbl.remove topics topic
+      else Hashtbl.set topics ~key:topic ~data:ts
 
   let publish_broadcast t ~topic payload =
     let ts = ensure_topic_state t topic in

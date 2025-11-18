@@ -9,62 +9,62 @@
     {
       "node_id": 1,
       "node_alias": "BakeBoii",
-      "topic_strs": ["Coordination", "Simulation_control", "Time"],
-      "initial_cluster_size": 3,
-      "initial_state": null,
-      "storage_config": null
+      "topic_strs": [
+        "Coordination",
+        "Simulation_control",
+        "Time"
+      ],
+      "initial_cluster_size": 3
     },
     {
       "node_id": 2,
       "node_alias": "PastryGurl",
-      "topic_strs": ["Coordination", "Simulation_control", "Time"],
-      "initial_cluster_size": 3,
-      "initial_state": null,
-      "storage_config": null
+      "topic_strs": [
+        "Coordination",
+        "Simulation_control",
+        "Time"
+      ],
+      "initial_cluster_size": 3
     },
     {
       "node_id": 3,
       "node_alias": "CookieQueen",
-      "topic_strs": ["Coordination", "Simulation_control", "Time"],
-      "initial_cluster_size": 3,
-      "initial_state": null,
-      "storage_config": null
+      "topic_strs": [
+        "Coordination",
+        "Simulation_control",
+        "Time"
+      ],
+      "initial_cluster_size": 3
     }
   ],
   "events": [
     {
-      "id": null,
       "time": 2,
       "kind": "proposal",
       "target": "BakeBoii",
       "data": "Office bakeoff starting proposal"
     },
     {
-      "id": null,
       "time": 3,
       "kind": "control",
       "target": "CookieQueen",
       "data": "deactivate"
     },
     {
-      "id": null,
       "time": 9,
       "kind": "control",
       "target": "CookieQueen",
       "data": "reactivate"
     },
     {
-      "id": null,
       "time": 10,
       "kind": "proposal",
       "target": "PastryGurl",
       "data": "PastryGurl makes a late proposal"
     },
     {
-      "id": null,
       "time": 1,
       "kind": "metric",
-      "target": null,
       "data": "print_bus_stats"
     }
   ]

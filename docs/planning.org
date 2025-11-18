@@ -4402,6 +4402,117 @@ CLOCK: [2025-11-11 Tue 22:09]--[2025-11-11 Tue 23:05] =>  0:56
 - Reactivation moves the node from Inactive to Idle or appropriate state so it can resume participation.
 
   * as a first-pass, we'll just do a state dump of the entire node and recover it again.
+***** [X] Add proper partitioning simulation
+CLOSED: [2025-11-18 Tue 21:24]
+:PROPERTIES:
+:EFFORT:   2h
+:END:
+
+- CLOSING NOTE [2025-11-18 Tue 21:24] \\
+  Wonderful, this feels so good. I can smell the finish line.
+Currently, we have a primitive implementation of "partitioning" by just making a node inactive. This process is more accurate to simulate nodes crashing instead. My current implementation only focuses on a single simulator and I don't particularly have a clean implementation for partitioning yet.
+
+I have only implemented the ability for nodes to be turned inactive (to mimic corruption or just crashing and being inactive). This is not the same as simulating partitioning because nodes within distinct partitions won't be communicating with each other. The system currently uses an event bus for communication and at the point of node registration and so on. The bus is currently a singleton and all nodes that the simulator keeps are registered onto this bus.
+
+In order to simulate partitioning more accurately, a simulator would likely have to hold a registry of busses to represent each partition.
+
+It might be a good time to introduce a new module for "partition" to establish some abstract behaviour.
+
+A partition should revolve around the following requirements:
+
+1. be a collection of nodes
+
+2. nodes within a partition should be able to communicate to each other $\implies$
+
+   a) each partition has a singular bus
+
+   b) each partition should have a fixed quorum value $\implies$ we could let the simulation orchestrator (simulator itself) be responsible for updating the quorum.
+
+      QQ: not sure if this makes sense -- how is cluster size / quorum value updated within an actual system and who updates it? the leader ? the supervisor ?
+
+3. nodes are unaware of the partition that they're in.
+
+
+The value of adding in this simulation capability would be to have a more complete simulation of the original paxos parable (with the part-time-parliamentarians). This would be a good wrap on the functionality that I have supported so far for this project.
+
+However, I expect a 1-2h effort on this. I'm unusure if I should be adding this functionality in.
+
+QQ: the following outline of a more comprehensive parliament parable, is it actually true to lamport's original inspirations? Is it a predefined simulation actually worth supporting?
+#+begin_src txt
+Parliament Parable Scenario
+
+A five-node medieval parliament (Cardinal, Archbishop, Bishop, Abbot, Friar) deciding between building a Cathedral (A) or keeping Temples (B). The scenario includes:
+
+    Phase 1 (Ticks 5–50): Cardinal proposes Cathedral, achieves quorum promises
+
+    Phase 2 (Ticks 60–120): Network partition isolates Abbot/Friar; they attempt Temple but can't reach majority quorum (safe failure)
+
+    Phase 3 (Ticks 150–300): Partition heals; Archbishop initiates fresh proposal, is forced to adopt Cathedral due to prior accepts, reaffirms consensus
+
+    Phase 4 (Ticks 301–400): Cardinal crashes and recovers; Bishop reaffirms under reduced quorum
+
+    Phase 5 (Ticks 401–500): Cardinal attempts to reverse to Temple but is forced to adopt Cathedral anyway (safety demonstrated)
+#+end_src
+****** Healing of partitions
+
+When we merge a minor partition into the major partition, we might be merging nodes from the minor partition who are in a "hung" state because their phases were unable to achieve quorum to enact the FSM state changes.
+
+_Consider this case:_
+
+1. original cluster size was 10. This means to achieve a quorum (success / nack), 6 peers need to vote.
+2. minor partition of size 4 gets created, leaving a major partition of 6
+   1. since the simple paxos regards the cluster size and quorum to be static, this value never gets updated.
+   2. the major partition would still be able to make forward progress
+   3. the minor partition will not and instead nodes will be waiting to achieve quorum.
+
+      this is also because in my current implementation I don't want to add in timeouts or retries that would serve as elements of a forward progression seeking mechanism.
+
+3. when the minor partition heals, then the nodes all fall under the major partition now.
+
+   however, the nodes coming from the minor partition may have been waiting to achieve quorum.
+
+   QQ: how should the healing process account for intermediate states within the FSM where nodes are waiting for replies prior to deeming that a quorum has been reached? should they just "abort"?
+
+   ANS: no need to handle anything specifically. We already would have a basic partitioning support without any retry logic and so on.
+******* [X] Add partitioning
+CLOSED: [2025-11-18 Tue 21:23]
+:PROPERTIES:
+:EFFORT:   1h
+:END:
+- CLOSING NOTE [2025-11-18 Tue 21:23] \\
+  Wonderful
+:LOGBOOK:
+CLOCK: [2025-11-17 Mon 16:34]--[2025-11-17 Mon 17:23] =>  0:49
+CLOCK: [2025-11-17 Mon 16:30]--[2025-11-17 Mon 16:33] =>  0:03
+:END:
+
+This doesn't need to be a module of its own, we can just define it as a record type.
+
+We will invoke partitioning via a control event that will look like this:
+
+#+begin_src json
+    {
+      "time": 3,
+      "kind": "control",
+      "target": "CookieQueen",
+      "data": "partition",
+      "args": ["2"]
+    },
+
+#+end_src
+
+
+Handled the registration changes and such too!
+
+******* KILL Add simulation control to abort hung states
+CLOSED: [2025-11-18 Tue 21:23]
+
+- CLOSING NOTE [2025-11-18 Tue 21:23] \\
+  this seems like something we can skip for now because the thing still works alright, and it doesn't actually hang.
+this should only be for proposer states that are hung, it's so that the simulation can go on
+
+so here, when we do the simulation control to update the partitions, then that handler should be coupled with the "resetting" logic. this is just for simplicity of the simulation.
+
 ***** [ ] Logging cleanups: Wire up global and module-specific logging to avoid dirty log statements
 
 the problem i'm facing looks like this:
@@ -4413,6 +4524,16 @@ the problem i'm facing looks like this:
 2. the terminal output sometimes can be really verbose.
 
    solution: log levels
+
+****** wishlist
+1. all of them should display their id and aliases in their header tags
+
+   - broadcasts and unicasts are actually from the =event_bus= so they should be also diplaying which bus the broadcast and such is happening
+
+2. ordering of logging matters else it's confusing
+
+3. log levels really should be implemented
+
 **** TODO Stage 5: Refinements & Cleanup
 :PROPERTIES:
 :EFFORT:   1h
@@ -4441,6 +4562,13 @@ the problem i'm facing looks like this:
 - [ ] for function params, keep t as the first one. Consider adding stuff that can be piped continuously
 
 - [ ] use assertions instead of =failwith= s
+
+- [ ] try to avoid using ignore
+
+  I notice that in some places I ended up using quite a bit of ignore.
+  This feels like a code smell.
+
+  I rather a more monadic style function signatures that would allow me to pipe even more.
 
 - [ ] avoid accessor functions if we don't hide it at the interface level
   here's an example:
@@ -4483,9 +4611,7 @@ the problem i'm facing looks like this:
 +    let promised = promised |> Option.map ~f:proposal_of_spec in
 +    let accepted = accepted |> Option.map ~f:assertion_of_spec in
      {promised; accepted}
-
     #+end_src
-
 
 ****** Runtime and Simulator
 - simulator is very blown up and there's a lot of unnecessary functions exposed.
@@ -5087,6 +5213,45 @@ takeaways:
 
 
 JUST PLAIN UNFORTUNATE HOW LONG THIS TOOK
+***** [ ] mutability snag::mutating hashtbl during iteration is illegal (as expected)
+
+So this will throw an exception:
+
+#+begin_src ocaml
+
+  let deregister_node_from_bus bus ({config= {topics; _}; subs; _} as node) =
+    List.iter topics ~f:(fun topic ->
+        match Hashtbl.find subs topic with
+        | Some table ->
+            Hashtbl.fold table ~init:()
+              ~f:(fun ~key:sub_handle ~data:sub_bus () ->
+                if phys_equal sub_bus bus then (
+                  Bus.unsubscribe bus sub_handle ;
+                  Hashtbl.remove table sub_handle ) ) ;
+            if Hashtbl.is_empty table then Hashtbl.remove subs topic
+        | None ->
+            () ) ;
+    node
+#+end_src
+
+and this will not
+
+#+begin_src ocaml
+let deregister_node_from_bus bus ({config= {topics; _}; subs; _} as node) =
+  List.iter topics ~f:(fun topic ->
+    match Hashtbl.find subs topic with
+    | Some table ->
+        let keys_to_remove =
+          Hashtbl.fold table ~init:[] ~f:(fun ~key:sub_handle ~data:sub_bus acc ->
+            if phys_equal sub_bus bus then sub_handle :: acc else acc)
+        in
+        List.iter keys_to_remove ~f:(fun sub_handle ->
+          Bus.unsubscribe bus sub_handle ;
+          Hashtbl.remove table sub_handle) ;
+        if Hashtbl.is_empty table then Hashtbl.remove subs topic
+    | None -> ());
+  node
+#+end_src
 
 
 
