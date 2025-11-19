@@ -8,6 +8,7 @@ open Sim_event
 open Event_scheduler
 open Message
 open Types
+open Log
 
 (**
   Implements the Runtime interface using a discrete-time event scheduler.
@@ -50,6 +51,7 @@ module Simulator = struct
     { mutable halted: bool
     ; mutable clock: Time.clock
     ; mutable registries: registries
+    ; logger: Logger.t
     ; scheduler: Event_scheduler.t ref
     ; event_callbacks: (Sim_event.t -> unit) list ref
     ; counters: counters
@@ -93,7 +95,10 @@ module Simulator = struct
         List.iter !(sim.event_callbacks) ~f:(fun cb -> cb ev) ) ;
     sim |> drain_buses ;
     Time.tick sim.clock ;
-    sim |> dispatch_heartbeat
+    sim |> dispatch_heartbeat ;
+    Logger.tick sim.logger
+      ~timestamp:(sim.clock |> Time.now |> Int.to_string_hum)
+      ~msg:"...sim paused before this tick starts" ()
 
   let start sim =
     sim.halted <- false ;
@@ -168,8 +173,6 @@ module Simulator = struct
              partition_id_counter |> Counter.next
              |> create_partition ~cluster_size:1 )
     in
-    Stdio.printf "WALDO: Node %d is supposed to be moved to new partition %d"
-      node_id partition_id ;
     node |> add_node_to_partition_exn sim ~partition_id
 
   let get_node_by_alias {registries= {node_alias_registry; _}; _} alias =
@@ -298,9 +301,6 @@ module Simulator = struct
             let {bus; _} =
               node |> NodeImpl.id_of |> get_partition_for_node_exn sim
             in
-            Stdio.printf
-              "WALDO: bus has magic reference @ proposal hydration %d\n"
-              (Stdlib.Obj.magic bus * 2) ;
             NodeImpl.propose node ~msg_id ~time ~bus ~assertion
           in
           { Sim_event.id= Option.value id ~default:(next_event_id sim)
@@ -402,6 +402,7 @@ module Simulator = struct
     ; clock= Time.create_clock ()
     ; scheduler= ref (Event_scheduler.create ())
     ; event_callbacks= ref []
+    ; logger= Logger.create Stdlib.__MODULE__ ()
     ; registries=
         { partition_registry
         ; node_registry= Hashtbl.create (module Int)

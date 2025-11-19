@@ -1125,10 +1125,13 @@ I think the rough idea for this is that we can have something like a pipeline th
 
 This can be done a towards the end, when we are prettifying things.
 ** Implementation
-*** TODO Basic Instrumentation & Orchestration Code
+*** DONE Basic Instrumentation & Orchestration Code
+CLOSED: [2025-11-18 Tue 23:22]
 :PROPERTIES:
 :EFFORT:   2h
 :END:
+- CLOSING NOTE [2025-11-18 Tue 23:22] \\
+  We've done them all!
 - the driver of the events
 - the setup of the "stubs" or dummy nodes for simulation
 - event logging
@@ -1911,7 +1914,10 @@ This is necessary for the completion of this project because without it, the sim
 
 this part involves adding in the loops we were talking about.
 
-**** TODO Add storage pattern, in-mem -> persistent storage
+**** DONE Add storage pattern, in-mem -> persistent storage
+CLOSED: [2025-11-18 Tue 23:21]
+- CLOSING NOTE [2025-11-18 Tue 23:21] \\
+  This is done!
 This is not as high priority but will be cool to demonstrate how crashing can still bring things back
 *** TODO Implement v0 (basic paxos algorithm -- main goal)
 DEADLINESs: <2025-11-01 Sat 11:00>
@@ -4512,7 +4518,6 @@ CLOSED: [2025-11-18 Tue 21:23]
 this should only be for proposer states that are hung, it's so that the simulation can go on
 
 so here, when we do the simulation control to update the partitions, then that handler should be coupled with the "resetting" logic. this is just for simplicity of the simulation.
-
 ***** [ ] Logging cleanups: Wire up global and module-specific logging to avoid dirty log statements
 
 the problem i'm facing looks like this:
@@ -4534,6 +4539,42 @@ the problem i'm facing looks like this:
 
 3. log levels really should be implemented
 
+****** current problems
+1. Logger too coupled with formatting
+   - it's a ball of mud with log formatting library, terminal-style renderer and logging backend fused together
+
+   - a logger shouldn't know about domain concepts, it should be as stupid as possible
+
+2. no log levels, can't be composed and turned off
+   - violates:
+
+     - ergonomics
+
+     - performance
+
+     - readability
+
+     - control at the simulation level
+
+     In a distributed simulator, logs should be “zoomable”.
+
+3. =formatters= has no purpose
+
+   a. They don’t depend on internal state.
+
+   b. They’re not overridden.
+
+   c. They’re not extensible.
+
+   d. They don’t compose.
+
+   e. There’s no polymorphism.
+
+
+
+***** [ ] Need to set the =proposal_ids= from the json
+
+This should allow us to mimic the proposals clashing and so on
 **** TODO Stage 5: Refinements & Cleanup
 :PROPERTIES:
 :EFFORT:   1h
@@ -4544,74 +4585,134 @@ the problem i'm facing looks like this:
 - Tasks:
   1) Move logging into a small Node.debug helper.
 
-  2) Remove unnecessary Stdio.printf noise.
+  2) Remove unnecessary =Stdio.printf= noise.
 
   3) Tighten signatures, remove unsafe partial matches.
 
   4) Final documentation pass.
-***** Simulator Logging Improvements
-- [ ] add a rudimentary implementation for log levels, allow the settings to cascade down from one point of setting it (sim)
 ***** Refactoring Goals
+****** Personal Style
+Here are somethings about my syntax preferences:
+
+1. I like it when the struct is destructured at the input parameters because of how that is common in the elixir world. I prefer that
+
+2. I'm an enjoyer of pipes.
+
+   I would like to use it as much as possible because it's easier form me to see data sinks and sources. It's also easier for me to see transformations to a shape clearly when we use pipes.
+
+   I guess this follows a general monadic pattern to implementation. I would like to encourage more use of this.
+
+3. I like it when functions are defined clearly. It's important for me to names that read off the tongue well and I absolutely despise code golfers.
+
 ****** General Refactoring Goals
-- [ ] Avoid long let-binding chains
+a) Visual cleanliness
+   - [ ] Avoid long let-binding chains
 
-  kind of forgot when i first wrote up teh thing that we can be more elixir-like and do destructuring @ the message parameters
+     kind of forgot when i first wrote up teh thing that we can be more elixir-like and do destructuring @ the message parameters
 
-  this will make a lot more of the code cleaner.
+     this will make a lot more of the code cleaner.
 
-- [ ] for function params, keep t as the first one. Consider adding stuff that can be piped continuously
+b) Reduce cognitive load on reading the code
+   a) [ ] use more small isolated helpers that will allow us to pipe things
+      #+begin_src ocaml
+(* before: *)
+let handle_incoming t msg =
+  let a = something t msg in
+  let b = longer_transformation a in
+  let c = analyze b in
+  final_action t c
+(* after: *)
+let parse t msg = ...
+let compute ctx = ...
+let finalize t ctx = ...
 
-- [ ] use assertions instead of =failwith= s
+let handle_incoming t msg =
+  msg |>  parse t |> compute |> finalize t
+      #+end_src
 
-- [ ] try to avoid using ignore
 
-  I notice that in some places I ended up using quite a bit of ignore.
-  This feels like a code smell.
+   a) [ ] more idiomatic handling of optionals
+      examples:
+      - =Option.value_map opt ~default ~f=
 
-  I rather a more monadic style function signatures that would allow me to pipe even more.
+      - =Option.iter= for side effects (prefer using =Log= rather than printing directly)
 
-- [ ] avoid accessor functions if we don't hide it at the interface level
-  here's an example:
-  #+begin_src ocaml
-  (* TODO: [REFACTOR] I think such accessors are useless, we can pattern-match destructure them anyway. Keep only if we wanna hide the internal state struct @ the interface boundary *)
-  let id t = t.id
-  let roles t = t.config.roles
-  let state t = t.state
-  let buses_for_topic t topic =
-    match Hashtbl.find t.subs topic with
-    | Some table -> Hashtbl.fold table ~init:[] ~f:(fun ~key:_ ~data:bus acc -> bus :: acc)
-    | None -> []
-  #+end_src
+      - =let%bind= with =Option= using =Option.bind= where nested unwrapping occurs
 
-- [ ] add assertions to communicate invariants
+      - use =Option.map= where possible
 
-- [ ] more idiomatic handling of optionals
-  - use Option.map where possible
+        Here's an example:
+        #+begin_src diff
+    -  let of_spec
+    -      {promised: proposal_id_spec option; accepted: assertion_spec option} :
+    -      value =
+    -    let promised =
+    -      match promised with
+    -      | None ->
+    -          None
+    -      | Some spec ->
+    -          Some (spec |> proposal_of_spec)
+    -    in
+    -    let accepted =
+    -      match accepted with
+    -      | None ->
+    -          None
+    -      | Some spec ->
+    -          Some (spec |> assertion_of_spec)
+    -    in
+    +  let of_spec ({promised; accepted} : spec) : value =
+    +    let promised = promised |> Option.map ~f:proposal_of_spec in
+    +    let accepted = accepted |> Option.map ~f:assertion_of_spec in
+         {promised; accepted}
+        #+end_src
+   b) Better defensive code
 
-    Here's an example:
-    #+begin_src diff
--  let of_spec
--      {promised: proposal_id_spec option; accepted: assertion_spec option} :
--      value =
--    let promised =
--      match promised with
--      | None ->
--          None
--      | Some spec ->
--          Some (spec |> proposal_of_spec)
--    in
--    let accepted =
--      match accepted with
--      | None ->
--          None
--      | Some spec ->
--          Some (spec |> assertion_of_spec)
--    in
-+  let of_spec ({promised; accepted} : spec) : value =
-+    let promised = promised |> Option.map ~f:proposal_of_spec in
-+    let accepted = accepted |> Option.map ~f:assertion_of_spec in
-     {promised; accepted}
-    #+end_src
+   Invariant checks: use =assert (condition)= or =assert (not ...)= with comment.
+
+   Bad user input: =invalid_arg "meaningful message"= (this is conventional for argument errors).
+
+   Recoverable parse errors: return =Result.Error= and let the caller log and handle.
+
+   1. [ ] instead of =failwith=, use =Result= , =invalid_arg=
+
+   2. [ ] add assertions to communicate invariants
+
+d) no ignored side-effects
+
+   Replace with:
+
+   Change the invoked function to return =unit= explicitly; OR
+
+   If function can fail, propagate a =Result= or =Deferred.t= as appropriate; OR
+
+   =let (_ : unit) = do_side_effect ()= with a comment explaining the intentional discard.
+
+   Better: design functions to return =unit= when they are primarily for side-effects.
+
+   1. they should return =Results=, which the caller can choose to ignore
+
+e) [ ] for function params, keep t as the first one. Consider adding stuff that can be piped continuously
+
+f) [ ] try to avoid using ignore
+
+   I notice that in some places I ended up using quite a bit of ignore.
+   This feels like a code smell.
+
+   I rather a more monadic style function signatures that would allow me to pipe even more.
+
+g) [ ] avoid accessor functions if we don't hide it at the interface level
+   here's an example:
+   #+begin_src ocaml
+   (* TODO: [REFACTOR] I think such accessors are useless, we can pattern-match destructure them anyway. Keep only if we wanna hide the internal state struct @ the interface boundary *)
+   let id t = t.id
+   let roles t = t.config.roles
+   let state t = t.state
+   let buses_for_topic t topic =
+     match Hashtbl.find t.subs topic with
+     | Some table -> Hashtbl.fold table ~init:[] ~f:(fun ~key:_ ~data:bus acc -> bus :: acc)
+     | None -> []
+   #+end_src
+
 
 ****** Runtime and Simulator
 - simulator is very blown up and there's a lot of unnecessary functions exposed.
@@ -4622,6 +4723,10 @@ the problem i'm facing looks like this:
   - add their own messages (typically a simulation control message only) to theh eventbuss for message passing. This can directly enqueue to the event bus
 
   - allow other simulation events to directly be run (e.g. state dumps of one of the nodes and so on) -- these are things that don't rely on the event bus
+
+***** Simulator Logging Improvements
+- [ ] add a rudimentary implementation for log levels, allow the settings to cascade down from one point of setting it (sim)
+
 **** TODO Correctness check: Isolated areas in consideration
 
 These are mechanisms that we need to add in part by part. It would be greate to add a sort of pipelining capability to this though and to just add in policy elements direclty.
@@ -4643,6 +4748,8 @@ D. Latency Optimizations
 E. Application-Level Logic
 
    - How the application uses the results of Paxos instances
+
+
 
 *** TODO Implementation v1 (with async frameworks) [optional -- out of scope for this sprint]
 The tasks here are just documented but won't be in my v0 target. I NEED to arrive at SOME point of completion. Need to move onto other things.

@@ -12,10 +12,7 @@ type simulation_config =
 let load_simulation_config_from_file file_path =
   Stdio.printf "[Simulation_loader]: loading the simulation from %s\n%!"
     file_path ;
-  let parsed =
-    file_path |> Yojson.Safe.from_file |> simulation_config_of_yojson
-  in
-  match parsed with
+  match file_path |> Yojson.Safe.from_file |> simulation_config_of_yojson with
   | Ok config ->
       config
   | Error e ->

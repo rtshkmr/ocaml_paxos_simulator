@@ -77,13 +77,13 @@ module Event_bus : S = struct
         ; id: int
     ; topics: (Types.topic, 'a topic_state) Hashtbl.Poly.t
     ; queue: 'a enqueuable_thunk Queue.t
-    ; logger: 'a Logger.t
+    ; logger: Logger.t
     ; payload_serialiser: 'a serialiser;
     }
 
   let create ~payload_serialiser () =
     let random_id = Random.int 10000 in
-    {id=random_id; next_id= 0; topics= Hashtbl.Poly.create (); queue= Queue.create (); logger=Logger.create(); payload_serialiser}
+    {id=random_id; next_id= 0; topics= Hashtbl.Poly.create (); queue= Queue.create (); logger=Logger.create Stdlib.__MODULE__ (); payload_serialiser}
 
   (** Returns the [topic_state] for [topic] if exists else initialises one for that topic and returns it.
       This allows lazy creation of topic entries.
@@ -106,7 +106,7 @@ module Event_bus : S = struct
     let sub_handle = {topic; id= subscription_id; node_id} in
     let subscription_info = {node_id; sub_handle; callback} in
     Hashtbl.add_exn ts.subs ~key:sub_handle ~data:subscription_info ;
-    Logger.log_subscribe t.logger t.id topic node_id subscription_id;
+    Logger.subscribe ~node_id t.logger ~bus_id:t.id ~topic_s:(topic |> Types.sexp_of_topic |> Sexp.to_string_hum) ~sub_id:subscription_id;
     sub_handle
 
   let unsubscribe ({id=bus_id;topics; logger; _}) ( {topic; node_id; id} as sub_handle ) =
@@ -115,7 +115,7 @@ module Event_bus : S = struct
       ()
     | Some ( {subs; published; queued; delivered} as ts ) ->
       Hashtbl.remove subs sub_handle ;
-      Logger.log_unsubscribe logger bus_id topic node_id id ;
+      Logger.unsubscribe ~node_id logger ~bus_id ~topic_s:(topic |> Types.sexp_of_topic |> Sexp.to_string_hum) ~sub_id:id ;
       if
         Hashtbl.length subs = 0
         && published = 0 && queued = 0 && delivered = 0
@@ -125,7 +125,7 @@ module Event_bus : S = struct
   let publish_broadcast t ~topic payload =
     let ts = ensure_topic_state t topic in
     ts.published <- ts.published + 1;
-    Logger.log_publish_broadcast t.logger topic ( payload |> t.payload_serialiser );
+    Logger.publish_broadcast ~bus_id:(t.id) t.logger ~topic_s:(topic |> Types.sexp_of_topic |> Sexp.to_string_hum) ~payload:( payload |> t.payload_serialiser );
 
     if Hashtbl.is_empty ts.subs then ()
     else
@@ -140,7 +140,7 @@ module Event_bus : S = struct
     | Some ts ->
       Hashtbl.iteri ts.subs ~f:(fun ~key ~data ->
           if key.node_id = node_id then begin
-            Logger.log_publish_unicast t.logger node_id topic (payload |> t.payload_serialiser);
+            Logger.publish_unicast ~bus_id:(t.id) ~target_node:node_id t.logger ~topic_s:(topic |> Types.sexp_of_topic |> Sexp.to_string_hum)  ~payload:(payload |> t.payload_serialiser);
             data.callback payload
           end
         );
@@ -152,15 +152,14 @@ module Event_bus : S = struct
     ts.queued <- ts.queued + 1 ;
     Queue.enqueue t.queue thunk;
     (* BUG: (low priority: because we are snapshotting when draining then we aren't immediately clearing out the queue, the queue size here is not correct because the count includes the snapshot size) *)
-    Logger.log_enqueue t.logger topic ts.queued
+    Logger.enqueue ~bus_id:t.id t.logger ~topic_s:(topic |> Types.sexp_of_topic |> Sexp.to_string_hum) ~queue_size:ts.queued
 
   let drain t =
     (* Snapshot the current queue to isolate this batch *)
     let current_batch = Queue.copy t.queue in
     Queue.clear t.queue ;
     let q_size = Queue.length current_batch in
-
-    Logger.log_drain_start t.logger q_size;
+    Logger.drain_start ~bus_id:t.id t.logger ~batch_size:q_size;
     while not (Queue.is_empty current_batch) do
       let ((topic, node_id_opt), payload) = Queue.dequeue_exn current_batch in
       match Hashtbl.find t.topics topic with
@@ -171,7 +170,7 @@ module Event_bus : S = struct
           | Some node_id -> publish_unicast t ~node_id ~topic payload;
           ts.queued <- Int.max 0 (ts.queued - 1)
       done;
-    Logger.log_drain_end t.logger
+    Logger.drain_end ~bus_id:t.id t.logger
 
   let stats t =
     Hashtbl.to_alist t.topics
@@ -206,5 +205,5 @@ module Event_bus : S = struct
 
   let print_stats t =
     let dump = dump_stats t in
-    Logger.log_event_bus_stats t.logger dump
+    Logger.stats ~bus_id:t.id t.logger ~dump
 end

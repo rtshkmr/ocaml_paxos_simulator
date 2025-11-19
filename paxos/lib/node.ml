@@ -105,6 +105,7 @@ module Make_node
   module V = V
   module State = Make_node_state (V)
 
+  (* TODO: add storage type to cli config / settings config *)
   (* module Storage = Make_mem_storage (State) *)
   module Storage = Make_file_storage (State)
 
@@ -167,7 +168,7 @@ module Make_node
     ; mutable state: State.role_state
     ; mutable subs:
         (Types.topic, (Bus.sub_handle, V.t Message.t Bus.t) Hashtbl.t) Hashtbl.t
-    ; logger: string Logger.t
+    ; logger: Logger.t
     ; storage: Storage.t ref
     ; transitions: string list ref
           (* TODO [REFACTOR] YAGNI:light-weight history for debugging *) }
@@ -252,7 +253,8 @@ module Make_node
         (State.sexp_of_role_state new_role_state)
         ~indent:4
     in
-    Logger.log_node_state_change node.logger node.id old_state_str new_state_str ;
+    Logger.node_state_change ~node_id:node.id ~alias:(Some node.alias)
+      node.logger ~old_state:old_state_str ~new_state:new_state_str ;
     node.state <- new_role_state ;
     let updated_storage =
       match Storage.persist_snapshot !(node.storage) time node.state with
@@ -287,9 +289,7 @@ module Make_node
         Bus.enqueue bus thunk ;
         {assertion; promises_received= []; nacks_received= []}
         |> State.WaitingForPromises
-        |> transition_role_state t time State.Proposer ;
-        Stdio.printf "WALDO: bus has magic reference @ propose %d\n"
-          (Stdlib.Obj.magic bus * 2)
+        |> transition_role_state t time State.Proposer
     | _ ->
         assert false (* we can only propose if we are currently idle *)
 
@@ -449,17 +449,20 @@ module Make_node
           (Sexp.to_string_hum (Types.sexp_of_proposal_id proposal))
           (V.to_string value)
       in
-      Logger.log_subroutine_flow node.logger Stdlib.__FUNCTION__ ~msg:log_msg () ;
+      Logger.subroutine_flow ~node_id:(Some node.id) ~alias:(Some node.alias)
+        node.logger ~routine:Stdlib.__FUNCTION__ ~msg:log_msg () ;
       let msg_id = 1 + id in
       let time = 1 + timestamp in
       let current_promised_opt, prev_accepted_opt =
         match State.get_role node.state State.Acceptor with
         | State.Idle ->
-            Logger.log_decision node.logger
-              (Printf.sprintf
-                 "Node %d Acceptor was idle; no current promised / previously \
-                  accepted to report. Carrying on..."
-                 node.id ) ;
+            Logger.decision ~node_id:(Some node.id) ~alias:(Some node.alias)
+              node.logger
+              ~msg:
+                (Printf.sprintf
+                   "Node %d Acceptor was idle; no current promised / \
+                    previously accepted to report. Carrying on..."
+                   node.id ) ;
             (None, None)
         | State.Accepting record ->
             (record.promised, record.accepted)
@@ -480,7 +483,8 @@ module Make_node
               (Sexp.to_string_hum
                  (State.sexp_of_acceptor_record updated_record) )
           in
-          Logger.log_decision node.logger log_msg ;
+          Logger.decision ~node_id:(Some node.id) ~alias:(Some node.alias)
+            node.logger ~msg:log_msg ;
           Message.make_permission_granted ~msg_id ~topic ~assertion ~time
             ~from:node.id ~last_accepted:prev_accepted_opt )
         else
@@ -488,7 +492,8 @@ module Make_node
             "the permission request is NOT permissible. we shall send a NACK \
              with hint"
           in
-          Logger.log_decision node.logger log_msg ;
+          Logger.decision ~node_id:(Some node.id) ~alias:(Some node.alias)
+            node.logger ~msg:log_msg ;
           Message.make_nack ~msg_id ~topic ~time ~from:node.id
             ~rejected_assertion:assertion
             ~hint:(prev_accepted_opt |> paxos_promise_of_promise)
@@ -504,7 +509,8 @@ module Make_node
       "the permission request is NOT permissible. we shall send a NACK with \
        hint" |> red
     in
-    Logger.log_decision node.logger log_msg
+    Logger.decision ~node_id:(Some node.id) ~alias:(Some node.alias) node.logger
+      ~msg:log_msg
 
   (* FIXME: message and state struct mismatch *)
   let handle_permission_granted node
@@ -529,7 +535,8 @@ module Make_node
         (Sexp.to_string_hum (Types.sexp_of_proposal_id proposal))
         last_accepted_str
     in
-    Logger.log_subroutine_flow node.logger Stdlib.__FUNCTION__ ~msg:log_msg () ;
+    Logger.subroutine_flow ~node_id:(Some node.id) ~alias:(Some node.alias)
+      node.logger ~routine:Stdlib.__FUNCTION__ ~msg:log_msg () ;
     let msg_id = 1 + id in
     let time = 1 + timestamp in
     match node.state.proposer with
@@ -540,7 +547,8 @@ module Make_node
              accumulate this then check if a quorum is achieved!"
             node.id
         in
-        Logger.log_decision node.logger log_msg ;
+        Logger.decision ~node_id:(Some node.id) ~alias:(Some node.alias)
+          node.logger ~msg:log_msg ;
         (* TODO [FSM] what should the grant info contain? *)
         let new_promise_rcvd = last_accepted |> promise_of_paxos_promise in
         {wfp with promises_received= new_promise_rcvd :: wfp.promises_received}
@@ -557,14 +565,16 @@ module Make_node
                 (V.to_string assertion.value)
                 (Sexp.to_string_hum (Types.sexp_of_proposal_id proposal))
             in
-            Logger.log_decision node.logger log_msg ;
+            Logger.decision ~node_id:(Some node.id) ~alias:(Some node.alias)
+              node.logger ~msg:log_msg ;
             suggest ~msg_id ~time ~bus node ~assertion ;
             {assertion; acks= []; nacks_received= []}
             |> State.ProposerAccepting
             |> transition_role_state node time State.Proposer
         | State.MajorityNacks _ ->
-            Logger.log_decision node.logger
-              "We reached a quorum and got majority nacks... time to abort" ;
+            Logger.decision ~node_id:(Some node.id) ~alias:(Some node.alias)
+              node.logger
+              ~msg:"We reached a quorum and got majority nacks... time to abort" ;
             abort node
         | State.NotReached ->
             () )
@@ -596,7 +606,8 @@ module Make_node
           (Sexp.to_string_hum (Types.sexp_of_proposal_id proposal))
           (V.to_string value)
       in
-      Logger.log_subroutine_flow node.logger Stdlib.__FUNCTION__ ~msg:log_msg () ;
+      Logger.subroutine_flow ~node_id:(Some node.id) ~alias:(Some node.alias)
+        node.logger ~routine:Stdlib.__FUNCTION__ ~msg:log_msg () ;
       let msg_id = 1 + id in
       let time = 1 + timestamp in
       let current_promised_opt, prev_accepted_opt =
@@ -638,7 +649,8 @@ module Make_node
         (Sexp.to_string_hum (Types.sexp_of_proposal_id proposal))
         (V.to_string value)
     in
-    Logger.log_subroutine_flow node.logger Stdlib.__FUNCTION__ ~msg:log_msg () ;
+    Logger.subroutine_flow ~node_id:(Some node.id) ~alias:(Some node.alias)
+      node.logger ~routine:Stdlib.__FUNCTION__ ~msg:log_msg () ;
     match node.state.proposer with
     | State.ProposerAccepting a -> (
         let new_acks =
@@ -689,7 +701,8 @@ module Make_node
         (Sexp.to_string_hum (Types.sexp_of_proposal_id proposal))
         hint_str
     in
-    Logger.log_subroutine_flow node.logger Stdlib.__FUNCTION__ ~msg:log_msg () ;
+    Logger.subroutine_flow ~node_id:(Some node.id) ~alias:(Some node.alias)
+      node.logger ~routine:Stdlib.__FUNCTION__ ~msg:log_msg () ;
     ( match node.state.proposer with
     | State.WaitingForPromises wp ->
         { wp with
@@ -731,8 +744,8 @@ module Make_node
       "inactive right now and can't be reached to get coordinated..."
       |> noop_ignore node
     else (
-      Logger.log_subroutine_flow logger Stdlib.__FUNCTION__
-        ~msg:"...coordination is happening" () ;
+      Logger.subroutine_flow ~node_id:(Some id) ~alias:(Some alias) logger
+        ~routine:Stdlib.__FUNCTION__ ~msg:"...coordination is happening" () ;
       match Message.proposal_id_of msg with
       | None ->
           ()
@@ -760,7 +773,8 @@ module Make_node
         "node %d received a control command from the simulation. msg=(%s)" id
         (Sexp.to_string (Message.sexp_of_t V.sexp_of_t msg))
     in
-    Logger.log_subroutine_flow logger Stdlib.__FUNCTION__ ~msg:log_msg () ;
+    Logger.subroutine_flow ~node_id:(Some id) ~alias:(Some alias) logger
+      ~routine:Stdlib.__FUNCTION__ ~msg:log_msg () ;
     match msg with
     | Message.Control (ActivateNode {node_id; meta= {timestamp; _}; _})
       when node_id = id ->
@@ -785,7 +799,8 @@ module Make_node
             "[%s (node %d)] felt simulation heartbeat for time=(%d)" alias id
             time
         in
-        Logger.log_subroutine_flow logger Stdlib.__FUNCTION__ ~msg:log_msg ()
+        Logger.subroutine_flow ~node_id:(Some id) ~alias:(Some alias) logger
+          ~routine:Stdlib.__FUNCTION__ ~msg:log_msg ()
     | _ ->
         ()
 
@@ -796,7 +811,8 @@ module Make_node
       Printf.sprintf "by node %d for topic=(%s)" node.id
         (Sexp.to_string_hum (Types.sexp_of_topic topic))
     in
-    Logger.log_subroutine_flow logger Stdlib.__FUNCTION__ ~msg () ;
+    Logger.subroutine_flow ~node_id:(Some id) ~alias:(Some alias) logger
+      ~routine:Stdlib.__FUNCTION__ ~msg () ;
     match topic with
     | Types.Coordination ->
         handle_coordination node
@@ -879,5 +895,5 @@ module Make_node
     ; inbox= Hashtbl.Poly.create ()
     ; transitions= ref []
     ; storage= ref (Storage.create ~alias:node_alias ())
-    ; logger= Logger.create () }
+    ; logger= Logger.create Stdlib.__MODULE__ () }
 end

@@ -2,97 +2,107 @@ open Core
 open Command.Let_syntax
 open Ansi.Formatter
 
-let scenario_arg =
-  Command.Arg_type.create (function
-    | "basic" ->
+module Scenario = struct
+  type t = Basic | Office_bakeoff | Parliament
+  [@@deriving equal, enumerate, sexp]
+
+  let to_string = function
+    | Basic ->
         "basic"
-    | "office_bakeoff" ->
+    | Office_bakeoff ->
         "office_bakeoff"
-    | "parliament" ->
+    | Parliament ->
         "parliament"
-    | s ->
-        failwithf "Unknown scenario: %s" s () )
 
-let desc_of_scenario scenario =
-  let fence = "\t" ^ String.make 40 '%' |> bright_blue |> bold in
-  let desc =
-    match scenario with
-    | "basic" ->
-        "This is a basic paxos scenario.. TODO" |> bright_yellow
-    | "office_bakeoff" ->
-        "This is a office bakeoff paxos scenario.. TODO" |> bright_yellow
-    | "parliament" ->
-        "This is a parliament paxos scenario.. TODO" |> bright_yellow
-    | s ->
-        failwithf "Unknown scenario: %s" s ()
-  in
-  Printf.sprintf "%s\n%s\n%s" fence desc fence
+  let arg_type =
+    let alist = List.map all ~f:(fun sc -> (to_string sc, sc)) in
+    Command.Arg_type.of_alist_exn alist
 
-let log_level_arg =
-  Command.Arg_type.create (function
-    | "debug" ->
-        0
-    | "info" ->
-        1
-    | "warn" ->
-        2
-    | "error" ->
-        3
-    | s ->
-        failwithf "Unknown log level: %s" s () )
+  let flag = "-scenario"
 
-let string_of_log_level = function
-  | 0 ->
-      "debug"
-  | 1 ->
-      "info"
-  | 2 ->
-      "warn"
-  | 3 ->
-      "error"
-  | n ->
-      failwithf "Unknown log level: %d" n ()
+  let doc = "SCENARIO (basic | office_bakeoff | parliament)"
+end
+
+module Log_level = struct
+  type t = Debug | Info | Warn | Error [@@deriving sexp, equal, enumerate]
+
+  let to_int = function Debug -> 0 | Info -> 1 | Warn -> 2 | Error -> 3
+
+  let of_int_exn = function
+    | 0 ->
+        Debug
+    | 1 ->
+        Info
+    | 2 ->
+        Warn
+    | 3 ->
+        Error
+    | n ->
+        failwithf "Unknown log level: %d" n ()
+
+  let to_string = function
+    | Debug ->
+        "debug"
+    | Info ->
+        "info"
+    | Warn ->
+        "warn"
+    | Error ->
+        "error"
+
+  let arg_type =
+    Command.Arg_type.of_alist_exn
+      [("debug", Debug); ("info", Info); ("warn", Warn); ("error", Error)]
+
+  let flag = "-max-log-level"
+
+  let doc = "LEVEL (debug|info|warn|error). Default=info"
+end
 
 let describe_simulation_settings ~scenario ~max_log_level ~allow_step =
   let cli_tag = "[CLI]" |> bright_yellow |> bold in
-  Printf.sprintf "%s: running scenario=%s, max_log_level=%s, allow_step=%b\n\n"
-    cli_tag (scenario |> bold)
-    (max_log_level |> string_of_log_level |> bold)
+  Printf.printf "%s: running scenario=%s, max_log_level=%s, allow_step=%b\n\n"
+    cli_tag
+    (Scenario.to_string scenario |> bold)
+    (Log_level.to_string max_log_level |> bold)
     allow_step
-  |> Stdio.print_endline
 
 let command_simulate =
-  let welcome = "Welcome to our OCaml Paxos demo!" |> bold |> bright_magenta in
-  let curr_action_msg =
-    "For now, please choose a scenario and runtime options from below:"
-    |> italic |> underline
-  in
   let summary =
-    welcome
-    ^ "\n\n\
-       Please use this paxos simulator by setting the following arguments.\n"
-    ^ "These are just the predefined scenarios to watch, we could add in our \
-       own custom scenarios as well!\n\n" ^ curr_action_msg
+    let welcome =
+      "Welcome to our OCaml Paxos demo!" |> bold |> bright_magenta
+    in
+    let curr =
+      "For now, please choose a scenario and runtime options from below:"
+      |> italic |> underline
+    in
+    [%string
+      "%{welcome}\n\n\
+       Please use this paxos simulator by choosing arguments.\n\n\
+       %{curr}"]
   in
   Command.basic ~summary
     [%map_open
       let scenario =
-        flag "-scenario"
-          (optional_with_default "basic" scenario_arg)
-          ~doc:"SCENARIO choose (basic | office_bakeoff | parliament)"
+        flag Scenario.flag
+          (optional_with_default Scenario.Basic Scenario.arg_type)
+          ~doc:Scenario.doc
       and max_log_level =
-        flag "-max-log-level"
-          (optional_with_default 1 log_level_arg)
-          ~doc:"LEVEL logging threshold (debug|info|warn|error). Default=info"
+        flag Log_level.flag
+          (optional_with_default Log_level.Info Log_level.arg_type)
+          ~doc:Log_level.doc
       and allow_step =
         flag "-allow-step"
           (optional_with_default true bool)
-          ~doc:"BOOL whether to allow stepping interaction (default: true)"
+          ~doc:"BOOL whether to allow interaction steps"
       in
       fun () ->
         describe_simulation_settings ~scenario ~max_log_level ~allow_step ;
-        Simulation.Simulation.run ~scenario ~max_log_level ~allow_step ()]
+        Simulation.Simulation.run
+          ~scenario:(Scenario.to_string scenario)
+          ~max_log_level:(Log_level.to_int max_log_level)
+          ~allow_step ()]
 
 let () =
-  Command_unix.run ~version:"0.1"
+  Command_unix.run
     (Command.group ~summary:"Paxos sim" [("run", command_simulate)])
