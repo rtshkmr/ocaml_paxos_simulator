@@ -3,7 +3,8 @@ open Simulator
 open Sim_event
 
 type simulation_config =
-  { preamble: string
+  { scenario_name: string
+  ; preamble: string
   ; simulator: Simulator.spec
   ; nodes: Simulator.NodeImpl.spec list
   ; events: Sim_event.spec list }

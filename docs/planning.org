@@ -3404,10 +3404,13 @@ Error: dependency cycle between modules in _build/default/lib:
 Had 1 error, waiting for filesystem changes...
    #+end_src
 
-**** TODO Stage 3: Storage & Learning
+**** DONE Stage 3: Storage & Learning
+CLOSED: [2025-11-23 Sun 00:58]
 :PROPERTIES:
 :EFFORT:   1.5h
 :END:
+- CLOSING NOTE [2025-11-23 Sun 00:58] \\
+  This has been done for a while. I needed to simplify the code for a bit so it needed some refactoring.
 - Goal:
 
   - Persist acceptor state and enable learners to converge.
@@ -3577,7 +3580,10 @@ As per our outline, the proposer should be:
 #+end_quote
 
 We haven't handled this part yet, we can add this in
-**** TODO Stage 3.5: Ensure happy path works
+**** DONE Stage 3.5: Ensure happy path works
+CLOSED: [2025-11-23 Sun 00:58]
+- CLOSING NOTE [2025-11-23 Sun 00:58] \\
+  yeah boi
 Happy path seems to be working well so far.
 
 We should be able to move onto the test-writing stuff. I just wanna demonstrate some basic
@@ -4507,7 +4513,6 @@ We will invoke partitioning via a control event that will look like this:
 
 #+end_src
 
-
 Handled the registration changes and such too!
 
 ******* KILL Add simulation control to abort hung states
@@ -4518,6 +4523,26 @@ CLOSED: [2025-11-18 Tue 21:23]
 this should only be for proposer states that are hung, it's so that the simulation can go on
 
 so here, when we do the simulation control to update the partitions, then that handler should be coupled with the "resetting" logic. this is just for simplicity of the simulation.
+***** [X] Need to set the =proposal_ids= from the json
+CLOSED: [2025-11-23 Sun 07:56]
+
+- CLOSING NOTE [2025-11-23 Sun 07:56] \\
+  alright I wired this up. However, it's not really that useful because there's an assertion that proposals can only be made when a node's proposer state is idle.
+
+  This assertion makes sense, it's just that we need to use the simulation to change this part. What happens is that once the proposer state is in decided, then we need to be able to emit a simulation event that will allow us to allow that node to
+
+  This is part of the muddying of functionality (originally just wanted simple paxos for v0) but I added a bit more functionality.
+
+  I'll leave it as it is for now.
+This should allow us to mimic the proposals clashing and so on
+***** [X] Better support for custom scenarios
+CLOSED: [2025-11-23 Sun 12:10]
+- CLOSING NOTE [2025-11-23 Sun 12:10] \\
+  nice
+Just a convenience thing. We should be able to just put in any custom json. Names for the scenario should be within the input files so that it's injected via the data file instead of being dependent on the code.
+
+This is necessary to add in the cheeky scenarios that are camel-themed.
+
 ***** [ ] Logging cleanups: Wire up global and module-specific logging to avoid dirty log statements
 
 the problem i'm facing looks like this:
@@ -4569,12 +4594,8 @@ the problem i'm facing looks like this:
    d. They don’t compose.
 
    e. There’s no polymorphism.
-
-
-
-***** [ ] Need to set the =proposal_ids= from the json
-
-This should allow us to mimic the proposals clashing and so on
+****** Notes
+1. the logger is now improved, @ the point of instantiation of a struct, we end up defining whhat the log level is
 **** TODO Stage 5: Refinements & Cleanup
 :PROPERTIES:
 :EFFORT:   1h
@@ -4750,7 +4771,6 @@ E. Application-Level Logic
    - How the application uses the results of Paxos instances
 
 
-
 *** TODO Implementation v1 (with async frameworks) [optional -- out of scope for this sprint]
 The tasks here are just documented but won't be in my v0 target. I NEED to arrive at SOME point of completion. Need to move onto other things.
 
@@ -4841,6 +4861,7 @@ I want to be able to communicate some aspects of the following things:
            - A few friends have described how when they hire, the rigour that the talent pool seems to show is now more bimodal and we've had conversations about the role of AI products and their impact on learners....
 
         c) I'm really want to work on problems where ocaml is a natural fit for the problem and solution space and how engineers are well-organised to solve problems at scale better, as a by-product of the language's design primitives and its ecosystem.
+
    - proof of competence goals and artefacts
      a) what I managed to achieve in a "short" period of time
         - what systems have been designed
@@ -4857,7 +4878,7 @@ I want to be able to communicate some aspects of the following things:
 
 ** TODO Write-ups
 DEADLINE: <2025-11-01 Sat 22:00>
-— produce blog-style REDEEM + literate trace
+— produce blog-style README + literate trace
 
 From a reader's perspective, I'd like them to first-land on the unabridged versions and then choose whether they want depth or they want abgridged parts.
 

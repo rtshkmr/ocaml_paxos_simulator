@@ -34,17 +34,15 @@ module Simulation = struct
         print_flush "EOF received. Quitting." ;
         Simulator.print_bus_stats sim
 
-  let run ?(scenario = "basic") ?(max_log_level = 1) ?(allow_step = true) () =
+  let run ?(max_log_level = 1) ?(allow_step = true) scenario_path =
     let open Simulator in
     let open Simulation_loader in
-    let {preamble; simulator; nodes; events} =
-      scenario
-      |> Printf.sprintf "data/%s_scenario.json"
-      |> load_simulation_config_from_file
+    let {scenario_name; preamble; simulator; nodes; events} =
+      scenario_path |> load_simulation_config_from_file
     in
     let logger = Logger.create Stdlib.__MODULE__ () in
     let sim = simulator |> of_spec in
-    logger |> Logger.display_scenario_preamble ~scenario ~preamble ;
+    logger |> Logger.display_scenario_preamble ~scenario_name ~preamble ;
     nodes |> List.iter ~f:(fun n -> n |> hydrate_node sim |> seed_node_exn sim) ;
     events |> List.iter ~f:(fun e -> e |> hydrate_event sim |> seed_event sim) ;
     run_with_pause sim

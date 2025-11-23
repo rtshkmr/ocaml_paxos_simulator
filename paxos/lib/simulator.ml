@@ -292,9 +292,14 @@ module Simulator = struct
             let node =
               captured_node |> NodeImpl.id_of |> Hashtbl.find_exn node_registry
             in
+            let seq =
+              Option.value_map args
+                ~f:(fun l -> l |> List.hd_exn |> Int.of_string)
+                ~default:1
+            in
             let assertion : V.t Types.paxos_assertion_state =
               { Types.proposal=
-                  Types.make_proposal_id ~node:(node |> NodeImpl.id_of) ~seq:1
+                  Types.make_proposal_id ~node:(node |> NodeImpl.id_of) ~seq
               ; value= make_val value_str }
             in
             let msg_id = sim |> next_msg_id in

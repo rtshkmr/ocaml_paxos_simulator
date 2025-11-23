@@ -781,6 +781,7 @@ module Make_node
         node |> activate timestamp ;
         "I'm back in action" |> log_node_state_control node
     | Message.Control (MakeNodeIdle {node_id; _}) when node_id = id ->
+        (* TODO: handle idling state *)
         node.state <- State.idle_of () ;
         "I am now idle" |> log_node_state_control node
     | Message.Control (MakeNodeInactive {node_id; _}) when node_id = id ->

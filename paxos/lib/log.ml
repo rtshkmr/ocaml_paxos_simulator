@@ -2,7 +2,7 @@ open Base
 open Types
 
 module Log_level = struct
-  type t = Debug | Info | Warn | Error [@@deriving sexp_of]
+  type t = Debug | Info | Warn | Error [@@deriving sexp, equal, enumerate]
 
   let to_int = function Debug -> 0 | Info -> 1 | Warn -> 2 | Error -> 3
 
@@ -46,6 +46,14 @@ module Log_level = struct
         fun s -> s |> bold |> bg_pastel_rose |> fg_muted_plum
     | Error ->
         bright_red
+
+  let arg_type =
+    Command.Arg_type.of_alist_exn
+      [("debug", Debug); ("info", Info); ("warn", Warn); ("error", Error)]
+
+  let flag = "-max-log-level"
+
+  let doc = "LEVEL (debug|info|warn|error). Default=info"
 end
 
 (** Keep events as structured data. Call sites will pass domain-serialized
@@ -89,7 +97,7 @@ module Log_event = struct
         ; old_state: string
         ; new_state: string }
     | Stats of {bus_id: int; dump: string}
-    | Display_scenario_preamble of {scenario: string; preamble: string}
+    | Display_scenario_preamble of {scenario_name: string; preamble: string}
     | Other of string
   [@@deriving sexp_of]
 end
@@ -398,8 +406,8 @@ module Formatter = struct
         format_reason alias node_id msg
     | Log_event.Node_state_change {alias; node_id; old_state; new_state} ->
         format_state_change alias node_id old_state new_state
-    | Log_event.Display_scenario_preamble {scenario; preamble} ->
-        format_display_scenario_preamble scenario preamble
+    | Log_event.Display_scenario_preamble {scenario_name; preamble} ->
+        format_display_scenario_preamble scenario_name preamble
     | Log_event.Stats {dump; bus_id} ->
         Printf.sprintf "[STATS for bus=(%d)] %s" bus_id dump
     | Log_event.Other s ->
@@ -518,9 +526,9 @@ module Logger = struct
       (Log_event.Node_state_change
          {alias= Option.join alias; node_id; old_state; new_state} )
 
-  let display_scenario_preamble ~scenario ~preamble t =
+  let display_scenario_preamble ~scenario_name ~preamble t =
     emit ~ignore_header:true t ~level:Log_level.Info
-      (Log_event.Display_scenario_preamble {scenario; preamble})
+      (Log_event.Display_scenario_preamble {scenario_name; preamble})
 
   let stats ~bus_id ?node_id ?alias t ~dump =
     emit ?node_id ?alias t ~level:Log_level.Info (Log_event.Stats {dump; bus_id})

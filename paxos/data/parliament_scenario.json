@@ -1,4 +1,5 @@
 {
+  "scenario_name": "Part-time Parliament!",
   "preamble": "Simulation inspired by Leslie Lamport's Part-Time Parliament.\nModels part-time legislators coming and going, network partitions,\nand consensus on legislative proposals via Paxos.",
   "simulator": {
     "max_ticks": 320,

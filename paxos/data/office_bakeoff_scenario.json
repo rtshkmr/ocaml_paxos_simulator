@@ -1,4 +1,5 @@
 {
+  "scenario_name": "Office Bakeoff",
   "preamble": "Fun office bakeoff with nodes going inactive\nand reactivating.\nTesting system resilience and reconfiguration.",
   "simulator": {
     "max_ticks": 181,
