@@ -147,8 +147,8 @@ module Formatter = struct
       (level_tag lvl realtime_str)
       m id_part alias_part
 
-  let make_fenced_tag ?(bg_color = bg_pastel_rose)
-      ?(fg_color = default_fg_color) tag =
+  let make_fenced_tag ?(bg_color = bg_pastel_red) ?(fg_color = fg_pastel_red)
+      tag =
     let width = get_terminal_width () in
     let header_msg = tag |> bg_color |> fg_color |> bold in
     let fence = String.make width ' ' |> bg_color |> fg_color |> bold in
@@ -176,7 +176,6 @@ module Formatter = struct
 
   let format_publish_unicast_event bus_id target_node sender_node sender_alias
       topic_s payload =
-    (* let bg_color, fg_color = (bg_bright_blue, default_fg_color) in *)
     let bg_color, fg_color = (bg_pastel_powder_blue, fg_muted_navy) in
     let highlight =
      fun x -> x |> pad_string 1 |> bold |> bg_color |> fg_color

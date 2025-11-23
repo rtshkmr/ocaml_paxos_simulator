@@ -46,6 +46,7 @@ end
 
 let command_simulate =
   let summary =
+    (* TODO [LOG] use ansi formatter here *)
     let welcome =
       "Welcome to our OCaml Paxos demo!" |> bold |> bright_magenta
     in

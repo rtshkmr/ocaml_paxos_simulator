@@ -13,9 +13,5 @@ module Time = struct
 
   let now c = c.current
 
-  (* let timestamp_of_now c = Int.to_string_hum (now c) *)
-
-  let tick c = c.current <- increment c.current
-  (* Logger.tick c.logger ~timestamp:(timestamp_of_now c) *)
-  (*   ~msg:"...time is now stopped @ this tick for us to inspect" () *)
+  let tick c = c.current <- c |> now |> increment
 end

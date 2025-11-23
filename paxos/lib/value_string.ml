@@ -8,5 +8,5 @@ module Value_string : Value.S = struct
 
   type spec = {value: string} [@@deriving sexp, yojson]
 
-  let of_spec {value} : t = value
+  let of_spec {value} = value
 end

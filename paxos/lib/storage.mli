@@ -10,10 +10,6 @@ module type S = sig
   (** Abstract handle representing storage context or connection.
       Can be an in-memory map, file handle, DB connection, etc. *)
   type t
-  (* type t = *)
-  (*   { alias: string *)
-  (*   ; snapshot: snapshot_payload option *)
-  (*   ; log: (Time.t * snapshot_payload) list } *)
 
   (** A log entry for the distributed consensus record, containing:
       - [timestamp] when the entry was created or agreed upon

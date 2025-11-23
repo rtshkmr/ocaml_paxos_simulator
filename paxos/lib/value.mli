@@ -1,8 +1,3 @@
-(* module type Value = sig *)
-(*   type t [@@deriving sexp, compare, equal, hash] *)
-(*   val to_string : t -> string *)
-(* end *)
-
 (**
   Value is the payload that flows through messages.
 

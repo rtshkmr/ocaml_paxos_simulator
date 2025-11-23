@@ -8,6 +8,9 @@ module Types = struct
   type proposal_id = {seq: int; node: node_id}
   [@@deriving sexp, compare, equal, hash, yojson]
 
+  let proposal_id_to_string pid =
+    pid |> sexp_of_proposal_id |> Sexp.to_string_hum
+
   let make_proposal_id ~seq ~node = {seq; node}
 
   type proposal_id_spec = {seq: int; node: int} [@@deriving sexp, yojson]
@@ -44,6 +47,8 @@ module Types = struct
     | Metrics  (** Telemetry and monitoring data *)
     | Time  (** Logical time simulation & clock sync msgs *)
   [@@deriving sexp, compare, hash, equal]
+
+  let topic_to_str topic = topic |> sexp_of_topic |> Sexp.to_string_hum
 
   let topic_of_str = function
     | "Coordination" ->

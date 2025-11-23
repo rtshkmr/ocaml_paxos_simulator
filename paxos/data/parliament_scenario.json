@@ -2,9 +2,7 @@
   "scenario_name": "Part-time Parliament!",
   "preamble": "Simulation inspired by Leslie Lamport's Part-Time Parliament.\nModels part-time legislators coming and going, network partitions,\nand consensus on legislative proposals via Paxos.",
   "simulator": {
-    "max_ticks": 320,
-    "deterministic_seed": 1234,
-    "log_jsonl": false
+    "max_ticks": 320
   },
   "nodes": [
     { "node_id": 1, "node_alias": "SageSpeaker", "topic_strs": ["Coordination", "Simulation_control", "Time"], "initial_cluster_size": 5 },

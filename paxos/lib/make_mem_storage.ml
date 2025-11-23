@@ -15,23 +15,16 @@ module Make_mem_storage (NS : Node_state.S) :
     Stdio.printf "Storage crated for %s\n%!" alias ;
     {snapshot= None; log= []}
 
-  let persist_snapshot t time (p : snapshot_payload) =
-    let updated_log = (time, p) :: t.log in
-    let updated_snapshot = Some p in
-    Ok {snapshot= updated_snapshot; log= updated_log}
+  let persist_snapshot {log; _} time (p : snapshot_payload) =
+    Ok {snapshot= Some p; log= (time, p) :: log}
 
-  let load_snapshot (t : t) : (snapshot_payload option, Error.t) Result.t =
-    let snapshot = t.snapshot in
-    Ok snapshot
+  let load_snapshot ({snapshot; _} : t) = Ok snapshot
 
-  let load_consensus_log t =
-    let log_entries =
-      List.map t.log ~f:(fun (timestamp, snapshot) -> {timestamp; snapshot})
-    in
-    Ok log_entries
+  let load_consensus_log {log; _} =
+    Ok (log |> List.map ~f:(fun (timestamp, snapshot) -> {timestamp; snapshot}))
 
-  let compact_log t =
-    match List.rev t.log with
+  let compact_log ({log; _} as t) =
+    match List.rev log with
     | [] ->
         Ok t
     | (latest_t, latest_snapshot) :: _ ->

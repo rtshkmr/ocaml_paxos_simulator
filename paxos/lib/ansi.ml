@@ -1,21 +1,45 @@
+(*
+TODO [improvements]
+Consider improvements:
+===========================
+1. this module mixes the following, we could split along these responsibilities:
+  - low-level ANSI functions
+  - high-level named styles
+  - pastel custom theme
+  - centering/padding logic
+
+2. natural outcome of this is going to be theme defs.
+
+2. annoyance: too many functions defined here.
+   possible cleanup: define style variants and use them via a render pipeline of sorts
+  - e.g. style:
+    type t =
+      | Fg of int
+      | Bg of int
+      | Bold
+      | Italic
+      | Underline
+      | Rgb_fg of int * int * int
+      | Rgb_bg of int * int * int
+
+    let render styles =
+      let codes =
+          List.map styles ~f:(function
+            | Bold -> "1"
+            | Italic -> "3"
+            | Underline -> "4"
+            | Fg n -> Printf.sprintf "38;5;%d" n
+            | Bg n -> Printf.sprintf "48;5;%d" n
+            | Rgb_fg (r,g,b) -> Printf.sprintf "38;2;%d;%d;%d" r g b
+            | Rgb_bg (r,g,b) -> Printf.sprintf "48;2;%d;%d;%d" r g b)
+      in
+      let code = String.concat ~sep:";" codes in
+      fun s -> Printf.sprintf "\027[%sm%s\027[0m" code s
+*)
 open Base
 
 (** A custom coloriser, full ANSI support with wrappers; see gist for RGB and 256-color support. *)
 module Formatter = struct
-  let is_dark_mode_mac ?(override = false) () =
-    let ic = Unix.open_process_in "defaults read -g AppleInterfaceStyle" in
-    let result =
-      match In_channel.input_line ic with
-      | Some "Dark" ->
-          true
-      | Some "Light" ->
-          false
-      | _ ->
-          override
-    in
-    ignore (Unix.close_process_in ic) ;
-    result
-
   let pad_string ?(char = ' ') ?(do_left = true) ?(do_right = true) pad s =
     let pad_str = String.init pad ~f:(Fn.const char) in
     let left_pad = if do_left then pad_str else "" in
@@ -31,15 +55,16 @@ module Formatter = struct
       Int.of_string line
     with _ -> 80
 
+  (** Strips ansi sequences and gives string length*)
+  let get_visible_length s =
+    (* strip ANSI sequences *)
+    let re = "\\x1b\\[[0-9;]*m" |> Re.Perl.re |> Re.compile in
+    s |> Re.replace re ~f:(fun _ -> "") |> String.length
+
   let center_text s =
     let term_width = get_terminal_width () in
-    let str_width = String.length s in
-    if str_width + 2 >= term_width then
-      let max_len = term_width - 5 in
-      if max_len <= 0 then s
-      else
-        let truncated = String.prefix s max_len in
-        " " ^ truncated ^ "..."
+    let str_width = s |> get_visible_length in
+    if str_width >= term_width then s
     else
       let total_pad = term_width - str_width in
       let half_pad = total_pad / 2 in
@@ -196,9 +221,6 @@ module Formatter = struct
   let fg_rgb r g b s = ansi_wrap (Printf.sprintf "38;2;%d;%d;%d" r g b) s
 
   let bg_rgb r g b s = ansi_wrap (Printf.sprintf "48;2;%d;%d;%d" r g b) s
-
-  let default_fg_color =
-    if is_dark_mode_mac ~override:true () then black else white
 
   (* ---------- custom colour definitions --------- *)
 

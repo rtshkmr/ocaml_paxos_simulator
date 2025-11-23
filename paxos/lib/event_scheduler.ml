@@ -2,10 +2,7 @@ open Base
 open Time
 open Sim_event
 
-(**
-  A deterministic event scheduler holding `Sim_event.t` values, ordered by logical time.
-*)
-module Event_scheduler : sig
+module type S = sig
   type t
 
   val create : unit -> t
@@ -15,7 +12,12 @@ module Event_scheduler : sig
   val pop_due_events : t -> Time.t -> Sim_event.t list
 
   val peek_next_event_time : t -> Time.t option
-end = struct
+end
+
+(**
+  A deterministic event scheduler holding `Sim_event.t` values, ordered by logical time.
+*)
+module Event_scheduler : S = struct
   type t = Sim_event.t list ref
 
   let create () = ref []
@@ -29,10 +31,6 @@ end = struct
     List.sort due ~compare:(fun a b -> Time.compare a.time b.time)
 
   let peek_next_event_time q =
-    List.fold_left !q ~init:None ~f:(fun acc (ev : Sim_event.t) ->
-        match acc with
-        | None ->
-            Some ev.time
-        | Some t ->
-            Some (Int.min t ev.time) )
+    List.fold_left !q ~init:None ~f:(fun acc ({time; _} : Sim_event.t) ->
+        match acc with None -> Some time | Some t -> Some (Int.min t time) )
 end

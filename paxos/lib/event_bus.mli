@@ -7,14 +7,14 @@ module type S = sig
   type sub_handle = {topic: Types.topic; id: int; node_id: Types.node_id}
   [@@deriving sexp, compare, equal, hash]
 
-  type 'a serialiser = 'a -> string
+  type 'a payload_serialiser = 'a -> string
 
   (** a callback that we can use for communicating via the bus
       this works because the node would have been bound to the callback, event bus can remain passive about it.
   *)
   type 'a bus_registrable_callback = 'a Message.Message.t -> unit
 
-  val create : payload_serialiser:'a serialiser -> unit -> 'a t
+  val create : payload_to_string:'a payload_serialiser -> 'a t
 
   val subscribe :
        'a t

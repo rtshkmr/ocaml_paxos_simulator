@@ -49,32 +49,30 @@ module type S = sig
   (** Roles a node can play in the Paxos protocol. *)
   type role = Proposer | Acceptor | Learner
 
-  (** A list of [role]s representing the roles assigned to a node. *)
-  type roles = role list
-
   val role_of_str : string -> role option
 
-  type assertion = V.t Types.paxos_assertion_state [@@deriving sexp]
+  type assertion [@@deriving sexp]
 
   type promise = assertion option [@@deriving sexp]
 
   (** Configuration for simulation semantics, including mutable cluster_size tracking. *)
-  type runtime_config = {mutable cluster_size: int option ref}
+  type runtime_config = {cluster_size: int ref}
 
   (** Node runtime configuration consisting of simulation settings, assigned roles,
       and a persistence storage backend. The types here are tied to the [Storage]
       module injected. *)
-  type config = {runtime: runtime_config; roles: roles; topics: Types.topic list}
+  type config =
+    {runtime: runtime_config; roles: role list; topics: Types.topic list}
 
   val register_node_with_bus : V.t Message.t Bus.t -> t -> t
 
   val deregister_node_from_bus : V.t Message.t Bus.t -> t -> t
 
-  val roles : t -> roles
-  (** Return the roles assigned to a node. *)
+  (* val roles : t -> role list *)
+  (* (\** Return the roles assigned to a node. *\) *)
 
-  val state : t -> State.role_state
-  (** Return the current internal state of a node. *)
+  (* val state : t -> State.role_state *)
+  (* (\** Return the current internal state of a node. *\) *)
 
   val handle_coordination : t -> V.t Message.t -> unit
   (** Handle a coordination message received by the node. *)
@@ -85,33 +83,22 @@ module type S = sig
   val handle_time : t -> V.t Message.t -> unit
 
   val propose :
-       t
-    -> msg_id:int
+       msg_id:int
     -> time:int
     -> bus:V.t Message.t Bus.t
     -> assertion:V.t Types.paxos_assertion_state
+    -> t
     -> unit
 
   val suggest :
        msg_id:int
     -> time:int
     -> bus:V.t Message.t Bus.t
-    -> t
     -> assertion:V.t Types.paxos_assertion_state
+    -> t
     -> unit
 
   val sexp_of_role_state : t -> Sexp.t
-
-  (* TODO: rename: nodes are made idle by other actors (just the orchestrator (simulator)), so a better name for this should be "recover" or something *)
-  (* TODO: needs a similar one but for becoming inactive "terminate" *)
-  val make_node_idle :
-       msg_id:int
-    -> time:int
-    -> bus:'a Message.t Bus.t
-    -> 'b
-    -> node_id:int
-    -> unit
-  (** Convenience function to make a node idle in simulation control. *)
 
   val get_cluster_size : t -> int
   (** convenience cluster size getter *)
@@ -147,4 +134,4 @@ module Make_node : functor
   (Bus : sig
      include module type of Event_bus
    end)
-  -> S with module V := V with module Bus := Bus
+  -> S with module V = V with module Bus = Bus

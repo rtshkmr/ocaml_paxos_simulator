@@ -103,7 +103,7 @@ module Message : sig
     | Time of 'v time_message
   [@@deriving sexp, compare, equal]
 
-  val payload_serialiser_of : ('v -> Sexp.t) -> 'v t -> string
+  val to_string : ('v -> Sexp.t) -> 'v t -> string
 
   val meta_of : _ t -> Meta.t
 
@@ -119,12 +119,10 @@ module Message : sig
   (* helpers to construct messages; ensure meta.topic matches provided topic *)
   val make_permission_request :
        msg_id:int
-    -> topic:Types.topic
     -> time:Time.t
     -> from:Types.node_id
-    -> proposal:Types.proposal_id
-    -> value:'v
-    -> 'v coordination_message
+    -> assertion:'v Types.paxos_assertion_state
+    -> 'v t
 
   val make_permission_granted :
        msg_id:int
@@ -133,24 +131,22 @@ module Message : sig
     -> time:Time.t
     -> from:Types.node_id
     -> last_accepted:'v Types.paxos_promise
-    -> 'v coordination_message
+    -> 'v t
 
   val make_suggestion :
        msg_id:int
-    -> topic:Types.topic
     -> time:Time.t
     -> from:Types.node_id
     -> assertion:'v Types.paxos_assertion_state
-    -> 'v coordination_message
+    -> 'v t
 
   val make_accepted :
        msg_id:int
     -> topic:Types.topic
     -> time:Time.t
     -> from:Types.node_id
-    -> proposal:Types.proposal_id
-    -> value:'v
-    -> 'v coordination_message
+    -> assertion:'v Types.paxos_assertion_state
+    -> 'v t
 
   val make_nack :
        msg_id:int
@@ -159,33 +155,23 @@ module Message : sig
     -> from:Types.node_id
     -> rejected_assertion:'v Types.paxos_assertion_state
     -> hint:'v Types.paxos_promise
-    -> 'v coordination_message
+    -> 'v t
 
   val make_decided :
        msg_id:int
-    -> topic:Types.topic
     -> time:int
     -> from:int
     -> decided_assertion:'v Types.paxos_assertion_state
-    -> 'v coordination_message
+    -> 'v t
 
   val make_sim_control_idle_node :
-       msg_id:int
-    -> time:Time.t
-    -> node_id:Types.node_id
-    -> 'v simulation_control_message
+    msg_id:int -> time:Time.t -> node_id:Types.node_id -> 'v t
 
   val make_sim_control_inactive_node :
-       msg_id:int
-    -> time:Time.t
-    -> node_id:Types.node_id
-    -> 'v simulation_control_message
+    msg_id:int -> time:Time.t -> node_id:Types.node_id -> 'v t
 
   val make_sim_control_activate_node :
-       msg_id:int
-    -> time:Time.t
-    -> node_id:Types.node_id
-    -> 'v simulation_control_message
+    msg_id:int -> time:Time.t -> node_id:Types.node_id -> 'v t
 
-  val make_heartbeat_msg : msg_id:int -> time:Time.t -> 'a time_message
+  val make_heartbeat_msg : msg_id:int -> time:Time.t -> 'a t
 end

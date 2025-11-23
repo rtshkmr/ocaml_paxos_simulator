@@ -1,3 +1,8 @@
+(*
+Improvements for consideration:
+==============================
+1. TODO [DEFENSIVE] don't use the fail-with, use custom errors or something
+*)
 open Base
 open Types
 open Time
@@ -40,8 +45,7 @@ module Message = struct
   [@@deriving sexp, compare, equal]
 
   (**  [Nack] variant ([nack_msg] has an optional [hint] which helps to inform about the highest promise seen.
-       this is intended for future use for nack optimisations @ the accepting stage. *)
-  (**
+       this is intended for future use for nack optimisations @ the accepting stage.
        FIXME: the Message.Nack and State.nack don't play well together, they should have similar shapes.*)
   type 'v nack_msg =
     { meta: Meta.t
@@ -90,128 +94,119 @@ module Message = struct
     | Time of 'v time_message
   [@@deriving sexp, compare, equal]
 
-  let payload_serialiser_of (sexp_of_v : 'v -> Sexplib.Sexp.t) : 'v t -> string
-      =
-   fun msg ->
-    let sexp = sexp_of_t sexp_of_v msg in
-    Sexplib.Sexp.to_string_hum sexp
+  let to_string sexp_of_v msg =
+    msg |> sexp_of_t sexp_of_v |> Sexplib.Sexp.to_string_hum
 
   let make_meta id timestamp topic : Meta.t = {id; timestamp; topic}
 
+  let coordination_meta = function
+    | PermissionRequest {meta; _}
+    | PermissionGranted {meta; _}
+    | Suggestion {meta; _}
+    | Accepted {meta; _}
+    | Decided {meta; _}
+    | Nack {meta; _} ->
+        meta
+
+  let control_meta = function
+    | MakeNodeInactive {meta; _}
+    | ActivateNode {meta; _}
+    | MakeNodeIdle {meta; _}
+    | Pause {meta}
+    | Resume {meta}
+    | AdvanceTick {meta}
+    | Inject {meta} ->
+        meta
+
+  let time_meta = function
+    | Heartbeat {meta; _} | SyncTo {meta; _} | DiffOffset {meta; _} ->
+        meta
+
   let meta_of = function
-    | Coordination msg -> (
-      match msg with
-      | PermissionRequest {meta; _}
-      | PermissionGranted {meta; _}
-      | Suggestion {meta; _}
-      | Accepted {meta; _}
-      | Decided {meta; _}
-      | Nack {meta; _} ->
-          meta )
-    | Control msg -> (
-      match msg with
-      | MakeNodeInactive {meta; _}
-      | ActivateNode {meta; _}
-      | MakeNodeIdle {meta; _}
-      | Pause {meta}
-      | Resume {meta}
-      | AdvanceTick {meta}
-      | Inject {meta} ->
-          meta )
-    | Time msg -> (
-      match msg with
-      | Heartbeat {meta; _} | SyncTo {meta; _} | DiffOffset {meta; _} ->
-          meta )
+    | Coordination msg ->
+        msg |> coordination_meta
+    | Control msg ->
+        msg |> control_meta
+    | Time msg ->
+        msg |> time_meta
 
   let topic_of msg =
-    let meta = meta_of msg in
-    meta.topic
+    let {topic; _} : Meta.t = msg |> meta_of in
+    topic
+
+  let coordination_sender = function
+    | PermissionRequest {from; _}
+    | PermissionGranted {from; _}
+    | Suggestion {from; _}
+    | Accepted {from; _}
+    | Decided {from; _}
+    | Nack {from; _} ->
+        from
 
   let sender_of = function
-    | Coordination msg -> (
-      match msg with
-      | PermissionRequest {from; _}
-      | PermissionGranted {from; _}
-      | Suggestion {from; _}
-      | Accepted {from; _}
-      | Decided {from; _}
-      | Nack {from; _} ->
-          from )
+    | Coordination msg ->
+        msg |> coordination_sender
     | Control _ ->
         (* Control messages don't have a 'from' field; handle as needed *)
         failwith "sender_of: Control messages do not have a sender"
     | Time _ ->
         failwith "sender_of: Control messages do not have a sender"
 
+  let coordination_proposal = function
+    | PermissionRequest {assertion= {proposal; _}; _}
+    | Suggestion {assertion= {proposal; _}; _}
+    | Accepted {assertion= {proposal; _}; _} ->
+        Some proposal
+    | PermissionGranted {assertion= {proposal; _}; _} ->
+        Some proposal
+    | Decided {decided_assertion= {proposal; _}; _} ->
+        Some proposal
+    | Nack {rejected_assertion= {proposal; _}; _} ->
+        Some proposal
+
   let proposal_id_of = function
-    | Coordination msg -> (
-      match msg with
-      | PermissionRequest {assertion= {proposal; _}; _}
-      | Suggestion {assertion= {proposal; _}; _}
-      | Accepted {assertion= {proposal; _}; _} ->
-          Some proposal
-      | PermissionGranted {assertion= {proposal; _}; _} ->
-          Some proposal
-      | Decided {decided_assertion= {proposal; _}; _} ->
-          Some proposal
-      | Nack {rejected_assertion= {proposal; _}; _} ->
-          Some proposal )
-    | Control _ ->
-        None
-    | Time _ ->
+    | Coordination msg ->
+        msg |> coordination_proposal
+    | _ ->
         None
 
   let make_heartbeat_msg ~msg_id ~time =
-    let topic = Types.Time in
-    let id = msg_id in
-    let meta = make_meta id time topic in
-    Heartbeat {meta; time}
+    {meta= make_meta msg_id time Types.Time; time} |> Heartbeat |> Time
 
   let make_sim_control_idle_node ~msg_id ~time ~node_id =
-    let topic = Types.Simulation_control in
-    let id = msg_id in
-    let meta = make_meta id time topic in
-    MakeNodeIdle {meta; node_id}
+    {meta= make_meta msg_id time Types.Simulation_control; node_id}
+    |> MakeNodeIdle |> Control
 
   let make_sim_control_inactive_node ~msg_id ~time ~node_id =
-    let topic = Types.Simulation_control in
-    let id = msg_id in
-    let meta = make_meta id time topic in
-    MakeNodeInactive {meta; node_id}
+    {meta= make_meta msg_id time Types.Simulation_control; node_id}
+    |> MakeNodeInactive |> Control
 
   let make_sim_control_activate_node ~msg_id ~time ~node_id =
-    let topic = Types.Simulation_control in
-    let id = msg_id in
-    let meta = make_meta id time topic in
-    ActivateNode {meta; node_id}
+    {meta= make_meta msg_id time Types.Simulation_control; node_id}
+    |> ActivateNode |> Control
 
-
-  let make_permission_request ~msg_id ~topic ~time ~from ~proposal ~value =
-    let id = msg_id in
-    let meta = make_meta id time topic in
-    PermissionRequest {meta; from; assertion= {proposal; value}}
+  let make_permission_request ~msg_id ~time ~from ~assertion =
+    {meta= make_meta msg_id time Types.Coordination; from; assertion}
+    |> PermissionRequest |> Coordination
 
   let make_permission_granted ~msg_id ~topic ~assertion ~time ~from
       ~last_accepted =
-    let meta = make_meta msg_id time topic in
-    PermissionGranted {meta; from; assertion; last_accepted}
+    {meta= make_meta msg_id time topic; from; assertion; last_accepted}
+    |> PermissionGranted |> Coordination
 
-  let make_suggestion ~msg_id ~topic ~time ~from ~assertion =
-    let meta = make_meta msg_id time topic in
-    Suggestion {meta; from; assertion}
+  let make_suggestion ~msg_id ~time ~from ~assertion =
+    {meta= make_meta msg_id time Types.Coordination; from; assertion}
+    |> Suggestion |> Coordination
 
-  let make_accepted ~msg_id ~topic ~time ~from ~proposal ~value =
-    let meta = make_meta msg_id time topic in
-    Accepted {meta; from; assertion= {proposal; value}}
+  let make_accepted ~msg_id ~topic ~time ~from ~assertion =
+    {meta= make_meta msg_id time topic; from; assertion}
+    |> Accepted |> Coordination
 
-  let make_nack ~msg_id ~topic ~time ~from ~rejected_assertion
-      ~(hint : 'a Types.paxos_promise) =
-    let id = msg_id in
-    let meta = make_meta id time topic in
-    Nack {meta; from; rejected_assertion; hint}
+  let make_nack ~msg_id ~topic ~time ~from ~rejected_assertion ~hint =
+    {meta= make_meta msg_id time topic; from; rejected_assertion; hint}
+    |> Nack |> Coordination
 
-  let make_decided ~msg_id ~topic ~time ~from ~decided_assertion =
-    let id = msg_id in
-    let meta = make_meta id time topic in
-    Decided {meta; from; decided_assertion}
+  let make_decided ~msg_id ~time ~from ~decided_assertion =
+    {meta= make_meta msg_id time Types.Coordination; from; decided_assertion}
+    |> Decided |> Coordination
 end

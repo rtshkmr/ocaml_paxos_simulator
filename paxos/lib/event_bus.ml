@@ -1,4 +1,30 @@
-[@@@ocaml.warning "-69"] (** TODO: remove unused variable warnings*)
+[@@@ocaml.warning "-69"]
+(*
+IMPROVEMENT CONSIDERATIONS
+===========================
+1. TODO [Defensive]:
+   a) callback usage is not guarded from exns currently, so if we have any exn from callback usage, the whole bus will get killed. haha.
+      I'm going to skip this for now because I can't find a clean way to define a safe_callback function without passing it a million params (this part smells)
+
+      Possible inspiration:
+      ```ocaml
+      let safe_callback ~logger ~bus_id ~topic_s ~subscriber_info f payload =
+        try
+          f payload
+        with ex ->
+          Logger.callback_error
+            ~bus_id
+            ~topic_s
+            ~subscriber_info
+            ~exn:(Printexc.to_string ex)
+            logger
+      ```
+
+2. Simpler performance improvements:
+   a) avoiding queue copy if possible
+   b) instead of using Hashtbl poly, we should use the specific hashtables
+*)
+
 open Base
 open Types
 open Log
@@ -12,14 +38,14 @@ module type S = sig
   type sub_handle = {topic: Types.topic; id: int; node_id: Types.node_id}
   [@@deriving sexp, compare, equal, hash]
 
-  type 'a serialiser = 'a -> string
+  type 'a payload_serialiser = 'a -> string
 
   type 'a bus_registrable_callback = 'a Message.Message.t -> unit
 
-  val create : payload_serialiser:'a serialiser -> unit -> 'a t
+  val create : payload_to_string:'a payload_serialiser -> 'a t
 
   val subscribe :
-    'a t
+       'a t
     -> topic:Types.topic
     -> node_id:Types.node_id
     -> ('a -> unit)
@@ -31,8 +57,7 @@ module type S = sig
 
   val publish_unicast : 'a t -> topic:Types.topic -> node_id:int -> 'a -> unit
 
-
-  type 'a enqueuable_thunk = ((Types.topic * Types.node_id option) * 'a)
+  type 'a enqueuable_thunk = (Types.topic * Types.node_id option) * 'a
 
   val enqueue : 'a t -> 'a enqueuable_thunk -> unit
 
@@ -54,8 +79,7 @@ module Event_bus : S = struct
 
   type 'a callback = 'a -> unit
 
-  (* TODO rename to payload_serialiser *)
-  type 'a serialiser = 'a -> string
+  type 'a payload_serialiser = 'a -> string
 
   type 'a bus_registrable_callback = 'a Message.Message.t -> unit
 
@@ -70,123 +94,145 @@ module Event_bus : S = struct
 
   (** A thunk that can be queued such that it will either be published as a broadcast or as a publish to
       a single node *)
-  type 'a enqueuable_thunk = ((Types.topic * Types.node_id option) * 'a)
+  type 'a enqueuable_thunk = (Types.topic * Types.node_id option) * 'a
 
   type 'a t =
     { mutable next_id: int
-        ; id: int
+    ; id: int
     ; topics: (Types.topic, 'a topic_state) Hashtbl.Poly.t
     ; queue: 'a enqueuable_thunk Queue.t
     ; logger: Logger.t
-    ; payload_serialiser: 'a serialiser;
-    }
+    ; payload_to_string: 'a payload_serialiser }
 
-  let create ~payload_serialiser () =
+  let create ~payload_to_string =
     let random_id = Random.int 10000 in
-    {id=random_id; next_id= 0; topics= Hashtbl.Poly.create (); queue= Queue.create (); logger=Logger.create Stdlib.__MODULE__ (); payload_serialiser}
+    { id= random_id
+    ; next_id= 0
+    ; topics= Hashtbl.Poly.create ()
+    ; queue= Queue.create ()
+    ; logger= Logger.create Stdlib.__MODULE__ ()
+    ; payload_to_string }
 
   (** Returns the [topic_state] for [topic] if exists else initialises one for that topic and returns it.
       This allows lazy creation of topic entries.
   *)
-  let ensure_topic_state t topic =
-    match Hashtbl.find t.topics topic with
+  let ensure_topic_state {topics; _} topic =
+    match topic |> Hashtbl.find topics with
     | Some ts ->
-      ts
+        ts
     | None ->
-      let ts =
-        {subs= Hashtbl.Poly.create (); published= 0; delivered= 0; queued= 0}
-      in
-      Hashtbl.set t.topics ~key:topic ~data:ts ;
-      ts
+        let ts =
+          {subs= Hashtbl.Poly.create (); published= 0; delivered= 0; queued= 0}
+        in
+        topics |> Hashtbl.set ~key:topic ~data:ts ;
+        ts
 
-  let subscribe t ~topic ~node_id callback =
-    let subscription_id = t.next_id in
-    t.next_id <- subscription_id + 1 ;
-    let ts = ensure_topic_state t topic in
-    let sub_handle = {topic; id= subscription_id; node_id} in
+  let subscribe ({id; next_id= sub_id; logger; _} as t) ~topic ~node_id callback
+      =
+    t.next_id <- sub_id + 1 ;
+    let {subs; _} = ensure_topic_state t topic in
+    let sub_handle = {topic; id= sub_id; node_id} in
     let subscription_info = {node_id; sub_handle; callback} in
-    Hashtbl.add_exn ts.subs ~key:sub_handle ~data:subscription_info ;
-    Logger.subscribe ~node_id t.logger ~bus_id:t.id ~topic_s:(topic |> Types.sexp_of_topic |> Sexp.to_string_hum) ~sub_id:subscription_id;
+    Hashtbl.add_exn subs ~key:sub_handle ~data:subscription_info ;
+    Logger.subscribe ~node_id logger ~bus_id:id
+      ~topic_s:(topic |> Types.topic_to_str)
+      ~sub_id ;
     sub_handle
 
-  let unsubscribe ({id=bus_id;topics; logger; _}) ( {topic; node_id; id} as sub_handle ) =
+  let unsubscribe {id= bus_id; topics; logger; _}
+      ({topic; node_id; id} as sub_handle) =
     match topic |> Hashtbl.find topics with
     | None ->
-      ()
-    | Some ( {subs; published; queued; delivered} as ts ) ->
-      Hashtbl.remove subs sub_handle ;
-      Logger.unsubscribe ~node_id logger ~bus_id ~topic_s:(topic |> Types.sexp_of_topic |> Sexp.to_string_hum) ~sub_id:id ;
-      if
-        Hashtbl.length subs = 0
-        && published = 0 && queued = 0 && delivered = 0
-      then Hashtbl.remove topics topic
-      else Hashtbl.set topics ~key:topic ~data:ts
+        ()
+    | Some ({subs; published; queued; delivered} as ts) ->
+        sub_handle |> Hashtbl.remove subs ;
+        Logger.unsubscribe ~node_id logger ~bus_id
+          ~topic_s:(topic |> Types.topic_to_str)
+          ~sub_id:id ;
+        if
+          Hashtbl.length subs = 0
+          && published = 0 && queued = 0 && delivered = 0
+        then Hashtbl.remove topics topic
+        else Hashtbl.set topics ~key:topic ~data:ts
 
-  let publish_broadcast t ~topic payload =
-    let ts = ensure_topic_state t topic in
-    ts.published <- ts.published + 1;
-    Logger.publish_broadcast ~bus_id:(t.id) t.logger ~topic_s:(topic |> Types.sexp_of_topic |> Sexp.to_string_hum) ~payload:( payload |> t.payload_serialiser );
-
-    if Hashtbl.is_empty ts.subs then ()
+  let publish_broadcast ({id; logger; payload_to_string; _} as t) ~topic payload
+      =
+    let ({published; subs; delivered; _} as ts) = ensure_topic_state t topic in
+    ts.published <- published + 1 ;
+    Logger.publish_broadcast ~bus_id:id logger
+      ~topic_s:(topic |> Types.topic_to_str)
+      ~payload:(payload |> payload_to_string) ;
+    if Hashtbl.is_empty subs then ()
     else
-      Hashtbl.iter ts.subs ~f:(fun subscription_info ->
-          subscription_info.callback payload;
-          ts.delivered <- ts.delivered + 1)
+      Hashtbl.iter subs ~f:(fun {callback; _} ->
+          payload |> callback ;
+          ts.delivered <- delivered + 1 )
 
+  let publish_unicast {topics; id; payload_to_string; logger; _} ~topic ~node_id
+      payload =
+    match Hashtbl.find topics topic with
+    | None ->
+        ()
+    | Some ({subs; delivered; _} as ts) ->
+        let deliveries =
+          Hashtbl.fold subs ~init:0 ~f:(fun ~key ~data acc ->
+              if key.node_id = node_id then (
+                Logger.publish_unicast ~bus_id:id ~target_node:node_id logger
+                  ~topic_s:(topic |> Types.topic_to_str)
+                  ~payload:(payload |> payload_to_string) ;
+                payload |> data.callback ;
+                acc + 1 )
+              else acc )
+        in
+        ts.delivered <- delivered + deliveries
 
-  let publish_unicast t ~topic ~node_id payload =
-    match Hashtbl.find t.topics topic with
-    | None -> ()
-    | Some ts ->
-      Hashtbl.iteri ts.subs ~f:(fun ~key ~data ->
-          if key.node_id = node_id then begin
-            Logger.publish_unicast ~bus_id:(t.id) ~target_node:node_id t.logger ~topic_s:(topic |> Types.sexp_of_topic |> Sexp.to_string_hum)  ~payload:(payload |> t.payload_serialiser);
-            data.callback payload
-          end
-        );
-      ts.delivered <- ts.delivered + 1
-
-  let enqueue t thunk =
-    let ((topic, _target_opt), _msg) = thunk in
-    let ts = ensure_topic_state t topic in
-    ts.queued <- ts.queued + 1 ;
-    Queue.enqueue t.queue thunk;
+  let enqueue ({id; queue; logger; _} as t) thunk =
+    let (topic, _target_opt), _msg = thunk in
+    let ({queued; _} as ts) = ensure_topic_state t topic in
+    ts.queued <- queued + 1 ;
+    Queue.enqueue queue thunk ;
     (* BUG: (low priority: because we are snapshotting when draining then we aren't immediately clearing out the queue, the queue size here is not correct because the count includes the snapshot size) *)
-    Logger.enqueue ~bus_id:t.id t.logger ~topic_s:(topic |> Types.sexp_of_topic |> Sexp.to_string_hum) ~queue_size:ts.queued
+    (* TODO: [LOG] this needs to be extracted into a module-wide helper to simplify things *)
+    Logger.enqueue ~bus_id:id logger
+      ~topic_s:(topic |> Types.topic_to_str)
+      ~queue_size:ts.queued
 
-  let drain t =
+  let drain ({queue; id; logger; topics; _} as t) =
     (* Snapshot the current queue to isolate this batch *)
-    let current_batch = Queue.copy t.queue in
-    Queue.clear t.queue ;
+    let current_batch = Queue.copy queue in
+    Queue.clear queue ;
     let q_size = Queue.length current_batch in
-    Logger.drain_start ~bus_id:t.id t.logger ~batch_size:q_size;
+    Logger.drain_start ~bus_id:id logger ~batch_size:q_size ;
     while not (Queue.is_empty current_batch) do
-      let ((topic, node_id_opt), payload) = Queue.dequeue_exn current_batch in
-      match Hashtbl.find t.topics topic with
-      | None -> ()
-      | Some ts ->
-          match node_id_opt with
-          | None -> publish_broadcast t ~topic payload
-          | Some node_id -> publish_unicast t ~node_id ~topic payload;
-          ts.queued <- Int.max 0 (ts.queued - 1)
-      done;
-    Logger.drain_end ~bus_id:t.id t.logger
+      let (topic, node_id_opt), payload = Queue.dequeue_exn current_batch in
+      match Hashtbl.find topics topic with
+      | None ->
+          ()
+      | Some ts -> (
+        match node_id_opt with
+        | None ->
+            publish_broadcast t ~topic payload
+        | Some node_id ->
+            publish_unicast t ~node_id ~topic payload ;
+            ts.queued <- Int.max 0 (ts.queued - 1) )
+    done ;
+    Logger.drain_end ~bus_id:id logger
 
-  let stats t =
-    Hashtbl.to_alist t.topics
-    |> List.map ~f:(fun (topic, ts) ->
-        ( topic
-        , (Hashtbl.length ts.subs, ts.published, ts.delivered, ts.queued) ) )
+  let stats {topics; _} =
+    Hashtbl.to_alist topics
+    |> List.map ~f:(fun (topic, {subs; published; delivered; queued}) ->
+           (topic, (Hashtbl.length subs, published, delivered, queued)) )
 
+  (* TODO: [LOG] should shift to the logger formatter *)
   let dump_stats t =
     let stats = stats t in
-    let header = " Topic                  | Subscribers | Published | Delivered | Queued " in
+    let header =
+      " Topic                  | Subscribers | Published | Delivered | Queued "
+    in
     let line = String.make (String.length header) '-' in
     let buffer = Buffer.create 1024 in
-
     (* Append header section *)
-    Buffer.add_string buffer ("\n" ^ line ^ "\n" ^ header ^ "\n" ^ line ^ "\n");
-
+    Buffer.add_string buffer ("\n" ^ line ^ "\n" ^ header ^ "\n" ^ line ^ "\n") ;
     (* Append each stat line *)
     List.iter stats ~f:(fun (topic, (subs, published, delivered, queued)) ->
         let topic_str = Sexp.to_string (Types.sexp_of_topic topic) in
@@ -196,14 +242,13 @@ module Event_bus : S = struct
           else topic_str ^ String.make (22 - String.length topic_str) ' '
         in
         Buffer.add_string buffer
-          (Printf.sprintf " %s | %11d | %9d | %9d | %6d\n"
-             topic_str subs published delivered queued));
-
-    Buffer.add_string buffer (line ^ "\n");
-
+          (Printf.sprintf " %s | %11d | %9d | %9d | %6d\n" topic_str subs
+             published delivered queued ) ) ;
+    Buffer.add_string buffer (line ^ "\n") ;
     Buffer.contents buffer
 
-  let print_stats t =
+  (* TODO: [LOG] this can be shifted to logger formatter, no need a print function here *)
+  let print_stats ({id; logger; _} as t) =
     let dump = dump_stats t in
-    Logger.stats ~bus_id:t.id t.logger ~dump
+    Logger.stats ~bus_id:id logger ~dump
 end
