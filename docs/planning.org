@@ -6022,10 +6022,17 @@ in the snippet below, note how After the state change, the param-destructured na
     in
     node.storage := updated_storage
 #+end_src
-*** [3] Missed Opportunities
+*** [3] Missed Opportunities to learn
 **** Not enough time to incorporate memory model learnings from the book
 - so 0 performance considerations done when writing this.
 - no idea what the latest developments are. like apparently I can used unboxed types for faster compilations/runs? but also seems like just within the jane-street version of ocaml
+**** Reasons why async was avoided
+
+- seems like multicore support is fresh in OCaml 5. There's a need to understand older concurrency primitives that are floated by frameworks like Lwt and such and see how they play well with the new primitives to have an intuitive understanding of the design decisions taken. It's a chunk of its own so I chose to omit it.
+**** dependent types in the functional world
+- e.g. of some resources on this:
+  - dependent types in ocaml ([[https://gist.github.com/Hirrolot/27e6b02a051df333811a23b97c375196][gist ref]])
+
 *** [3] What I learnt about myself from this
 **** [ ] Importance of exposure for improving intuition
 

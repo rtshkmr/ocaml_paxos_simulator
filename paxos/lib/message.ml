@@ -46,7 +46,7 @@ module Message = struct
 
   (**  [Nack] variant ([nack_msg] has an optional [hint] which helps to inform about the highest promise seen.
        this is intended for future use for nack optimisations @ the accepting stage.
-       FIXME: the Message.Nack and State.nack don't play well together, they should have similar shapes.*)
+       *)
   type 'v nack_msg =
     { meta: Meta.t
     ; from: Types.node_id

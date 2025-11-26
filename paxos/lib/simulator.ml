@@ -176,11 +176,12 @@ module Simulator : Runtime.S = struct
     node |> add_node_to_partition_exn sim ~partition_id
 
   let enqueue_thunk sim thunk =
+    let alias = "~narrator" in
     let (_, node_id_opt), _ = thunk in
     let {bus; _} =
       node_id_opt |> Option.value_exn |> get_partition_for_node_exn sim
     in
-    thunk |> B.enqueue bus
+    B.enqueue bus ~alias thunk
 
   let get_nodes {registries= {node_registry; _}; _} =
     node_registry |> Hashtbl.data

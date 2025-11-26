@@ -11,4 +11,4 @@
   ppx_deriving_yojson.runtime)
  (preprocess
   (pps ppx_jane ppx_deriving_yojson))
- (modules_without_implementation runtime value storage))
+ (modules_without_implementation runtime value storage ui))

@@ -214,7 +214,7 @@ module Make_node
   let transition_role_state ({id; alias; logger; state; storage; _} as node)
       time (type a) (sel : a State.role_selector) (new_substate : a) =
     let new_state = new_substate |> State.set_role state sel in
-    Logger.node_state_change ~node_id:id ~alias:(Some alias) logger
+    Logger.node_state_change ~node_id:id ~alias logger
       ~old_state:(state |> State.state_to_str)
       ~new_state:(new_state |> State.state_to_str) ;
     node.state <- new_state ;
@@ -230,14 +230,16 @@ module Make_node
     in
     node.storage := updated_storage
 
+  (* TODO [LOG] this needs a special proposal event *)
+
   (** Represents the act of a node driving the first step of the paxos process (asking for permission).
       This means that the node's state as a Proposer will change from [ Idle ] to [ Peparing ], as we create the message then dispatch it. Once done dispatching,
       the node will change its state to [ WaitingForPromises ], marking it ready to receive responses (both grants and nacks) for that proposal.
 
       As such, every paxos process (i.e. an attempt to assert a value and seek consensus) can be uniquely identified via its [proposal_id]
    *)
-  let propose ~msg_id ~time ~bus ~assertion ({id; state= {proposer; _}; _} as t)
-      =
+  let propose ~msg_id ~time ~bus ~assertion
+      ({id; alias; state= {proposer; _}; _} as t) =
     match proposer with
     | State.Idle ->
         assertion |> State.Preparing
@@ -245,30 +247,30 @@ module Make_node
         let msg =
           Message.make_permission_request ~msg_id ~from:id ~assertion ~time
         in
-        ((Types.Coordination, None), msg) |> Bus.enqueue bus ;
+        ((Types.Coordination, None), msg) |> Bus.enqueue bus ~alias ;
         {assertion; promises_received= []; nacks_received= []}
         |> State.WaitingForPromises
         |> transition_role_state t time State.Proposer
     | _ ->
         failwith "we can only propose if we are currently idle"
 
-  let announce_decision ({id; state= {proposer; _}; _} as t : t) ~msg_id ~time
-      decided_assertion =
+  let announce_decision ({id; alias; state= {proposer; _}; _} as t : t) ~msg_id
+      ~time decided_assertion =
     match proposer with
     | State.Decided _decided_val ->
         let msg =
           Message.make_decided ~msg_id ~time ~from:id ~decided_assertion
         in
         let bus = bus_for_topic t Types.Coordination in
-        ((Types.Coordination, None), msg) |> Bus.enqueue bus
+        ((Types.Coordination, None), msg) |> Bus.enqueue bus ~alias
     | _ ->
         failwith
           "a node can only announce what it has learned when it has decided "
 
   (* TODO: [FSM] need to have a state change within the node after suggesting? This should allow us to capture the incoming accepted or something *)
-  let suggest ~msg_id ~time ~bus ~assertion {id; _} =
+  let suggest ~msg_id ~time ~bus ~assertion {id; alias; _} =
     let msg = Message.make_suggestion ~msg_id ~time ~from:id ~assertion in
-    ((Types.Coordination, None), msg) |> Bus.enqueue bus
+    ((Types.Coordination, None), msg) |> Bus.enqueue bus ~alias
 
   (* TODO [LOG] this needs to shift to the logger *)
   let log_node_state_control ({id; alias; _} : t) directive_msg =
@@ -300,8 +302,8 @@ module Make_node
 
   (* ==== microloggers==== *)
   let log_flow node ~routine ~msg =
-    Logger.subroutine_flow ~node_id:(Some node.id) ~alias:(Some node.alias)
-      node.logger ~routine ~msg ()
+    Logger.subroutine_flow ~node_id:node.id ~alias:node.alias node.logger
+      ~routine ~msg ()
 
   let log_rcvd_suggestion ~node ~(msg : V.t Message.suggestion_msg) =
     let proposal = msg.assertion.proposal |> Types.proposal_id_to_string in
@@ -367,15 +369,14 @@ module Make_node
     log_flow ~routine:Stdlib.__FUNCTION__ node ~msg:log_msg
 
   let log_decision node ~msg =
-    Logger.decision ~node_id:(Some node.id) ~alias:(Some node.alias) node.logger
-      ~msg
+    Logger.decision ~node_id:node.id ~alias:node.alias node.logger ~msg
 
   (* TODO [LOG] shift to logger? *)
   let log_waiting_for_promises ({id; alias; _} as node) =
     let log_msg =
       Printf.sprintf
-        "%s (node %d)'s proposer state has been waiting for promises. it will \
-         accumulate this then check if a quorum is achieved!"
+        "%s (node %d)'s proposer state has been waiting for promises. \n\
+         It will accumulate this then check if a quorum is achieved!"
         alias id
     in
     log_decision node ~msg:log_msg
@@ -402,6 +403,13 @@ module Make_node
     in
     log_decision node ~msg:log_msg
 
+  let log_permission_granted_decision node ~assertion =
+    let log_msg =
+      Printf.sprintf "permission can be granted for assertion:\n%s"
+        (assertion_to_string assertion)
+    in
+    log_decision node ~msg:log_msg
+
   (* ====== HANDLERS ======== *)
 
   let handle_permission_request node msg =
@@ -416,7 +424,7 @@ module Make_node
     let reply =
       match State.is_proposal_permissible node.state assertion.proposal with
       | true ->
-          log_decision node ~msg:"Permission can be granted" ;
+          log_permission_granted_decision node ~assertion ;
           (* state transition *)
           State.Accepting {promised= Some assertion; accepted= last_accepted}
           |> transition_role_state node time State.Acceptor ;
@@ -429,7 +437,7 @@ module Make_node
             ~rejected_assertion:assertion ~hint:last_accepted
     in
     let bus = bus_for_topic node topic in
-    Bus.enqueue bus ((topic, Some msg.from), reply)
+    ((topic, Some msg.from), reply) |> Bus.enqueue bus ~alias:node.alias
 
   let activate time node =
     let load_state () =
@@ -516,7 +524,7 @@ module Make_node
             ~hint:(State.last_accepted_promise node.state)
     in
     let bus = bus_for_topic node topic in
-    Bus.enqueue bus ((topic, Some msg.from), reply)
+    ((topic, Some msg.from), reply) |> Bus.enqueue bus ~alias:node.alias
 
   let handle_accepted node msg =
     log_rcvd_accepted ~node ~msg ;
@@ -638,8 +646,9 @@ module Make_node
     | Message.Time (Heartbeat {time; _}) ->
         let log_msg =
           Printf.sprintf
-            "[%s (node %d)] felt simulation heartbeat for time=(%d)" alias id
-            time
+            "trace @ [%s | (node %d)] felt the heartbeat. \n\
+             Simulation time will soon be [%03d]"
+            alias id time
         in
         log_flow ~routine:Stdlib.__FUNCTION__ node ~msg:log_msg
     | _ ->
@@ -650,7 +659,7 @@ module Make_node
       =
     (* TODO [LOG] this is ugly, there should be a better way to call the log for this. *)
     let msg =
-      Printf.sprintf "by node %d for topic=(%s)" node.id
+      Printf.sprintf "trace @ [%s|(node %d)] for topic=(%s)" node.alias node.id
         (topic |> Types.topic_to_str)
     in
     log_flow ~routine:Stdlib.__FUNCTION__ ~msg node ;
@@ -665,12 +674,12 @@ module Make_node
         failwith "Unsupported topic for message passing"
 
   let register_node_with_bus bus
-      ({config= {topics; _}; id= node_id; subs; _} as node) =
+      ({config= {topics; _}; id= node_id; alias= node_alias; subs; _} as node) =
     List.iter topics ~f:(fun topic ->
         let callback msg = get_handler_for_topic node topic msg in
         (* let callback = get_handler_for_topic node topic in *)
         let subscription_handle =
-          callback |> Bus.subscribe bus ~topic ~node_id
+          callback |> Bus.subscribe bus ~topic ~node_id ~node_alias
         in
         ( match Hashtbl.find subs topic with
         | Some table ->
@@ -682,7 +691,8 @@ module Make_node
         |> Hashtbl.add_exn ~key:subscription_handle ~data:bus ) ;
     node
 
-  let deregister_node_from_bus bus ({config= {topics; _}; subs; _} as node) =
+  let deregister_node_from_bus bus
+      ({alias; config= {topics; _}; subs; _} as node) =
     List.iter topics ~f:(fun topic ->
         match Hashtbl.find subs topic with
         | Some table ->
@@ -697,7 +707,7 @@ module Make_node
             |> List.map ~f:Sexp.to_string_hum
             |> List.iter ~f:Stdio.print_endline ;
             List.iter keys_to_remove ~f:(fun sub_handle ->
-                Bus.unsubscribe bus sub_handle ;
+                Bus.unsubscribe bus ~sub_handle ~alias ;
                 Hashtbl.remove table sub_handle ) ;
             if Hashtbl.is_empty table then Hashtbl.remove subs topic
         | None ->

@@ -20,10 +20,11 @@ module type S = sig
        'a t
     -> topic:Types.topic
     -> node_id:Types.node_id
+    -> node_alias:string
     -> ('a -> unit)
     -> sub_handle
 
-  val unsubscribe : 'a t -> sub_handle -> unit
+  val unsubscribe : 'a t -> sub_handle:sub_handle -> alias:string -> unit
 
   val publish_broadcast : 'a t -> topic:Types.topic -> 'a -> unit
 
@@ -31,7 +32,7 @@ module type S = sig
 
   type 'a enqueuable_thunk = (Types.topic * Types.node_id option) * 'a
 
-  val enqueue : 'a t -> 'a enqueuable_thunk -> unit
+  val enqueue : 'a t -> alias:string -> 'a enqueuable_thunk -> unit
 
   val drain : 'a t -> unit
 

@@ -1,7 +1,7 @@
 open Core
 open Command.Let_syntax
 open Ansi.Formatter
-open Log
+open Log_types
 
 module Scenario = struct
   type kind = Basic | Office_bakeoff | Parliament | Custom

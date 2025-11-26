@@ -57,9 +57,20 @@ module Formatter = struct
 
   (** Strips ansi sequences and gives string length*)
   let get_visible_length s =
-    (* strip ANSI sequences *)
-    let re = "\\x1b\\[[0-9;]*m" |> Re.Perl.re |> Re.compile in
-    s |> Re.replace re ~f:(fun _ -> "") |> String.length
+    let ansi_re = Re.Perl.re "\\x1b\\[[0-9;]*m" |> Re.compile in
+    let stripped = Re.replace ansi_re ~f:(fun _ -> "") s in
+    let len = String.length stripped in
+    let rec next_char i acc =
+      if i >= len then acc
+      else
+        let c = Char.to_int stripped.[i] in
+        if c < 0x80 then next_char (i + 1) (acc + 1)
+        else if c land 0xE0 = 0xC0 then next_char (i + 2) (acc + 1)
+        else if c land 0xF0 = 0xE0 then next_char (i + 3) (acc + 1)
+        else if c land 0xF8 = 0xF0 then next_char (i + 4) (acc + 1)
+        else next_char (i + 1) (acc + 1)
+    in
+    next_char 0 0
 
   let center_text s =
     let term_width = get_terminal_width () in

@@ -48,10 +48,11 @@ module type S = sig
        'a t
     -> topic:Types.topic
     -> node_id:Types.node_id
+    -> node_alias:string
     -> ('a -> unit)
     -> sub_handle
 
-  val unsubscribe : 'a t -> sub_handle -> unit
+  val unsubscribe : 'a t -> sub_handle:sub_handle -> alias:string -> unit
 
   val publish_broadcast : 'a t -> topic:Types.topic -> 'a -> unit
 
@@ -59,7 +60,7 @@ module type S = sig
 
   type 'a enqueuable_thunk = (Types.topic * Types.node_id option) * 'a
 
-  val enqueue : 'a t -> 'a enqueuable_thunk -> unit
+  val enqueue : 'a t -> alias:string -> 'a enqueuable_thunk -> unit
 
   val drain : 'a t -> unit
 
@@ -127,26 +128,26 @@ module Event_bus : S = struct
         topics |> Hashtbl.set ~key:topic ~data:ts ;
         ts
 
-  let subscribe ({id; next_id= sub_id; logger; _} as t) ~topic ~node_id callback
-      =
+  let subscribe ({id; next_id= sub_id; logger; _} as t) ~topic ~node_id
+      ~node_alias callback =
     t.next_id <- sub_id + 1 ;
     let {subs; _} = ensure_topic_state t topic in
     let sub_handle = {topic; id= sub_id; node_id} in
     let subscription_info = {node_id; sub_handle; callback} in
     Hashtbl.add_exn subs ~key:sub_handle ~data:subscription_info ;
-    Logger.subscribe ~node_id logger ~bus_id:id
+    Logger.subscribe ~node_id ~node_alias logger ~bus_id:id
       ~topic_s:(topic |> Types.topic_to_str)
       ~sub_id ;
     sub_handle
 
-  let unsubscribe {id= bus_id; topics; logger; _}
-      ({topic; node_id; id} as sub_handle) =
+  let unsubscribe {id= bus_id; topics; logger; _} ~sub_handle ~alias =
+    let {topic; node_id; id} = sub_handle in
     match topic |> Hashtbl.find topics with
     | None ->
         ()
     | Some ({subs; published; queued; delivered} as ts) ->
         sub_handle |> Hashtbl.remove subs ;
-        Logger.unsubscribe ~node_id logger ~bus_id
+        Logger.unsubscribe ~alias ~node_id logger ~bus_id
           ~topic_s:(topic |> Types.topic_to_str)
           ~sub_id:id ;
         if
@@ -186,16 +187,14 @@ module Event_bus : S = struct
         in
         ts.delivered <- delivered + deliveries
 
-  let enqueue ({id; queue; logger; _} as t) thunk =
+  let enqueue ({id; queue; logger; _} as t) ~alias thunk =
     let (topic, _target_opt), _msg = thunk in
     let ({queued; _} as ts) = ensure_topic_state t topic in
     ts.queued <- queued + 1 ;
     Queue.enqueue queue thunk ;
-    (* BUG: (low priority: because we are snapshotting when draining then we aren't immediately clearing out the queue, the queue size here is not correct because the count includes the snapshot size) *)
-    (* TODO: [LOG] this needs to be extracted into a module-wide helper to simplify things *)
     Logger.enqueue ~bus_id:id logger
       ~topic_s:(topic |> Types.topic_to_str)
-      ~queue_size:ts.queued
+      ~queue_size:ts.queued ~alias
 
   let drain ({queue; id; logger; topics; _} as t) =
     (* Snapshot the current queue to isolate this batch *)
@@ -216,7 +215,7 @@ module Event_bus : S = struct
             publish_unicast t ~node_id ~topic payload ;
             ts.queued <- Int.max 0 (ts.queued - 1) )
     done ;
-    Logger.drain_end ~bus_id:id logger
+    Logger.drain_end ~bus_id:id ~batch_size:q_size logger
 
   let stats {topics; _} =
     Hashtbl.to_alist topics

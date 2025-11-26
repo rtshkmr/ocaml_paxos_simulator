@@ -10,6 +10,11 @@ module Simulation = struct
     Stdio.print_endline s ;
     Out_channel.flush Stdio.stdout
 
+  let fini sim =
+    print_flush "🌙 Simulation shutting down... thanks for playing!" ;
+    Simulator.print_bus_stats sim ;
+    Stdlib.exit 0
+
   let on_slash_command sim cmd =
     match String.strip cmd with
     | "" ->
@@ -36,8 +41,7 @@ module Simulation = struct
       | "r" ->
           print_flush "Resuming simulation."
       | "q" ->
-          print_flush "Quitting simulation." ;
-          Simulator.print_bus_stats sim
+          fini sim
       | cmd when String.is_prefix cmd ~prefix:"/" ->
           String.drop_prefix cmd 1 |> on_slash_command sim ;
           sim |> handle_paused_action
@@ -52,8 +56,7 @@ module Simulation = struct
   let handle_command sim =
     match In_channel.input_char In_channel.stdin with
     | Some 'q' ->
-        print_flush "Quitting simulation." ;
-        Simulator.print_bus_stats sim
+        fini sim
     | Some ' ' ->
         print_flush "Paused. (r=resume, q=quit, /<cmd>)" ;
         sim |> handle_paused_action
@@ -72,18 +75,13 @@ module Simulation = struct
         print_flush "Simulation is complete." ;
         Simulator.print_bus_stats sim
     | true, false ->
-        (* "headless", complete-run *)
-        "[headless]" |> print_flush ;
         sim |> Simulator.step ;
         sim |> run_simulation ~allow_step
     | true, true ->
-        (* REPL-mode *)
-        "[REPL-mode]" |> print_flush ;
         sim |> Simulator.step ;
         print_flush
           "Sim is paused at this tick.\n\
-           Press any key to continue, or options: space=pause, q=quit, \
-           /<cmd>..." ;
+           Press any key to continue, or try: space=pause, q=quit, /<cmd>..." ;
         sim |> handle_command ;
         sim |> run_simulation ~allow_step
 

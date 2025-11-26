@@ -2,7 +2,7 @@
   "scenario_name": "Basic Scenario",
   "preamble": "Basic Paxos demonstration scenario.\nConsensus is reached\nwith two nodes simply proposing and agreeing.",
   "simulator": {
-    "max_ticks": 181
+    "max_ticks": 30
   },
   "nodes": [
     {
