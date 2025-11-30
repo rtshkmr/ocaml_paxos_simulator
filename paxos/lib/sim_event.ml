@@ -7,6 +7,7 @@ module Sim_event = struct
     | NodeAction
     | Metric
     | Control
+    | Narration
     | Custom of string
   [@@deriving sexp, compare, equal]
 

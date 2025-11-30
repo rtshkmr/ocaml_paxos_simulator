@@ -4543,8 +4543,11 @@ Just a convenience thing. We should be able to just put in any custom json. Name
 
 This is necessary to add in the cheeky scenarios that are camel-themed.
 
-***** [ ] Logging cleanups: Wire up global and module-specific logging to avoid dirty log statements
+***** [X] Logging cleanups: Wire up global and module-specific logging to avoid dirty log statements
+CLOSED: [2025-11-30 Sun 21:53]
 
+- CLOSING NOTE [2025-11-30 Sun 21:53] \\
+  This was ridiculously time-taking also, the logging subsytem now has a UI scaffold and feels a little bit of band-aidy. It's alright for now.
 the problem i'm facing looks like this:
 
 1. my custom logger implementation is too unpolished and so when using it, readability is taking a hit.
@@ -4740,16 +4743,45 @@ g) pipe enjoyment:
    - try not to mix it with side-effects, use it mainly for functional transformations. else it gives a false sense of assurance that there's no side-effect there.
 ****** Runtime and Simulator
 - simulator is very blown up and there's a lot of unnecessary functions exposed.
-- [ ] there should be a way for the simulator to allow simulation (runner module) to control node lifecycle
-- [ ] should be a way to:
+- [X] there should be a way for the simulator to allow simulation (runner module) to control node lifecycle
+- [X] should be a way to:
   - make a node initiate a proposal without violating the abstraction boundaries. So the node needs to call its own propose function
 
   - add their own messages (typically a simulation control message only) to theh eventbuss for message passing. This can directly enqueue to the event bus
 
   - allow other simulation events to directly be run (e.g. state dumps of one of the nodes and so on) -- these are things that don't rely on the event bus
+***** Features to add in
+****** DONE Custom scenarios
+
+already supported, we can just point it to custom mode and supply any satisfactory json file to seed the simulation.
+
+****** DONE Inspection @ REPL mode
+This feature is an aspect of polish that is needed to hopefully make it a better tooling for learning.
+
+For now, we shall just go for a barebones sexp or json dump of these tbh
+
+******* objective
+Since part of this includes teaching people the paxos protocol and exploring it.
+
+Paxos is notoriously hard because the learner must track:
+
+- Who promised what?
+
+- What proposal numbers have been seen?
+
+- What value is currently supported?
+
+- What quorums have been formed?
+
+- Why did a message get ignored?
+
+- What is currently in flight?
+
+Our simulator already contains this information. The goal is to make them explicit “inspection events’’ or REPL-viewable structures.
+
 
 ***** Simulator Logging Improvements
-- [ ] add a rudimentary implementation for log levels, allow the settings to cascade down from one point of setting it (sim)
+- [X] add a rudimentary implementation for log levels, allow the settings to cascade down from one point of setting it (sim)
 ***** Skipped tasks
 ****** [ ] separate pure FSM logic from node-level effects
 

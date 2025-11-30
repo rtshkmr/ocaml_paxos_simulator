@@ -38,7 +38,6 @@ open Types
 open Message
 open Log
 open Node_state
-open Ansi.Formatter
 
 (* open Make_mem_storage *)
 open Make_file_storage
@@ -65,6 +64,8 @@ module type S = sig
   type role = Proposer | Acceptor | Learner
 
   val role_of_str : string -> role option
+
+  val logger_of : t -> Logger.t
 
   type assertion [@@deriving sexp]
 
@@ -115,6 +116,10 @@ module type S = sig
   [@@deriving sexp, yojson]
 
   val of_spec : spec -> t
+
+  val dump_state : t -> string
+
+  val dump_spec : t -> string
 end
 
 module Make_node
@@ -174,6 +179,8 @@ module Make_node
     ; subs: topic_to_sub_handle_to_bus_registry
     ; logger: Logger.t
     ; storage: Storage.t ref }
+
+  let logger_of t = t.logger
 
   let msg_to_string (msg : V.t Message.t) =
     msg |> Message.sexp_of_t V.sexp_of_t |> Sexp.to_string
@@ -272,29 +279,11 @@ module Make_node
     let msg = Message.make_suggestion ~msg_id ~time ~from:id ~assertion in
     ((Types.Coordination, None), msg) |> Bus.enqueue bus ~alias
 
-  (* TODO [LOG] this needs to shift to the logger *)
-  let log_node_state_control ({id; alias; _} : t) directive_msg =
-    let open Printf in
-    let tag =
-      sprintf "[%s (node %d):] " alias id |> bold |> bright_red |> underline
-    in
+  let noop_ignore ({id; alias; logger; _} : t) (reason : string) =
     let msg =
-      sprintf "I have been controlled:%s" directive_msg
-      |> italic |> bright_magenta
+      Printf.sprintf "Will be reacting with a noop because: %s" reason
     in
-    Stdio.print_endline (tag ^ msg)
-
-  (* TODO [LOG] this needs to shift to the logger, or use the logger in some way *)
-  let noop_ignore ({id; alias; _} : t) (reason : string) =
-    let open Printf in
-    let tag =
-      sprintf "[%s (node %d):] " alias id |> bold |> bright_red |> underline
-    in
-    let decision =
-      sprintf "will be ignoring this msg because: %s" reason
-      |> italic |> bright_magenta
-    in
-    Stdio.print_endline (tag ^ decision)
+    Logger.reaction ~node_id:id ~alias logger ~msg
 
   let with_active ~node ~ignore_reason f =
     if node.state |> State.is_inactive then ignore_reason |> noop_ignore node
@@ -334,8 +323,6 @@ module Make_node
     in
     log_flow node ~routine:Stdlib.__FUNCTION__ ~msg:log_msg
 
-  (* TODO: [LOG] example of helper, to evaluate whether this is a good pattern *)
-  (* (\* TODO [LOG] figure out how to extract helper for this log msg, it prevents us from reading the function properly *\) *)
   let log_rcvd_permission_request ~node
       ~(msg : V.t Message.permission_request_msg) =
     let proposal = msg.assertion.proposal |> Types.proposal_id_to_string in
@@ -447,17 +434,17 @@ module Make_node
             ~msg:
               (Printf.sprintf "failed loading snapshot: %s"
                  (Error.to_string_hum e) ) ;
-          Ok (State.idle_of ())
+          Ok (State.idle_of node.state)
       | Ok None ->
           log_decision node ~msg:"no snapshot available; starting fresh" ;
-          Ok (State.idle_of ())
+          Ok (State.idle_of node.state)
       | Ok (Some state) ->
           log_decision node ~msg:"restoring state from snapshot" ;
           Ok state
     in
     match load_state () with
     | Error _e ->
-        node.state <- State.idle_of ()
+        node.state <- State.idle_of node.state
     | Ok restored -> (
         node.state <- restored ;
         match Storage.persist_snapshot !(node.storage) time restored with
@@ -469,7 +456,7 @@ module Make_node
                 (Printf.sprintf "persist snapshot failed after activation: %s"
                    (Error.to_string_hum e) ) )
 
-  (** TODO: figure out how to abort.*)
+  (** TODO [extension v2]: aborting will likely involve retrying mechanisms and such*)
   let abort node =
     (* TODO [FSM] Figuring out what aborting a paxos process means *)
     log_decision node ~msg:"aborting paxos process"
@@ -621,26 +608,27 @@ module Make_node
             "We can only cooordinate if we receive a coordination message." )
 
   (* TODO [quality] we can make this into a frozen hashtable of functions, similar to hydration here. *)
-  let handle_simulation_control ({id; _} as node : t) (msg : V.t Message.t) =
+  let handle_simulation_control ({id; alias; state; logger; _} as node : t)
+      (msg : V.t Message.t) =
     log_rcvd_simulation_control ~node ~msg ;
     match msg with
     | Message.Control (ActivateNode {node_id; meta= {timestamp; _}; _})
       when node_id = id ->
-        activate timestamp node ;
-        log_node_state_control node "I'm back in action"
+        Logger.reaction ~node_id:id ~alias logger
+          ~msg:"I'm back and can respond again!" ;
+        activate timestamp node
     | Message.Control (MakeNodeIdle {node_id; _}) when node_id = id ->
-        (* TODO: handle idling state *)
-        node.state <- State.idle_of () ;
-        log_node_state_control node "I am now idle"
+        node.state <- State.idle_of state ;
+        Logger.reaction ~node_id:id ~alias logger ~msg:"I am now idling..."
     | Message.Control (MakeNodeInactive {node_id; _}) when node_id = id ->
-        node.state <- State.inactive_of () ;
-        log_node_state_control node "I am now inactive"
+        node.state <- State.inactive_of state ;
+        Logger.reaction ~node_id:id ~alias logger
+          ~msg:"I can't be reached. I'm inactive."
     | _ ->
-        log_node_state_control node
-          "but I shall do nothing about it and not change state"
+        Logger.reaction ~node_id:id ~alias logger
+          ~msg:"I'm being controlled but I shall do nothing about it."
 
   (* TODO: [extension-v1] wire this up to internal clock support *)
-  (* TODO: [LOG] use the logger *)
   let handle_time ({id; alias; _} as node) (msg : V.t Message.t) =
     match msg with
     | Message.Time (Heartbeat {time; _}) ->
@@ -724,8 +712,8 @@ module Make_node
   [@@deriving sexp, yojson]
 
   let of_spec {node_id; node_alias; topic_strs; initial_cluster_size; _} =
-    (* TODO: allow initial_state and storage config to be injected; *)
-    let default_state = State.idle_of () in
+    (* TODO [extension]: allow initial_state and storage config to be injected; *)
+    let default_state = State.init_state () in
     let config =
       { runtime= {cluster_size= ref initial_cluster_size}
       ; roles=
@@ -739,4 +727,17 @@ module Make_node
     ; subs= Hashtbl.Poly.create ()
     ; storage= ref (Storage.create ~alias:node_alias ())
     ; logger= Logger.create Stdlib.__MODULE__ () }
+
+  let to_spec {id= node_id; alias= node_alias; config; _} =
+    { node_id
+    ; node_alias
+    ; topic_strs= config.topics |> List.map ~f:Types.topic_to_str
+    ; initial_cluster_size= !(config.runtime.cluster_size)
+    ; initial_state= None
+    ; storage_config= None }
+
+  let dump_state node =
+    node.state |> State.sexp_of_role_state |> Sexp.to_string_hum
+
+  let dump_spec node = node |> to_spec |> sexp_of_spec |> Sexp.to_string_hum
 end

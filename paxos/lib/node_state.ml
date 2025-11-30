@@ -66,9 +66,9 @@ module type S = sig
 
   val set_role : 'a. role_state -> 'a role_selector -> 'a -> role_state
 
-  val idle_of : unit -> role_state
+  val idle_of : role_state -> role_state
 
-  val inactive_of : unit -> role_state
+  val inactive_of : role_state -> role_state
 
   val current_promise : role_state -> promise
 
@@ -145,12 +145,13 @@ module Make_node_state (V : Value.S) = struct
   let state_to_str s =
     s |> sexp_of_role_state |> Sexplib.Sexp.to_string_hum ~indent:4
 
-  (* TODO: idle routine to be done *)
-  let idle_of () = {proposer= Idle; acceptor= Idle; learner= Learned []}
+  let init_state () : role_state =
+    {proposer= Idle; acceptor= Idle; learner= Learned []}
 
-  (* TODO: inactivate routine *)
-  let inactive_of () =
-    {proposer= ProposerInactive; acceptor= AcceptorInactive; learner= Learned []}
+  let idle_of rs = {rs with proposer= Idle; acceptor= Idle}
+
+  let inactive_of rs =
+    {rs with proposer= ProposerInactive; acceptor= AcceptorInactive}
 
   (** GADT to encode which role and its sub-state type
         This encodes the association between a constructor (Proposer, Acceptor, Learner) and its precise sub-state type.
@@ -270,10 +271,6 @@ module Make_node_state (V : Value.S) = struct
           "is_quorum_reached called on non-proposer state (must be \
            WaitingForPromises or ProposerAccepting)"
 
-  (* TODO: [verify] the following condition: (*
-      > Upon receipt of a Permission Request message:
-      > The peer must grant permission for requests with Suggestion IDs equal to or higher than any they have previously granted permission for. In doing so, the peer implicitly promises to reject all Permission Request and Suggestion messages with lower Suggestion IDs. Consequently, requests with IDs less than the ID last granted permission to must be ignored or responded to with a Nack message.
-    *)*)
   let is_proposal_permissible role_state proposal =
     role_state |> current_promise
     |> Option.value_map ~default:true

@@ -4,44 +4,56 @@ open Ansi.Formatter
 open Log_types
 
 module Scenario = struct
-  type kind = Basic | Office_bakeoff | Parliament | Custom
+  type kind =
+    | Basic
+    | Office_bakeoff
+    | Camel_caravan_basic
+    | Camel_caravan_complex
+    | Parliament_basic
+    | Parliament_complex
+    | Custom
   [@@deriving equal, enumerate, sexp]
 
   type t = {kind: kind; path: string} [@@deriving sexp]
-
-  let to_string ({kind; path} : t) =
-    match kind with
-    | Basic ->
-        "basic"
-    | Office_bakeoff ->
-        "office_bakeoff"
-    | Parliament ->
-        "parliament"
-    | Custom ->
-        "custom loaded from " ^ path
 
   let arg_type =
     Command.Arg_type.of_alist_exn
       [ ("basic", Basic)
       ; ("office_bakeoff", Office_bakeoff)
-      ; ("parliament", Parliament)
+      ; ("camel_caravan", Camel_caravan_basic)
+      ; ("camel_caravan_complex", Camel_caravan_complex)
+      ; ("parliament", Parliament_basic)
+      ; ("parliament_complex", Parliament_complex)
       ; ("custom", Custom) ]
+
+  let scenario_dir = "data/scenarios/"
 
   let resolve_scenario_file = function
     | Basic, _ ->
-        {kind= Basic; path= "data/basic_scenario.json"}
+        {kind= Basic; path= scenario_dir ^ "basic_scenario.json"}
     | Office_bakeoff, _ ->
-        {kind= Office_bakeoff; path= "data/office_bakeoff_scenario.json"}
-    | Parliament, _ ->
-        {kind= Parliament; path= "data/parliament_scenario.json"}
+        { kind= Office_bakeoff
+        ; path= scenario_dir ^ "office_bakeoff_scenario.json" }
+    | Camel_caravan_basic, _ ->
+        { kind= Camel_caravan_basic
+        ; path= scenario_dir ^ "caravan_scenario_basic.json" }
+    | Camel_caravan_complex, _ ->
+        { kind= Camel_caravan_complex
+        ; path= scenario_dir ^ "caravan_scenario_complex.json" }
+    | Parliament_basic, _ ->
+        { kind= Parliament_basic
+        ; path= scenario_dir ^ "parliament_scenario_basic.json" }
+    | Parliament_complex, _ ->
+        { kind= Parliament_complex
+        ; path= scenario_dir ^ "parliament_scenario_complex.json" }
     | Custom, Some path ->
         {kind= Custom; path}
     | _ ->
-        failwith "Can't resolve scenario file."
+        failwith "Can't resolve scenario arguments."
 
   let flag = "-scenario"
 
-  let doc = "SCENARIO (basic | office_bakeoff | parliament | custom)"
+  let doc = "SCENARIO Select the predefined scenario to simulate."
 end
 
 let command_simulate =
@@ -68,7 +80,8 @@ let command_simulate =
       and scenario_file =
         flag "-scenario-file" (optional string)
           ~doc:
-            "PATH path to custom scenario json (required if -scenario custom)"
+            "PATH The file path to custom scenario file .json. This is \
+             required if -scenario custom"
       and max_log_level =
         flag Log_level.flag
           (optional_with_default Log_level.Info Log_level.arg_type)
@@ -82,10 +95,7 @@ let command_simulate =
         let scenario =
           Scenario.resolve_scenario_file (scenario_kind, scenario_file)
         in
-        scenario.path
-        |> Simulation.Simulation.run
-             ~max_log_level:(Log_level.to_int max_log_level)
-             ~allow_step]
+        scenario.path |> Simulation.Simulation.run ~max_log_level ~allow_step]
 
 let () =
   Command_unix.run

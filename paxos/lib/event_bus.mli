@@ -4,6 +4,8 @@ open Types
 module type S = sig
   type 'a t
 
+  val id_of : _ t -> int
+
   type sub_handle = {topic: Types.topic; id: int; node_id: Types.node_id}
   [@@deriving sexp, compare, equal, hash]
 
@@ -38,9 +40,7 @@ module type S = sig
 
   val stats : 'a t -> (Types.topic * (int * int * int * int)) list
 
-  val print_stats : 'a t -> unit
-
-  val dump_stats : 'a t -> string
+  val display_stats : 'a t -> unit
 end
 
 module Event_bus : S

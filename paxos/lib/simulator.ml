@@ -63,6 +63,14 @@ module Simulator : Runtime.S = struct
     ; counters: counters
     ; settings: settings }
 
+  let find_bus ({registries= {partition_registry; _}; _} : t) bus_id =
+    let partitions = Hashtbl.data partition_registry in
+    List.find partitions ~f:(fun ({bus; _} : partition) ->
+        phys_equal (Event_bus.id_of bus) bus_id )
+    |> Option.map ~f:(fun partition -> partition.bus)
+
+  let logger_of t = t.logger
+
   let next_event_id ({counters= {event_id_counter; _}; _} : t) =
     event_id_counter |> Counter.next
 
@@ -92,6 +100,7 @@ module Simulator : Runtime.S = struct
 
   let step ({scheduler; event_callbacks; clock; logger; _} as sim) =
     let now = sim |> current_time in
+    Logger.tick logger ~timestamp:(now |> Int.to_string_hum) ~msg:"" () ;
     now
     |> Event_scheduler.pop_due_events !scheduler
     |> List.iter ~f:(fun ev ->
@@ -99,11 +108,14 @@ module Simulator : Runtime.S = struct
            List.iter !event_callbacks ~f:(fun cb -> cb ev) ) ;
     sim |> drain_buses ;
     clock |> Time.tick ;
-    sim |> dispatch_heartbeat ;
-    Logger.tick logger ~timestamp:(now |> Int.to_string_hum) ~msg:"" ()
+    sim |> dispatch_heartbeat
 
   let is_runnable ({settings= {max_ticks; _}; _} as sim) =
-    match max_ticks with Some limit -> sim |> current_time < limit | _ -> true
+    match max_ticks with
+    | Some limit ->
+        sim |> current_time <= limit
+    | _ ->
+        true
 
   let start sim =
     sim.halted <- false ;
@@ -146,9 +158,11 @@ module Simulator : Runtime.S = struct
     let node_id = node |> N.id_of in
     match node_id |> Hashtbl.find_and_remove node_to_partition with
     | None ->
-        (* TODO: figure out error handling? *)
-        Stdio.print_endline "WALDO: this shouldn't be happening..." ;
-        ()
+        let err_msg =
+          Printf.sprintf
+            "Node %d doesn't exist. Registry data is likely corrupted." node_id
+        in
+        failwith err_msg
     | Some partition_id ->
         let ({member_node_ids; bus; _} as partition) : partition =
           partition_id |> Hashtbl.find_exn partition_registry
@@ -228,12 +242,6 @@ module Simulator : Runtime.S = struct
   let make_node_idle sim ~time alias =
     `Idle |> control_node_state_change sim ~time alias
 
-  (* %%%%%%%%% Debugging & Diagnostics %%%%%%%%%%% *)
-
-  let print_bus_stats ({registries= {partition_registry; _}; _} : t) =
-    partition_registry |> Hashtbl.data
-    |> List.iter ~f:(fun p -> B.print_stats p.bus)
-
   (* %%%%%%%%% Hydration: Static Spec to Runtime Struct %%%%%%%%%% *)
 
   let hydrate_node sim spec =
@@ -248,8 +256,14 @@ module Simulator : Runtime.S = struct
     Hashtbl.add_exn node_alias_registry ~key:(node |> N.alias_of) ~data:node ;
     node |> add_node_to_partition_exn sim ~partition_id |> ignore
 
+  let sync_node_logger sim (node : N.t) =
+    let {level= global_log_level; _} : Logger.t = logger_of sim in
+    let node_logger = N.logger_of node in
+    Logger.set_level node_logger global_log_level ;
+    node
+
   let seed_node_from_spec sim spec =
-    spec |> hydrate_node sim |> seed_node_exn sim
+    spec |> hydrate_node sim |> sync_node_logger sim |> seed_node_exn sim
 
   let seed_nodes_from_specs sim specs =
     specs |> List.iter ~f:(seed_node_from_spec sim)
@@ -286,14 +300,21 @@ module Simulator : Runtime.S = struct
               |> N.propose ~msg_id ~time ~bus
                    ~assertion:{proposal; value= value_str |> make_val} ) }
 
-  let hydrate_metric_event sim ({data; id; time; args; _} : Sim_event.spec) =
+  let hydrate_metric_event ({registries= {partition_registry; _}; _} as sim)
+      ({data; id; time; args; _} : Sim_event.spec) =
     match data with
     | Some "print_bus_stats" ->
+        let action =
+         fun () ->
+          partition_registry |> Hashtbl.data
+          |> List.iter ~f:(fun ({bus; _} : partition) ->
+                 Event_bus.display_stats bus )
+        in
         { Sim_event.id= Option.value id ~default:(next_event_id sim)
         ; time
         ; args
         ; kind= Sim_event.Metric
-        ; action= (fun () -> print_bus_stats sim) }
+        ; action }
     | _ ->
         failwith ("Unknown metric data: " ^ Option.value ~default:"" data)
 
@@ -322,6 +343,19 @@ module Simulator : Runtime.S = struct
     ; kind= Sim_event.Control
     ; action= spec |> make_control_action sim }
 
+  let hydrate_narration_event sim ({id; time; data; _} : Sim_event.spec) =
+    let action =
+     fun () ->
+      let narration = Option.value data ~default:"" in
+      let logger = logger_of sim in
+      Logger.display_narration logger ~time ~narration
+    in
+    { Sim_event.id= id |> Option.value ~default:(next_event_id sim)
+    ; args= None
+    ; time
+    ; kind= Sim_event.Narration
+    ; action }
+
   let hydrate_fallback sim (spec : Sim_event.spec) =
     let other = spec.kind in
     { Sim_event.id= Option.value spec.id ~default:(next_event_id sim)
@@ -329,13 +363,14 @@ module Simulator : Runtime.S = struct
     ; time= spec.time
     ; kind= Sim_event.Custom other
     ; action=
-        (* TODO: fix the sim control series of steps *)
-        (* TODO [LOG] shift to logger *)
-        (fun () -> Stdio.printf "[Sim_event] Unhandled kind %s\n%!" other ) }
+        (fun () ->
+          let msg = Printf.sprintf "[Sim_event] Unhandled kind %s\n%!" other in
+          Logger.other sim.logger ~msg ) }
 
   let event_hydrators =
     [ ("proposal", hydrate_proposal_event)
     ; ("metric", hydrate_metric_event)
+    ; ("narration", hydrate_narration_event)
     ; ("control", hydrate_control_event) ]
     |> Hashtbl.of_alist_exn (module String) ~growth_allowed:false
 
@@ -386,4 +421,101 @@ module Simulator : Runtime.S = struct
         ; msg_id_counter= Counter.create 1
         ; node_id_counter= Counter.create 1 }
     ; settings= {max_ticks} }
+
+  (* ==== dump helpers for introspection ========== *)
+  let dump_partition_registry {registries= {partition_registry; _}; _} =
+    let lines =
+      partition_registry |> Hashtbl.to_alist
+      |> List.map ~f:(fun (_partition_id, {id; member_node_ids; bus; _}) ->
+             let member_count = Set.length member_node_ids in
+             let bus_id = Event_bus.id_of bus in
+             let member_ids =
+               member_node_ids |> Set.to_list |> List.map ~f:Int.to_string
+               |> String.concat ~sep:", "
+             in
+             Printf.sprintf
+               "Partition %d: %d nodes [%s] communicating on bus %d" id
+               member_count member_ids bus_id )
+    in
+    if List.is_empty lines then "No partitions"
+    else String.concat ~sep:"\n" lines
+
+  let dump_node_registry {registries= {node_registry; _}; _} =
+    let lines =
+      node_registry |> Hashtbl.to_alist
+      |> List.map ~f:(fun (node_id, node) ->
+             let alias = N.alias_of node in
+             Printf.sprintf "Node %d (%s)" node_id alias )
+    in
+    if List.is_empty lines then "No nodes" else String.concat ~sep:"\n" lines
+
+  let print_flush s =
+    Stdio.print_endline s ;
+    Out_channel.flush Stdio.stdout
+
+  let parse_slash_cmd cmd =
+    cmd |> String.strip
+    |> String.chop_prefix_if_exists ~prefix:"/"
+    |> String.split ~on:'/'
+    |> List.filter ~f:(fun s -> not (String.is_empty s))
+
+  let display_node_not_found alias =
+    Printf.sprintf
+      "There's no node with alias %s. Suggestion: try calling \
+       /inspect/sim/state"
+      alias
+    |> print_flush
+
+  let display_bus_not_found bus_id =
+    Printf.sprintf
+      "There's no bus with id %d. Suggestion: try calling /inspect/sim/state \
+       to get the right bus id"
+      bus_id
+    |> print_flush
+
+  let handle_slash_command sim cmd_s =
+    match cmd_s |> parse_slash_cmd with
+    | ["help"] ->
+        Logger.slash_cmd_help sim.logger
+    | ["inspect"; "sim"; "state"] ->
+        let time = current_time sim in
+        let partitions = dump_partition_registry sim in
+        let nodes = dump_node_registry sim in
+        let logger = sim.logger in
+        Logger.inspect_sim_state logger ~time ~partitions ~nodes
+    | ["inspect"; "node"; "state"; alias] -> (
+      (* shortcut: only inspect by alias *)
+      match get_node_by_alias sim alias with
+      | None ->
+          display_node_not_found alias
+      | Some node ->
+          let logger = N.logger_of node in
+          let node_id, alias = (N.id_of node, N.alias_of node) in
+          let dump = N.dump_state node in
+          Logger.inspect_node_state logger ~node_id ~alias ~dump )
+    | ["inspect"; "node"; "config"; alias] -> (
+      match get_node_by_alias sim alias with
+      | None ->
+          display_node_not_found alias
+      | Some node ->
+          let logger = N.logger_of node in
+          let node_id, alias = (N.id_of node, N.alias_of node) in
+          let dump = N.dump_spec node in
+          Logger.inspect_node_config logger ~node_id ~alias ~dump )
+    | ["inspect"; "bus"; "stats"; bus_id] -> (
+        let parsed_bus_id = Int.of_string_opt bus_id in
+        if Option.is_none parsed_bus_id then
+          Stdio.printf "The bus_id has to be an integer, you provided %s\n%!"
+            bus_id
+        else
+          let parsed = Option.value_exn parsed_bus_id in
+          match find_bus sim parsed with
+          | None ->
+              display_bus_not_found parsed
+          | Some bus ->
+              Event_bus.display_stats bus )
+    | fallthrough ->
+        Printf.sprintf "This command can't be handled, command parts:\n%s"
+          (String.concat_lines fallthrough)
+        |> print_flush
 end

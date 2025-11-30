@@ -7,11 +7,6 @@ module Log_level = struct
 
   let compare a b = Int.compare (a |> to_int) (b |> to_int)
 
-  let should_log (curr : t) (min_required : t) : bool =
-    (* let open Base in *)
-    let compared : int = compare curr min_required in
-    compared >= 0
-
   let of_int = function
     | 0 ->
         Debug
@@ -34,6 +29,9 @@ module Log_level = struct
     | Error ->
         "ERROR"
 
+  let should_log ~local_level ~global_level =
+    compare local_level global_level >= 0
+
   let colorizer_of t =
     let open Ansi.Formatter in
     match t with
@@ -52,12 +50,47 @@ module Log_level = struct
 
   let flag = "-max-log-level"
 
-  let doc = "LEVEL (debug|info|warn|error). Default=info"
+  let doc =
+    "LOG_LEVEL Choose the level of granularity of the logs to display. \
+     Defaults to info"
 end
 
 (** Keep events as structured data. Call sites will pass domain-serialized
    strings (for topics, payload) to avoid logger depending on domain modules. *)
 module Log_event = struct
+  type node_inspection_events =
+    | Node_state of {alias: string; node_id: int; dump: string}
+    | Node_config of {alias: string; node_id: int; dump: string}
+  [@@deriving sexp_of]
+
+  type sim_inspection_events =
+    | Sim_state of {time: int; partitions: string; nodes: string}
+  [@@deriving sexp_of]
+
+  type topic_stat =
+    { topic: Types.Types.topic
+    ; subscribers: int
+    ; published: int
+    ; delivered: int
+    ; queued: int }
+  [@@deriving sexp_of]
+
+  type bus_inspection_events =
+    | Bus_stats of {bus_id: int; topic_stats: topic_stat list}
+  [@@deriving sexp_of]
+
+  type inspection_events =
+    | Node_inspection of node_inspection_events
+    | Sim_inspection of sim_inspection_events
+    | Bus_inspection of bus_inspection_events
+    | Help
+  [@@deriving sexp_of]
+
+  type display_events =
+    | Display_scenario_preamble of {scenario_name: string; preamble: string}
+    | Narration of {time: int; narration: string}
+  [@@deriving sexp_of]
+
   type t =
     | Publish_broadcast of {bus_id: int; topic_s: string; payload: string}
     | Publish_unicast of
@@ -87,8 +120,8 @@ module Log_event = struct
         ; node_id: int
         ; old_state: string
         ; new_state: string }
-    | Stats of {bus_id: int; dump: string}
-    | Display_scenario_preamble of {scenario_name: string; preamble: string}
+    | Display of display_events
+    | Inspection of inspection_events
     | Other of string
   [@@deriving sexp_of]
 end

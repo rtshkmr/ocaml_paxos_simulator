@@ -29,6 +29,11 @@
   "events": [
     {
       "time": 1,
+      "kind": "narration",
+      "data": "LET'S BEGIN"
+    },
+    {
+      "time": 1,
       "kind": "control",
       "target": "PastryGurl",
       "data": "partition",

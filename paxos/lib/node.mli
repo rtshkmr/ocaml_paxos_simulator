@@ -17,6 +17,7 @@ open Base
 open Types
 open Message
 open Event_bus
+open Log
 
 module type S = sig
   (** The value module determines the concrete type of values used in
@@ -50,6 +51,8 @@ module type S = sig
   type role = Proposer | Acceptor | Learner
 
   val role_of_str : string -> role option
+
+  val logger_of : t -> Logger.t
 
   type assertion [@@deriving sexp]
 
@@ -113,6 +116,10 @@ module type S = sig
   [@@deriving sexp, yojson]
 
   val of_spec : spec -> t
+
+  val dump_state : t -> string
+
+  val dump_spec : t -> string
 end
 
 (** The functor for constructing node implementations parameterized by:

@@ -1,0 +1,95 @@
+{
+  "scenario_name": "Caravan Complex Scenario",
+  "preamble": "Caravan Crossing (Complex): The five caravans rely entirely on human runners—desert couriers carrying parchment slips between groups. Many dangers disrupt this fragile communication system: a collapsed camel, a courier lost behind a dune, or a sandstorm that forces runners to turn back. In this scenario, SaffronHerald collapses early and cannot dispatch or receive runners. Soon after, a sandstorm reshapes the caravan's formation, pushing caravans into separate partitions that no messenger can traverse. AmberLead’s initial proposal cannot gather enough responses to form a quorum. Later, as the storm clears and SaffronHerald recovers, NavajoElder initiates a new proposal. With runner routes restored, consensus on the campsite can finally be reached.",
+  "simulator": {
+    "max_ticks": 40
+  },
+  "nodes": [
+    { "node_id": 1, "node_alias": "AmberLead",       "topic_strs": ["Coordination","Simulation_control","Time"], "initial_cluster_size": 5 },
+    { "node_id": 2, "node_alias": "SiennaScout",     "topic_strs": ["Coordination","Simulation_control","Time"], "initial_cluster_size": 5 },
+    { "node_id": 3, "node_alias": "OchreChronicler", "topic_strs": ["Coordination","Simulation_control","Time"], "initial_cluster_size": 5 },
+    { "node_id": 4, "node_alias": "NavajoElder",     "topic_strs": ["Coordination","Simulation_control","Time"], "initial_cluster_size": 5 },
+    { "node_id": 5, "node_alias": "SaffronHerald",   "topic_strs": ["Coordination","Simulation_control","Time"], "initial_cluster_size": 5 }
+  ],
+  "events": [
+        {
+      "time": 1,
+      "kind": "control",
+      "target": "NavajoElder",
+      "data": "partition",
+      "args": ["2"]
+    },
+    {
+      "time": 1,
+      "kind": "control",
+      "target": "SaffronHerald",
+      "data": "partition",
+      "args": ["2"]
+    },
+    {
+      "time": 1,
+      "kind": "control",
+      "target": "SaffronHerald",
+      "data": "inactivate"
+    },
+    {
+      "time": 3,
+      "kind": "proposal",
+      "target": "AmberLead",
+      "data": "Proposal dispatched by runner: Make camp at Dune Edge"
+    },
+    {
+      "time": 6,
+      "kind": "metric",
+      "target": null,
+      "data": "print_bus_stats"
+    },
+    {
+      "time": 12,
+      "kind": "control",
+      "target": "SaffronHerald",
+      "data": "activate",
+    },
+    {
+      "time": 13,
+      "kind": "proposal",
+      "target": "NavajoElder",
+      "data": "Proposal dispatched by runner: Make camp at Dune Edge (re-initiation)"
+    },
+
+    {
+      "time": 20,
+      "kind": "metric",
+      "target": null,
+      "data": "print_bus_stats"
+    },
+
+    {
+      "time": 22,
+      "kind": "control",
+      "target": "AmberLead",
+      "data": "partition",
+      "args": ["3"]
+    },
+
+    {
+      "time": 24,
+      "kind": "proposal",
+      "target": "OchreChronicler",
+      "data": "New proposal by courier: Choose Oasis Y (attempted while paths still blocked)"
+    },
+
+    {
+      "time": 30,
+      "kind": "control",
+      "target": "AmberLead",
+      "data": "activate"
+    },
+
+    {
+      "time": 32,
+      "kind": "metric",
+      "data": "print_bus_stats"
+    }
+  ]
+}

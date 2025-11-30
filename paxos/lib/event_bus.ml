@@ -35,6 +35,8 @@ open Log
 module type S = sig
   type 'a t
 
+  val id_of : _ t -> int
+
   type sub_handle = {topic: Types.topic; id: int; node_id: Types.node_id}
   [@@deriving sexp, compare, equal, hash]
 
@@ -66,9 +68,7 @@ module type S = sig
 
   val stats : 'a t -> (Types.topic * (int * int * int * int)) list
 
-  val print_stats : 'a t -> unit
-
-  val dump_stats : 'a t -> string
+  val display_stats : 'a t -> unit
 end
 
 module Event_bus : S = struct
@@ -78,14 +78,13 @@ module Event_bus : S = struct
   type sub_handle = {topic: Types.topic; id: int; node_id: Types.node_id}
   [@@deriving sexp, compare, equal, hash]
 
-  type 'a callback = 'a -> unit
+  type 'a callback = 'a -> unit [@@deriving sexp]
 
   type 'a payload_serialiser = 'a -> string
 
   type 'a bus_registrable_callback = 'a Message.Message.t -> unit
 
-  type 'a subscription_info =
-    {node_id: Types.node_id; sub_handle: sub_handle; callback: 'a callback}
+  type 'a subscription_info = {sub_handle: sub_handle; callback: 'a callback}
 
   type 'a topic_state =
     { subs: (sub_handle, 'a subscription_info) Hashtbl.t
@@ -104,6 +103,8 @@ module Event_bus : S = struct
     ; queue: 'a enqueuable_thunk Queue.t
     ; logger: Logger.t
     ; payload_to_string: 'a payload_serialiser }
+
+  let id_of t = t.id
 
   let create ~payload_to_string =
     let random_id = Random.int 10000 in
@@ -133,7 +134,7 @@ module Event_bus : S = struct
     t.next_id <- sub_id + 1 ;
     let {subs; _} = ensure_topic_state t topic in
     let sub_handle = {topic; id= sub_id; node_id} in
-    let subscription_info = {node_id; sub_handle; callback} in
+    let subscription_info = {sub_handle; callback} in
     Hashtbl.add_exn subs ~key:sub_handle ~data:subscription_info ;
     Logger.subscribe ~node_id ~node_alias logger ~bus_id:id
       ~topic_s:(topic |> Types.topic_to_str)
@@ -222,32 +223,15 @@ module Event_bus : S = struct
     |> List.map ~f:(fun (topic, {subs; published; delivered; queued}) ->
            (topic, (Hashtbl.length subs, published, delivered, queued)) )
 
-  (* TODO: [LOG] should shift to the logger formatter *)
-  let dump_stats t =
-    let stats = stats t in
-    let header =
-      " Topic                  | Subscribers | Published | Delivered | Queued "
-    in
-    let line = String.make (String.length header) '-' in
-    let buffer = Buffer.create 1024 in
-    (* Append header section *)
-    Buffer.add_string buffer ("\n" ^ line ^ "\n" ^ header ^ "\n" ^ line ^ "\n") ;
-    (* Append each stat line *)
-    List.iter stats ~f:(fun (topic, (subs, published, delivered, queued)) ->
-        let topic_str = Sexp.to_string (Types.sexp_of_topic topic) in
-        let topic_str =
-          if String.length topic_str > 22 then
-            String.sub topic_str ~pos:0 ~len:19 ^ "..."
-          else topic_str ^ String.make (22 - String.length topic_str) ' '
-        in
-        Buffer.add_string buffer
-          (Printf.sprintf " %s | %11d | %9d | %9d | %6d\n" topic_str subs
-             published delivered queued ) ) ;
-    Buffer.add_string buffer (line ^ "\n") ;
-    Buffer.contents buffer
+  let topic_stats {topics; _} =
+    Hashtbl.to_alist topics
+    |> List.map ~f:(fun (topic, {subs; published; delivered; queued}) ->
+           let subscribers = Hashtbl.length subs in
+           let topic_stat : Log_types.Log_event.topic_stat =
+             {topic; subscribers; published; delivered; queued}
+           in
+           topic_stat )
 
-  (* TODO: [LOG] this can be shifted to logger formatter, no need a print function here *)
-  let print_stats ({id; logger; _} as t) =
-    let dump = dump_stats t in
-    Logger.stats ~bus_id:id logger ~dump
+  let display_stats t =
+    Logger.inspect_bus_stats ~bus_id:t.id ~topic_stats:(topic_stats t) t.logger
 end

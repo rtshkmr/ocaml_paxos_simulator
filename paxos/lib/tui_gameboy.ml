@@ -1,33 +1,19 @@
-[@@@ocaml.warning "-32-69-27"]
-
-(* src/tui_gameboy.ml *)
-
 open Base
 open Log_types
 module F = Ansi.Formatter
 
-(* Enhanced GameBoy-like boxed UI with visual motifs and better hierarchy *)
-
 module Gameboy_ui : Ui.S = struct
   type box_chars =
-    { tl: string
-    ; tr: string
-    ; bl: string
-    ; br: string
-    ; h: string
-    ; v: string
-    ; header_sep: string }
+    {tl: string; tr: string; bl: string; br: string; h: string; v: string}
 
-  let utf8_round_box =
-    {tl= "╭"; tr= "╮"; bl= "╰"; br= "╯"; h= "─"; v= "│"; header_sep= "─"}
+  let utf8_round_box = {tl= "╭"; tr= "╮"; bl= "╰"; br= "╯"; h= "─"; v= "│"}
 
-  let ascii_box =
-    {tl= "+"; tr= "+"; bl= "+"; br= "+"; h= "-"; v= "|"; header_sep= "-"}
+  let _ascii_box = {tl= "+"; tr= "+"; bl= "+"; br= "+"; h= "-"; v= "|"}
 
   let default_box = utf8_round_box
 
   (* Visual motifs for GameBoy feel *)
-  (* TODO: fix the variable width char usage. for now just use single width for motifs *)
+  (* TODO: FIXME: fix the variable width char usage. for now just use single width for motifs *)
   let motif_network = "▣"
 
   let motif_flow = "→"
@@ -67,6 +53,9 @@ module Gameboy_ui : Ui.S = struct
 
   let theme_sim s = s |> F.bg_pastel_yellow |> F.fg_pastel_yellow |> F.bold
 
+  let theme_narration s =
+    s |> F.bg_pastel_red |> F.fg_pastel_red |> F.bold |> F.italic
+
   (* Color motifs to match their theme *)
   let color_motif_network s = s |> F.fg_muted_navy |> F.bold
 
@@ -79,6 +68,8 @@ module Gameboy_ui : Ui.S = struct
   let color_motif_state s = s |> F.fg_pastel_blue |> F.bold
 
   let color_motif_sim s = s |> F.fg_pastel_yellow |> F.bold
+
+  let color_motif_narration s = s |> F.bold_bright_red
 
   (* Build compact header with timestamp, level, node, module *)
   let compact_timestamp_header (e : Entry.t) =
@@ -115,10 +106,11 @@ module Gameboy_ui : Ui.S = struct
          [time_styled; lvl_styled; id_part; module_part] )
 
   let get_max_width () =
+    let min_width = 60 in
     let scale = 0.53 in
     term_width () |> Float.of_int
     |> (fun w -> w *. scale)
-    |> Float.to_int |> Int.max 40
+    |> Float.to_int |> Int.max min_width
 
   (** this is a rudimentary way of combining then doing a primitive version of word-wrapping.
       it is slow and it is not aesthetic enough.
@@ -207,14 +199,6 @@ module Gameboy_ui : Ui.S = struct
     let bottom = box.bl ^ repeat_string box.h inner_w ^ box.br in
     String.concat ~sep:"\n" ((top :: sep :: body_rows) @ [bottom])
 
-  (* Convenience wrapper for text content *)
-  let make_box_from_text ~box ~motif ~event_header ~content ~style_motif
-      ~style_header ~style_body =
-    let raw_lines = to_lines content in
-    let norm = normalize_body_lines raw_lines in
-    make_enhanced_box ~box ~motif ~event_header ~body_lines:norm ~style_motif
-      ~style_header ~style_body
-
   (* Format helpers for different event types *)
   let format_publish_broadcast_event ~bus_id ~topic_s ~payload =
     let event_header = Printf.sprintf "NETWORK: PUBLISH_BROADCAST" in
@@ -227,7 +211,7 @@ module Gameboy_ui : Ui.S = struct
     make_enhanced_box ~box:default_box ~motif:motif_network ~event_header
       ~body_lines:(normalize_body_lines body_lines)
       ~style_motif:color_motif_network ~style_header:theme_transport
-      ~style_body:F.bold
+      ~style_body:Fn.id
 
   let format_publish_unicast_event ~bus_id ~target_node ~sender_id_s
       ~sender_alias ~topic_s ~payload =
@@ -250,11 +234,12 @@ module Gameboy_ui : Ui.S = struct
     make_enhanced_box ~box:default_box ~motif:motif_network ~event_header
       ~body_lines:(normalize_body_lines body_lines)
       ~style_motif:color_motif_network ~style_header:theme_transport
-      ~style_body:F.bold
+      ~style_body:Fn.id
 
   let format_subscribe_event ~bus_id ~topic_s ~node_id ~sub_id ~alias =
     let event_header =
-      Printf.sprintf "NETWORK: SUBSCRIBED <%s @ %s> " alias topic_s
+      Printf.sprintf "NETWORK: SUBSCRIBED <%s(%02d) @ %s> " alias node_id
+        topic_s
     in
     let alias_fmt = alias |> F.bold |> F.italic in
     let body_lines =
@@ -270,7 +255,8 @@ module Gameboy_ui : Ui.S = struct
   let format_unsubscribe_event ~bus_id ~topic_s ~node_id ~sub_id ~alias =
     let alias_fmt = alias |> F.bold |> F.italic in
     let event_header =
-      Printf.sprintf "NETWORK: UNSUBSCRIBED <%s @ %s>" alias topic_s
+      Printf.sprintf "NETWORK: UNSUBSCRIBED <%s(%02d) @ %s>" alias node_id
+        topic_s
     in
     let body_lines =
       [ Printf.sprintf
@@ -361,11 +347,11 @@ module Gameboy_ui : Ui.S = struct
     let whom =
       match (alias, node_id) with
       | Some al, Some nid ->
-          Printf.sprintf "%s (node %d)" al nid
+          Printf.sprintf "%s (%02d)" al nid
       | Some al, None ->
           al
       | None, Some nid ->
-          Printf.sprintf "node %d" nid
+          Printf.sprintf "node %02d" nid
       | None, None ->
           "local"
     in
@@ -429,13 +415,126 @@ module Gameboy_ui : Ui.S = struct
       ~style_motif:color_motif_sim ~style_header:theme_sim
       ~style_body:F.bright_yellow
 
-  let format_stats ~bus_id ~dump =
+  let format_narration ~time ~narration =
+    let event_header = Printf.sprintf "{~NARRATION~} @ time = %d" time in
+    let narration_lines = to_lines narration in
+    make_enhanced_box ~box:default_box ~motif:motif_sim ~event_header
+      ~body_lines:(normalize_body_lines narration_lines)
+      ~style_motif:color_motif_narration ~style_header:theme_narration
+      ~style_body:Fn.id
+
+  let format_topic_stats stats =
+    let header =
+      "Topic Statistics Overview" |> F.bold |> F.fg_pastel_blue
+      |> F.bg_pastel_powder_blue |> F.underline
+    in
+    let format_stat_card
+        ({topic; subscribers; published; delivered; queued} :
+          Log_types.Log_event.topic_stat ) =
+      let topic_str = Sexp.to_string (Types.Types.sexp_of_topic topic) in
+      let card_header =
+        Printf.sprintf "Topic: %s" topic_str
+        |> F.bg_pastel_mint |> F.black |> F.bold |> F.pad_string 1
+      in
+      let stats_str =
+        Printf.sprintf
+          "-Subscribers: %03d\n\
+           -Published: %03d\n\
+           -Delivered: %03d\n\
+           -Queued: %03d"
+          subscribers published delivered queued
+      in
+      let card_body = stats_str |> F.bold |> F.pad_string 1 in
+      let card = Printf.sprintf "%s\n%s" card_header card_body in
+      card
+    in
+    let topic_cards = List.map stats ~f:format_stat_card in
+    [header] @ topic_cards
+
+  let format_bus_stats ~bus_id
+      ~(topic_stats : Log_types.Log_event.topic_stat list) =
     let event_header = Printf.sprintf "STATS: bus=%d" bus_id in
-    let body_lines = to_lines dump in
+    let body_lines = format_topic_stats topic_stats in
     make_enhanced_box ~box:default_box ~motif:motif_network ~event_header
       ~body_lines:(normalize_body_lines body_lines)
       ~style_motif:color_motif_network ~style_header:theme_transport
-      ~style_body:F.bold
+      ~style_body:Fn.id
+
+  let format_node_inspection_event ev =
+    match ev with
+    | Log_event.Node_state {alias; node_id; dump} ->
+        let who = Printf.sprintf "%s (node %d)" alias node_id in
+        let event_header = Printf.sprintf "INSPECT: NODE STATE %s" who in
+        let body_lines = to_lines dump in
+        make_enhanced_box ~box:default_box ~motif:motif_state ~event_header
+          ~body_lines:(normalize_body_lines body_lines)
+          ~style_motif:color_motif_state ~style_header:theme_state
+          ~style_body:Fn.id
+    | Log_event.Node_config {alias; node_id; dump} ->
+        let who = Printf.sprintf "%s (node %d)" alias node_id in
+        let event_header = Printf.sprintf "INSPECT: NODE CONFIG %s" who in
+        let body_lines = to_lines dump in
+        make_enhanced_box ~box:default_box ~motif:motif_state ~event_header
+          ~body_lines:(normalize_body_lines body_lines)
+          ~style_motif:color_motif_state ~style_header:theme_state
+          ~style_body:Fn.id
+
+  let format_sim_inspection_event = function
+    | Log_event.Sim_state {time; partitions; nodes} ->
+        let event_header =
+          Printf.sprintf "INSPECT: SIM STATE @ Time=%03d" time
+        in
+        let mk_header s = s |> F.underline |> F.bold in
+        let partition_tag, nodes_tag =
+          (mk_header "[PARTITIONS]", mk_header "[NODES]")
+        in
+        let body_lines =
+          [partition_tag; partitions; "\n"; nodes_tag; nodes]
+          |> List.concat_map ~f:to_lines
+        in
+        make_enhanced_box ~box:default_box ~motif:motif_sim ~event_header
+          ~body_lines:(normalize_body_lines body_lines)
+          ~style_motif:color_motif_sim ~style_header:theme_sim ~style_body:Fn.id
+
+  let format_bus_inspection_event = function
+    | Log_event.Bus_stats {bus_id; topic_stats} ->
+        format_bus_stats ~bus_id ~topic_stats
+
+  let format_inspection_help_banner () =
+    let event_header = "INSPECT: HELP" in
+    let body_lines =
+      [ "Available inspection commands:" |> F.underline
+      ; motif_decision
+        ^ " /inspect/sim/state:\n  shows you the state of the simulation"
+      ; motif_decision
+        ^ " /inspect/node/state/<alias> :\n\
+          \  shows you the state of a particular node"
+      ; motif_decision
+        ^ " /inspect/node/config/<alias>:\n\
+          \  shows you the config of a particular node"
+      ; motif_decision
+        ^ " /inspect/bus/stats/<bus_id> :\n\
+          \  shows you the current stats on the message bus" ]
+    in
+    make_enhanced_box ~box:default_box ~motif:motif_sim ~event_header
+      ~body_lines:(normalize_body_lines body_lines)
+      ~style_motif:color_motif_sim ~style_header:theme_sim ~style_body:Fn.id
+
+  let format_inspection_event = function
+    | Log_event.Node_inspection node_ev ->
+        format_node_inspection_event node_ev
+    | Log_event.Sim_inspection sim_ev ->
+        format_sim_inspection_event sim_ev
+    | Log_event.Bus_inspection ev ->
+        format_bus_inspection_event ev
+    | Log_event.Help ->
+        format_inspection_help_banner ()
+
+  let format_display_event = function
+    | Log_event.Display_scenario_preamble {scenario_name; preamble} ->
+        format_display_scenario_preamble ~scenario_name ~preamble
+    | Log_event.Narration {time; narration} ->
+        format_narration ~time ~narration
 
   let format_other s =
     let event_header = "LOG" in
@@ -472,10 +571,10 @@ module Gameboy_ui : Ui.S = struct
         format_reaction ~alias ~node_id ~msg
     | Log_event.Node_state_change {alias; node_id; old_state; new_state} ->
         format_state_change ~alias ~node_id ~old_state ~new_state
-    | Log_event.Display_scenario_preamble {scenario_name; preamble} ->
-        format_display_scenario_preamble ~scenario_name ~preamble
-    | Log_event.Stats {dump; bus_id} ->
-        format_stats ~bus_id ~dump
+    | Log_event.Display display ->
+        format_display_event display
+    | Log_event.Inspection inspection ->
+        format_inspection_event inspection
     | Log_event.Other s ->
         format_other s
 

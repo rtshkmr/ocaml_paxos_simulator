@@ -1,0 +1,76 @@
+{
+  "scenario_name": "Parliament Complex Scenario",
+  "preamble": "Paxos Parliament (Complex): The assembly experiences absences and hall disruptions. ChroniclerClaire is missing at the outset, and soon after the chamber splits into two isolated groups. ArchonAlcynus’s initial decree cannot gather enough permissions to form a quorum. When Claire returns and the legislators reconvene, ElderElliot initiates a second decree proposal, and the parliament is finally able to reach consensus.",
+  "simulator": { "max_ticks": 30 },
+  "nodes": [
+    { "node_id": 1, "node_alias": "ArchonAlcynus",    "topic_strs": ["Coordination","Simulation_control","Time"], "initial_cluster_size": 5 },
+    { "node_id": 2, "node_alias": "LegislatorPhoidon","topic_strs": ["Coordination","Simulation_control","Time"], "initial_cluster_size": 5 },
+    { "node_id": 3, "node_alias": "ChroniclerClaire", "topic_strs": ["Coordination","Simulation_control","Time"], "initial_cluster_size": 5 },
+    { "node_id": 4, "node_alias": "ElderElliot",      "topic_strs": ["Coordination","Simulation_control","Time"], "initial_cluster_size": 5 },
+    { "node_id": 5, "node_alias": "HeraldHector",     "topic_strs": ["Coordination","Simulation_control","Time"], "initial_cluster_size": 5 }
+  ],
+  "events": [
+    {
+      "time": 1,
+      "kind": "control",
+      "target": "ChroniclerClaire",
+      "data": "inactivate"
+    },
+    {
+      "time": 2,
+      "kind": "control",
+      "target": "LegislatorPhoidon",
+      "data": "partition",
+      "args": ["2"]
+    },
+    {
+      "time": 2,
+      "kind": "control",
+      "target": "ChroniclerClaire",
+      "data": "partition",
+      "args": ["2"]
+    },
+    {
+      "time": 2,
+      "kind": "control",
+      "target": "HeraldHector",
+      "data": "partition",
+      "args": ["2"]
+    },
+
+    {
+      "time": 3,
+      "kind": "proposal",
+      "target": "ArchonAlcynus",
+      "data": "Decree: Lower the olive tax by one drachma."
+    },
+
+    {
+      "time": 10,
+      "kind": "metric",
+      "target": null,
+      "data": "print_bus_stats"
+    },
+
+    {
+      "time": 12,
+      "kind": "control",
+      "target": "ChroniclerClaire",
+      "data": "activate"
+    },
+
+    {
+      "time": 13,
+      "kind": "proposal",
+      "target": "ElderElliot",
+      "data": "Decree: Lower the olive tax by one drachma."
+    },
+
+    {
+      "time": 20,
+      "kind": "metric",
+      "target": null,
+      "data": "print_bus_stats"
+    }
+  ]
+}

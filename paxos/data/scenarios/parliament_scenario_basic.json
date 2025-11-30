@@ -1,0 +1,17 @@
+{
+  "scenario_name": "Parliament Basic Scenario",
+  "preamble": "Paxos Parliament (Basic): Five legislators gather in the chamber. The president proposes a decree. The parliament promptly reaches consensus and records the decree in all ledgers.",
+  "simulator": { "max_ticks": 20 },
+  "nodes": [
+    { "node_id": 1, "node_alias": "ArchonAlcynus",    "topic_strs": ["Coordination","Simulation_control","Time"], "initial_cluster_size": 5 },
+    { "node_id": 2, "node_alias": "LegislatorPhoidon","topic_strs": ["Coordination","Simulation_control","Time"], "initial_cluster_size": 5 },
+    { "node_id": 3, "node_alias": "ChroniclerClaire","topic_strs": ["Coordination","Simulation_control","Time"], "initial_cluster_size": 5 },
+    { "node_id": 4, "node_alias": "ElderElliot",     "topic_strs": ["Coordination","Simulation_control","Time"], "initial_cluster_size": 5 },
+    { "node_id": 5, "node_alias": "HeraldHector",    "topic_strs": ["Coordination","Simulation_control","Time"], "initial_cluster_size": 5 }
+  ],
+  "events": [
+    { "time": 1, "kind": "metric",   "target": null,         "data": "print_bus_stats" },
+    { "time": 2, "kind": "proposal", "target": "ArchonAlcynus", "data": "Decree: All oil lamps must use only olive oil." },
+    { "time": 10, "kind": "metric",  "target": null,         "data": "print_bus_stats" }
+  ]
+}

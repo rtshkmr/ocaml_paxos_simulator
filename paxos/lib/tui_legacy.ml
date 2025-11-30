@@ -1,37 +1,8 @@
 open Base
-
-(* open Types *)
 open Log_types
 
 module Legacy_ui : Ui.S = struct
   module F = Ansi.Formatter
-
-  (* let level_tag lvl realtime_s = *)
-  (*   let level = *)
-  (*     Printf.sprintf ">>[%s]" (lvl |> Log_level.to_string) *)
-  (*     |> Log_level.colorizer_of lvl *)
-  (*   in *)
-  (*   let realtime = realtime_s |> F.italic in *)
-  (*   Printf.sprintf "%s @{%s}" level realtime *)
-
-  (* let header_of_entry e = *)
-  (*   let lvl = e.Entry.level in *)
-  (*   let m = Option.value e.Entry.module_name ~default:"" in *)
-  (*   let realtime_str = *)
-  (*     Time_float_unix.format e.Entry.time *)
-  (*       ~zone:(Lazy.force Time_float_unix.Zone.local) *)
-  (*       "%Y-%m-%d-T%H:%M:%S.%s%Z" *)
-  (*   in *)
-  (*   let id_part = *)
-  (*     Option.value_map e.Entry.node_id ~default:"" *)
-  (*       ~f:(Printf.sprintf "NodeID=%d") *)
-  (*   in *)
-  (*   let alias_part = *)
-  (*     Option.value_map e.Entry.alias ~default:"" ~f:(Printf.sprintf " alias=%s") *)
-  (*   in *)
-  (*   Printf.sprintf "%s %s %s%s" *)
-  (*     (level_tag lvl realtime_str) *)
-  (*     m id_part alias_part *)
 
   let make_fenced_tag ?(bg_color = F.bg_pastel_red)
       ?(fg_color = F.fg_pastel_red) tag =
@@ -39,11 +10,6 @@ module Legacy_ui : Ui.S = struct
     let header_msg = tag |> bg_color |> fg_color |> F.bold in
     let fence = String.make width ' ' |> bg_color |> fg_color |> F.bold in
     (header_msg, fence)
-
-  (* let format_topic color topic = *)
-  (*   topic |> Types.sexp_of_topic *)
-  (*   |> Sexp.to_string_hum ~indent:1 *)
-  (*   |> F.bold |> color *)
 
   let format_publish_broadcast_event bus_id topic_s payload =
     let bg_color, fg_color = (F.bg_pastel_rose, F.fg_muted_plum) in
@@ -277,6 +243,18 @@ module Legacy_ui : Ui.S = struct
     in
     Printf.sprintf "%s\n\n%s\n%s\n%s\n\n" scenario_tag fence desc fence
 
+  let format_narration ~time ~narration =
+    Printf.sprintf "| Narration @ time %d|\n%s" time narration
+
+  let format_display_event = function
+    | Log_event.Display_scenario_preamble {scenario_name; preamble} ->
+        format_display_scenario_preamble scenario_name preamble
+    | Log_event.Narration {time; narration} ->
+        format_narration ~time ~narration
+
+  let format_inspection_event _inspection =
+    "TODO [low-priority] add inspection support on legacy UI"
+
   let format_log_event = function
     | Log_event.Publish_broadcast {bus_id; topic_s; payload} ->
         format_publish_broadcast_event bus_id topic_s payload
@@ -304,10 +282,10 @@ module Legacy_ui : Ui.S = struct
         format_reason alias node_id msg
     | Log_event.Node_state_change {alias; node_id; old_state; new_state} ->
         format_state_change alias node_id old_state new_state
-    | Log_event.Display_scenario_preamble {scenario_name; preamble} ->
-        format_display_scenario_preamble scenario_name preamble
-    | Log_event.Stats {dump; bus_id} ->
-        Printf.sprintf "[STATS for bus=(%d)] %s" bus_id dump
+    | Log_event.Display display ->
+        format_display_event display
+    | Log_event.Inspection inspection ->
+        format_inspection_event inspection
     | Log_event.Other s ->
         s
 

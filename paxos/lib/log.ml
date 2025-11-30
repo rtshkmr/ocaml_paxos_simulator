@@ -23,8 +23,7 @@ module Logger = struct
     ; mutable ui: ui_type
     ; module_name: string }
 
-  (* TODO: [LOG] wire up the propagation from the sim level (global prop) *)
-  let create ?(level = Log_level.Debug) ?(backend = Logging_backend.Stdout)
+  let create ?(level = Log_level.Info) ?(backend = Logging_backend.Stdout)
       ?(ui = Gameboy) module_name () =
     {level; backend; module_name; ui}
 
@@ -43,11 +42,9 @@ module Logger = struct
 
   let set_backend t backend = t.backend <- backend
 
-  let should_log t lvl = Log_level.compare lvl t.level >= 0
-
   let emit ?(node_id = None) ?(alias : string option = None)
       ?(ignore_header = false) t ~level event =
-    if should_log t level then
+    if Log_level.should_log ~local_level:level ~global_level:t.level then
       let entry =
         Entry.make ~level ~event ?node_id ?alias ~module_name:t.module_name ()
       in
@@ -72,7 +69,7 @@ module Logger = struct
          ; payload } )
 
   let subscribe ~node_id ~node_alias t ~bus_id ~topic_s ~sub_id =
-    emit ~node_id:(Some node_id) ~alias:(Some node_alias) t ~level:Info
+    emit ~node_id:(Some node_id) ~alias:(Some node_alias) t ~level:Debug
       (Log_event.Subscribe {bus_id; topic_s; alias= node_alias; node_id; sub_id})
 
   let unsubscribe ~node_id ~alias t ~bus_id ~topic_s ~sub_id =
@@ -80,22 +77,23 @@ module Logger = struct
       (Log_event.Unsubscribe {bus_id; topic_s; alias; node_id; sub_id})
 
   let enqueue ~bus_id ?node_id t ~topic_s ~queue_size ~alias =
-    emit ?node_id ~alias:(Some alias) t ~level:Debug
+    emit ?node_id ~alias:(Some alias) t ~level:Info
       (Log_event.Enqueue {bus_id; topic_s; queue_size; alias})
 
   let drain_start ~bus_id ?node_id ?alias t ~batch_size =
-    emit ?node_id ?alias t ~level:Info
+    emit ?node_id ?alias t ~level:Debug
       (Log_event.Drain_start {bus_id; batch_size})
 
   let drain_end ~bus_id ~batch_size ?node_id ?alias t =
-    emit ?node_id ?alias t ~level:Info (Log_event.Drain_end {bus_id; batch_size})
+    emit ?node_id ?alias t ~level:Debug
+      (Log_event.Drain_end {bus_id; batch_size})
 
   let tick ?node_id ?alias t ~timestamp ?(msg = "") () =
     emit ?node_id ?alias t ~level:Info
       (Log_event.Tick {tick= timestamp; msg= Some msg})
 
   let subroutine_flow ?node_id ?alias t ~routine ?(msg = "") () =
-    emit ~node_id ~alias t ~level:Info
+    emit ~node_id ~alias t ~ignore_header:true ~level:Debug
       (Log_event.Subroutine_flow {routine; msg= Some msg; node_id; alias})
 
   let decision ?node_id ?alias t ~msg =
@@ -109,11 +107,33 @@ module Logger = struct
       (Log_event.Node_state_change {alias; node_id; old_state; new_state})
 
   let display_scenario_preamble ~scenario_name ~preamble t =
-    emit ~ignore_header:true t ~level:Info
-      (Log_event.Display_scenario_preamble {scenario_name; preamble})
+    {scenario_name; preamble} |> Log_event.Display_scenario_preamble
+    |> Log_event.Display
+    |> emit ~ignore_header:true t ~level:Info
 
-  let stats ~bus_id ?node_id ?alias t ~dump =
-    emit ?node_id ?alias t ~level:Info (Log_event.Stats {bus_id; dump})
+  let display_narration ~time ~narration t =
+    {time; narration} |> Log_event.Narration |> Log_event.Display
+    |> emit t ~level:Info ~ignore_header:true
+
+  let slash_cmd_help t =
+    Log_event.Help |> Log_event.Inspection |> emit t ~level:Info
+
+  let inspect_sim_state t ~time ~partitions ~nodes =
+    {time; partitions; nodes} |> Log_event.Sim_state |> Log_event.Sim_inspection
+    |> Log_event.Inspection |> emit t ~level:Info
+
+  let inspect_node_state t ~node_id ~alias ~dump =
+    {alias; node_id; dump} |> Log_event.Node_state |> Log_event.Node_inspection
+    |> Log_event.Inspection |> emit t ~level:Info
+
+  let inspect_node_config ~node_id ~alias t ~dump =
+    {alias; node_id; dump} |> Log_event.Node_config |> Log_event.Node_inspection
+    |> Log_event.Inspection |> emit t ~level:Info
+
+  let inspect_bus_stats ~bus_id
+      ~(topic_stats : Log_types.Log_event.topic_stat list) t =
+    {bus_id; topic_stats} |> Log_event.Bus_stats |> Log_event.Bus_inspection
+    |> Log_event.Inspection |> emit t ~level:Info
 
   let other ?node_id ?alias t ~msg =
     emit ?node_id ?alias t ~level:Info (Log_event.Other msg)

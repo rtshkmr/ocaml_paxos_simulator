@@ -1,9 +1,12 @@
 open Time
 open Types
 open Sim_event
+open Log
 
 module type S = sig
   type t
+
+  val logger_of : t -> Logger.t
 
   include Has_spec with type t := t
 
@@ -47,11 +50,6 @@ module type S = sig
 
   val on_event : t -> (Sim_event.t -> unit) -> unit
 
-  (* Diagnostics *)
-  (* DEPRECATED: in favour of adding in slash commands *)
-  (* TODO: Consider generalizing to: val dump_stats : t -> unit *)
-  val print_bus_stats : t -> unit
-
   (* Counter state access *)
 
   val next_msg_id : t -> int
@@ -62,4 +60,6 @@ module type S = sig
   type spec = {max_ticks: int option} [@@deriving sexp, yojson]
 
   val of_spec : spec -> t
+
+  val handle_slash_command : t -> string -> unit
 end
