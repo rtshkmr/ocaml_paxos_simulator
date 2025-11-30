@@ -91,6 +91,13 @@ module Log_event = struct
     | Narration of {time: int; narration: string}
   [@@deriving sexp_of]
 
+  type paxos_actions =
+    | Propose of {proposer_id: int; proposer_alias: string; assertion: string}
+    | Suggest of {proposer_id: int; proposer_alias: string; assertion: string}
+    | AnnounceDecided of
+        {proposer_id: int; proposer_alias: string; assertion: string}
+  [@@deriving sexp_of]
+
   type t =
     | Publish_broadcast of {bus_id: int; topic_s: string; payload: string}
     | Publish_unicast of
@@ -122,6 +129,7 @@ module Log_event = struct
         ; new_state: string }
     | Display of display_events
     | Inspection of inspection_events
+    | Paxos_action of paxos_actions
     | Other of string
   [@@deriving sexp_of]
 end

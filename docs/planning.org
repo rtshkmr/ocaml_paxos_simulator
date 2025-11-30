@@ -5725,6 +5725,9 @@ let handle_coordination node = function
   - file io tricks
   - naming
   - pipelineing data prep
+***** [ ] things i like about the ecosystem
+1. Makefiles are more common here
+   - [[https://bost.ocks.org/mike/make/][for the love of make files]]
 
 **** Quirks
 ***** [ ] Minor wishlist

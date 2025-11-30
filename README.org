@@ -4,9 +4,52 @@
 #+OPTIONS: H:8
 #+OPTIONS: num:nil
 #+STARTUP: inlineimages
-#+HTML_HEAD: <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/rtshkmr/dotfiles@main/styles/tufte.css"/>
-#+HTML_HEAD: <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/rtshkmr/dotfiles@main/styles/fonts/Fira_Code_v6.2/fira_code.css"/>
-#+HTML_HEAD: <script src="https://cdn.jsdelivr.net/gh/rtshkmr/dotfiles@main/styles/collapsible.js"></script>
+
+
+* Quickstart
+
+Please see the [[file:Makefile][Makefile to understand the available targets]] and read the runner scripts before doing this -- it's a good habit!
+
+Assuming that you're running a unix-based machine (Linux, MacOS, BSD...), we shall build and run this locally (faster than fresh docker builds).
+
+** OCaml folks
+
+Just run =make magic=!
+
+** First time setup
+For folks who are trying OCaml for the first time, there's 3 steps to take:
+
+1. Run =make setup=
+
+   This *setup script is for convenience* and follows the instructions [[https://ocaml.org/install#linux_mac_bsd][from the official docs]]:
+   * It installs [[https://opam.ocaml.org/][opam]] (the package manager)
+   * It creates a local OCaml switch in =paxos/_opam=
+   * It installs ocaml and dune using opam
+   * It installs all dependencies that have been locked for this project
+
+2. Update your =PATH= variable and reload your shell.
+
+   You'll need to be able to access =opam= and =dune=. Follow the instructions that =make setup= provides.
+
+   Remember to reload the shell (either by restarting your terminal or sourcing your config file e.g. =source ~/.zshrc=)
+
+3. Run =make magic=!
+
+   It will:
+   - check =opam= / =dune= are installed
+   - activates local opam switch
+   - builds the project incrementally
+   - runs simulators with the flags you supply it
+
+
+
+
+
+
+This will spawn the simulator. If you need help, just type =/help= into the repl-like interface after the prompt (=>>>=).
+
+[[file:docs/pictures/complete_run_v2.gif]]
+
 
 * Motivation
 
@@ -31,12 +74,7 @@ My foray into the distributed computing world was thanks to a friend introducing
 
 Now that I'm learning OCaml, it's a good chance for me to explore the expressiveness that the OCaml language and appreciate the classic consensus problems.
 
-My intent is that implementing paxos will give me the opportunity to think deeply about:
-a) *Coordination under uncertainty* (what happens when some nodes fail or messages arrive late?)
-b) *Correctness and safety guarantees* (how do we ensure only one value is ever chosen?)
-c) *State evolution over time* (how nodes remember what they’ve seen, promised, or accepted)
 
-Building Paxos in OCaml is not about shipping a production consensus engine — it’s about demonstrating the thinking process that leads to correct systems.
 
 * Objectives
 TODO -- some of these will be retroactive
@@ -49,6 +87,7 @@ TODO -- some of these will be retroactive
 - Reinforce understanding of OCaml modules and signatures
 - Practice modeling distributed state machines via ADTs
 - Demonstrate reasoning about correctness through types
+
 
 * Scope & Planning
 

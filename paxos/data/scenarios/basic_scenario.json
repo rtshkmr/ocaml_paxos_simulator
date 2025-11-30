@@ -30,7 +30,7 @@
     {
       "time": 1,
       "kind": "narration",
-      "data": "LET'S BEGIN"
+      "data": "LET'S BEGIN, this is the message that will appear as something that the narrator said."
     },
     {
       "time": 1,

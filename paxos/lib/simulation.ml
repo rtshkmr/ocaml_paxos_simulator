@@ -19,8 +19,8 @@ module Simulation = struct
   let prompt_input () =
     Stdio.printf
       "Sim is paused at this tick.\n\
-       Press any key to continue, or try:\n\
-       \tspace=pause, r=resume, q=quit, /help = see available slash commands\n\
+       Press any key to continue, or try: space=pause, r=resume, q=quit, /help \
+       =get help\n\n\
        %s %!"
       repl_prompt
 

@@ -252,6 +252,9 @@ module Legacy_ui : Ui.S = struct
     | Log_event.Narration {time; narration} ->
         format_narration ~time ~narration
 
+  let format_paxos_action_event _pa =
+    "TODO [low-priority: add paxos action log event on legacy UI]"
+
   let format_inspection_event _inspection =
     "TODO [low-priority] add inspection support on legacy UI"
 
@@ -284,6 +287,8 @@ module Legacy_ui : Ui.S = struct
         format_state_change alias node_id old_state new_state
     | Log_event.Display display ->
         format_display_event display
+    | Log_event.Paxos_action pa ->
+        format_paxos_action_event pa
     | Log_event.Inspection inspection ->
         format_inspection_event inspection
     | Log_event.Other s ->

@@ -56,6 +56,9 @@ module Gameboy_ui : Ui.S = struct
   let theme_narration s =
     s |> F.bg_pastel_red |> F.fg_pastel_red |> F.bold |> F.italic
 
+  let theme_paxos_action s =
+    s |> F.bg_bright_magenta |> F.fg_muted_navy |> F.bold
+
   (* Color motifs to match their theme *)
   let color_motif_network s = s |> F.fg_muted_navy |> F.bold
 
@@ -272,8 +275,7 @@ module Gameboy_ui : Ui.S = struct
     let event_header = Printf.sprintf "NETWORK: ENQUEUE" in
     let whom = alias |> F.bold in
     let body_lines =
-      [ Printf.sprintf
-          "%s submitted a message which will be sent in the next tick." whom
+      [ Printf.sprintf "%s submitted a message which will be sent soon." whom
       ; Printf.sprintf "by:%s | topic:%s  │  bus:%d  │  queue_size:%d" alias
           topic_s bus_id queue_size ]
     in
@@ -536,6 +538,55 @@ module Gameboy_ui : Ui.S = struct
     | Log_event.Narration {time; narration} ->
         format_narration ~time ~narration
 
+  let format_paxos_proposal ~id ~alias ~assertion =
+    let event_header = Printf.sprintf "PROPOSAL by %s(%02d)" alias id in
+    let body_lines =
+      [Printf.sprintf "%s (%02d) initiates a proposal" alias id; assertion]
+    in
+    make_enhanced_box ~box:default_box ~motif:motif_reaction ~event_header
+      ~body_lines:(normalize_body_lines body_lines)
+      ~style_motif:color_motif_reaction ~style_header:theme_paxos_action
+      ~style_body:F.italic
+
+  let format_paxos_suggestion ~id ~alias ~assertion =
+    let event_header = Printf.sprintf "SUGGESTION by %s(%02d)" alias id in
+    let body_lines =
+      [ Printf.sprintf
+          "%s (%02d) suggested after getting permission from majority" alias id
+      ; assertion ]
+    in
+    make_enhanced_box ~box:default_box ~motif:motif_reaction ~event_header
+      ~body_lines:(normalize_body_lines body_lines)
+      ~style_motif:color_motif_reaction ~style_header:theme_paxos_action
+      ~style_body:F.italic
+
+  let format_paxos_announce_decided ~id ~alias ~assertion =
+    let event_header =
+      Printf.sprintf "ANNOUNCING DECIDED by %s(%02d)" alias id
+    in
+    let body_lines =
+      [ "Success!"
+      ; Printf.sprintf
+          "%s (%02d) managed to achieve consensus for the following state:"
+          alias id
+      ; assertion ]
+    in
+    make_enhanced_box ~box:default_box ~motif:motif_reaction ~event_header
+      ~body_lines:(normalize_body_lines body_lines)
+      ~style_motif:color_motif_reaction ~style_header:theme_paxos_action
+      ~style_body:F.italic
+
+  let format_paxos_action_event (pa : Log_event.paxos_actions) =
+    match pa with
+    | Propose {proposer_id: int; proposer_alias: string; assertion: string} ->
+        format_paxos_proposal ~id:proposer_id ~alias:proposer_alias ~assertion
+    | Suggest {proposer_id: int; proposer_alias: string; assertion: string} ->
+        format_paxos_suggestion ~id:proposer_id ~alias:proposer_alias ~assertion
+    | AnnounceDecided
+        {proposer_id: int; proposer_alias: string; assertion: string} ->
+        format_paxos_announce_decided ~id:proposer_id ~alias:proposer_alias
+          ~assertion
+
   let format_other s =
     let event_header = "LOG" in
     let body_lines = to_lines s in
@@ -575,6 +626,8 @@ module Gameboy_ui : Ui.S = struct
         format_display_event display
     | Log_event.Inspection inspection ->
         format_inspection_event inspection
+    | Log_event.Paxos_action pa ->
+        format_paxos_action_event pa
     | Log_event.Other s ->
         format_other s
 

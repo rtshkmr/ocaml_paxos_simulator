@@ -204,13 +204,16 @@ module Simulator : Runtime.S = struct
     alias |> Hashtbl.find node_alias_registry
 
   let make_node_change_partitions
-      ({registries= {node_alias_registry; _}; _} as sim) ~args alias =
+      ({logger; registries= {node_alias_registry; _}; _} as sim) ~args alias =
     let dest = args |> Option.value_exn |> List.hd_exn |> Int.of_string in
-    (* TODO [LOG] shift to logger *)
-    Stdio.printf
-      "[make_node_change_partition] %s to be shifted to partition dest \
-       partition={%d}\n"
-      alias dest ;
+    let log_msg =
+      Printf.sprintf
+        "[make_node_change_partition] %s to be shifted to partition dest \
+         partition={%d}\n"
+        alias dest
+    in
+    Logger.subroutine_flow ~alias logger ~routine:Stdlib.__FUNCTION__
+      ~msg:log_msg () ;
     alias
     |> Hashtbl.find_exn node_alias_registry
     |> N.id_of
@@ -386,10 +389,10 @@ module Simulator : Runtime.S = struct
 
   let seed_events sim evs = List.iter evs ~f:(fun ev -> ev |> seed_event sim)
 
-  let seed_event_from_spec (sim : t) (spec : Sim_event.spec) =
+  let seed_event_from_spec sim spec =
     spec |> hydrate_event sim |> seed_event sim
 
-  let seed_events_from_specs (sim : t) (specs : Sim_event.spec list) =
+  let seed_events_from_specs sim specs =
     specs |> List.iter ~f:(seed_event_from_spec sim)
 
   let on_event sim callback =

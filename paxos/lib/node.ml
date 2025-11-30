@@ -237,8 +237,6 @@ module Make_node
     in
     node.storage := updated_storage
 
-  (* TODO [LOG] this needs a special proposal event *)
-
   (** Represents the act of a node driving the first step of the paxos process (asking for permission).
       This means that the node's state as a Proposer will change from [ Idle ] to [ Peparing ], as we create the message then dispatch it. Once done dispatching,
       the node will change its state to [ WaitingForPromises ], marking it ready to receive responses (both grants and nacks) for that proposal.
@@ -246,9 +244,12 @@ module Make_node
       As such, every paxos process (i.e. an attempt to assert a value and seek consensus) can be uniquely identified via its [proposal_id]
    *)
   let propose ~msg_id ~time ~bus ~assertion
-      ({id; alias; state= {proposer; _}; _} as t) =
+      ({id; alias; logger; state= {proposer; _}; _} as t) =
     match proposer with
     | State.Idle ->
+        Logger.log_proposal_action ~id ~alias
+          ~assertion:(assertion |> assertion_to_string)
+          logger ;
         assertion |> State.Preparing
         |> transition_role_state t time State.Proposer ;
         let msg =
@@ -261,10 +262,13 @@ module Make_node
     | _ ->
         failwith "we can only propose if we are currently idle"
 
-  let announce_decision ({id; alias; state= {proposer; _}; _} as t : t) ~msg_id
-      ~time decided_assertion =
+  let announce_decision ({id; alias; logger; state= {proposer; _}; _} as t : t)
+      ~msg_id ~time decided_assertion =
     match proposer with
     | State.Decided _decided_val ->
+        Logger.log_announce_decided_action ~id ~alias
+          ~assertion:(decided_assertion |> assertion_to_string)
+          logger ;
         let msg =
           Message.make_decided ~msg_id ~time ~from:id ~decided_assertion
         in
@@ -358,7 +362,6 @@ module Make_node
   let log_decision node ~msg =
     Logger.decision ~node_id:node.id ~alias:node.alias node.logger ~msg
 
-  (* TODO [LOG] shift to logger? *)
   let log_waiting_for_promises ({id; alias; _} as node) =
     let log_msg =
       Printf.sprintf
@@ -380,7 +383,6 @@ module Make_node
     in
     log_decision node ~msg:log_msg
 
-  (* TODO [LOG] improve this usage *)
   let log_reached_nack_quorum ({id; alias; _} as node) (hint : promise) =
     let log_msg =
       Printf.sprintf
@@ -645,12 +647,11 @@ module Make_node
   (** this allows us to choose handlers based on the topic *)
   let get_handler_for_topic node topic : V.t Event_bus.bus_registrable_callback
       =
-    (* TODO [LOG] this is ugly, there should be a better way to call the log for this. *)
-    let msg =
+    let log_msg =
       Printf.sprintf "trace @ [%s|(node %d)] for topic=(%s)" node.alias node.id
         (topic |> Types.topic_to_str)
     in
-    log_flow ~routine:Stdlib.__FUNCTION__ ~msg node ;
+    log_flow ~routine:Stdlib.__FUNCTION__ ~msg:log_msg node ;
     match topic with
     | Types.Coordination ->
         node |> handle_coordination
@@ -663,9 +664,13 @@ module Make_node
 
   let register_node_with_bus bus
       ({config= {topics; _}; id= node_id; alias= node_alias; subs; _} as node) =
+    let log_msg =
+      Printf.sprintf "...registering %s=(node %02d) with bus %d" node_alias
+        node_id (Bus.id_of bus)
+    in
+    log_flow node ~routine:Stdlib.__FUNCTION__ ~msg:log_msg ;
     List.iter topics ~f:(fun topic ->
         let callback msg = get_handler_for_topic node topic msg in
-        (* let callback = get_handler_for_topic node topic in *)
         let subscription_handle =
           callback |> Bus.subscribe bus ~topic ~node_id ~node_alias
         in
@@ -680,7 +685,7 @@ module Make_node
     node
 
   let deregister_node_from_bus bus
-      ({alias; config= {topics; _}; subs; _} as node) =
+      ({id; alias; config= {topics; _}; subs; _} as node) =
     List.iter topics ~f:(fun topic ->
         match Hashtbl.find subs topic with
         | Some table ->
@@ -689,11 +694,17 @@ module Make_node
                 ~f:(fun ~key:sub_handle ~data:sub_bus acc ->
                   if phys_equal sub_bus bus then sub_handle :: acc else acc )
             in
-            Stdio.print_endline "...deregistering node, keys:" ;
-            keys_to_remove
-            |> List.map ~f:Event_bus.sexp_of_sub_handle
-            |> List.map ~f:Sexp.to_string_hum
-            |> List.iter ~f:Stdio.print_endline ;
+            let key_dump =
+              keys_to_remove
+              |> List.map ~f:Event_bus.sexp_of_sub_handle
+              |> List.map ~f:Sexp.to_string_hum
+              |> String.concat ~sep:","
+            in
+            let log_msg =
+              Printf.sprintf "...deregistering %s (node %02d), keys:\n%s" alias
+                id key_dump
+            in
+            log_flow node ~routine:Stdlib.__FUNCTION__ ~msg:log_msg ;
             List.iter keys_to_remove ~f:(fun sub_handle ->
                 Bus.unsubscribe bus ~sub_handle ~alias ;
                 Hashtbl.remove table sub_handle ) ;

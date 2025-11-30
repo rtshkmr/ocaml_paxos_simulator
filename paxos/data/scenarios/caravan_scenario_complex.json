@@ -1,42 +1,65 @@
 {
   "scenario_name": "Caravan Complex Scenario",
-  "preamble": "Caravan Crossing (Complex): The five caravans rely entirely on human runners—desert couriers carrying parchment slips between groups. Many dangers disrupt this fragile communication system: a collapsed camel, a courier lost behind a dune, or a sandstorm that forces runners to turn back. In this scenario, SaffronHerald collapses early and cannot dispatch or receive runners. Soon after, a sandstorm reshapes the caravan's formation, pushing caravans into separate partitions that no messenger can traverse. AmberLead’s initial proposal cannot gather enough responses to form a quorum. Later, as the storm clears and SaffronHerald recovers, NavajoElder initiates a new proposal. With runner routes restored, consensus on the campsite can finally be reached.",
-  "simulator": {
-    "max_ticks": 40
-  },
+  "preamble": "Caravan Crossing (Complex): These five caravans—Aghilas, Taziri, Amastan, Itri, and Tassadit—cross the Sahara relying entirely on human runners carrying parchment slips between groups. A courier lost behind a dune, a collapsed camel, or a sudden sandstorm can silence a caravan for hours. In this crossing, Tassadit collapses early and cannot dispatch runners. A storm then reshapes the formations, isolating caravans into separate partitions that no messenger can traverse. Aghilas’s first proposal fails to gather a quorum. When the storm clears and Tassadit recovers, a fresh proposal from Itri finally propagates across the desert, allowing the group to agree on a campsite.",
+  "simulator": { "max_ticks": 40 },
   "nodes": [
-    { "node_id": 1, "node_alias": "AmberLead",       "topic_strs": ["Coordination","Simulation_control","Time"], "initial_cluster_size": 5 },
-    { "node_id": 2, "node_alias": "SiennaScout",     "topic_strs": ["Coordination","Simulation_control","Time"], "initial_cluster_size": 5 },
-    { "node_id": 3, "node_alias": "OchreChronicler", "topic_strs": ["Coordination","Simulation_control","Time"], "initial_cluster_size": 5 },
-    { "node_id": 4, "node_alias": "NavajoElder",     "topic_strs": ["Coordination","Simulation_control","Time"], "initial_cluster_size": 5 },
-    { "node_id": 5, "node_alias": "SaffronHerald",   "topic_strs": ["Coordination","Simulation_control","Time"], "initial_cluster_size": 5 }
+    { "node_id": 1, "node_alias": "Aghilas",  "topic_strs": ["Coordination","Simulation_control","Time"], "initial_cluster_size": 5 },
+    { "node_id": 2, "node_alias": "Taziri",   "topic_strs": ["Coordination","Simulation_control","Time"], "initial_cluster_size": 5 },
+    { "node_id": 3, "node_alias": "Amastan",  "topic_strs": ["Coordination","Simulation_control","Time"], "initial_cluster_size": 5 },
+    { "node_id": 4, "node_alias": "Itri",     "topic_strs": ["Coordination","Simulation_control","Time"], "initial_cluster_size": 5 },
+    { "node_id": 5, "node_alias": "Tassadit", "topic_strs": ["Coordination","Simulation_control","Time"], "initial_cluster_size": 5 }
   ],
   "events": [
-        {
+    {
+      "time": 1,
+      "kind": "narration",
+      "data": "Dawn breaks. The caravans begin their march—runners poised to carry parchment between the formations."
+    },
+    {
+      "time": 1,
+      "kind": "narration",
+      "data": "A sudden gust: dunes shift, visibility drops. Two caravans drift into a separate cluster."
+    },
+    {
       "time": 1,
       "kind": "control",
-      "target": "NavajoElder",
+      "target": "Itri",
       "data": "partition",
       "args": ["2"]
     },
     {
       "time": 1,
       "kind": "control",
-      "target": "SaffronHerald",
+      "target": "Tassadit",
       "data": "partition",
       "args": ["2"]
     },
     {
       "time": 1,
+      "kind": "narration",
+      "data": "Tassadit falters—its lead camel collapses. No runners can be sent."
+    },
+    {
+      "time": 1,
       "kind": "control",
-      "target": "SaffronHerald",
+      "target": "Tassadit",
       "data": "inactivate"
     },
     {
       "time": 3,
+      "kind": "narration",
+      "data": "Aghilas attempts to coordinate the group: a courier is dispatched with a proposed campsite."
+    },
+    {
+      "time": 3,
       "kind": "proposal",
-      "target": "AmberLead",
+      "target": "Aghilas",
       "data": "Proposal dispatched by runner: Make camp at Dune Edge"
+    },
+    {
+      "time": 6,
+      "kind": "narration",
+      "data": "The courier returns with silence—no quorum possible across the storm partitions."
     },
     {
       "time": 6,
@@ -46,46 +69,66 @@
     },
     {
       "time": 12,
+      "kind": "narration",
+      "data": "Tassadit recovers. Its camel rises. Runners can once again traverse the dunes."
+    },
+    {
+      "time": 12,
       "kind": "control",
-      "target": "SaffronHerald",
-      "data": "activate",
+      "target": "Tassadit",
+      "data": "activate"
+    },
+    {
+      "time": 13,
+      "kind": "narration",
+      "data": "With paths clearing, Itri initiates a fresh proposal—one that can finally reach a majority."
     },
     {
       "time": 13,
       "kind": "proposal",
-      "target": "NavajoElder",
+      "target": "Itri",
       "data": "Proposal dispatched by runner: Make camp at Dune Edge (re-initiation)"
     },
-
     {
       "time": 20,
       "kind": "metric",
       "target": null,
       "data": "print_bus_stats"
     },
-
+    {
+      "time": 22,
+      "kind": "narration",
+      "data": "A temporary drifting of Aghilas isolates it again—though the quorum holds elsewhere."
+    },
     {
       "time": 22,
       "kind": "control",
-      "target": "AmberLead",
+      "target": "Aghilas",
       "data": "partition",
       "args": ["3"]
     },
-
+    {
+      "time": 24,
+      "kind": "narration",
+      "data": "Amastan attempts a new campsite proposal, but messengers cannot reach key caravans."
+    },
     {
       "time": 24,
       "kind": "proposal",
-      "target": "OchreChronicler",
+      "target": "Amastan",
       "data": "New proposal by courier: Choose Oasis Y (attempted while paths still blocked)"
     },
-
+    {
+      "time": 30,
+      "kind": "narration",
+      "data": "The desert settles. Aghilas rejoins the main formation—communication restored."
+    },
     {
       "time": 30,
       "kind": "control",
-      "target": "AmberLead",
+      "target": "Aghilas",
       "data": "activate"
     },
-
     {
       "time": 32,
       "kind": "metric",

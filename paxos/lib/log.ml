@@ -73,7 +73,7 @@ module Logger = struct
       (Log_event.Subscribe {bus_id; topic_s; alias= node_alias; node_id; sub_id})
 
   let unsubscribe ~node_id ~alias t ~bus_id ~topic_s ~sub_id =
-    emit ~node_id:(Some node_id) ~alias:(Some alias) t ~level:Info
+    emit ~node_id:(Some node_id) ~alias:(Some alias) t ~level:Debug
       (Log_event.Unsubscribe {bus_id; topic_s; alias; node_id; sub_id})
 
   let enqueue ~bus_id ?node_id t ~topic_s ~queue_size ~alias =
@@ -134,6 +134,18 @@ module Logger = struct
       ~(topic_stats : Log_types.Log_event.topic_stat list) t =
     {bus_id; topic_stats} |> Log_event.Bus_stats |> Log_event.Bus_inspection
     |> Log_event.Inspection |> emit t ~level:Info
+
+  let log_proposal_action ~id ~alias ~assertion t =
+    {proposer_id= id; proposer_alias= alias; assertion}
+    |> Log_event.Propose |> Log_event.Paxos_action |> emit t ~level:Info
+
+  let log_suggestion_action ~id ~alias ~assertion t =
+    {proposer_id= id; proposer_alias= alias; assertion}
+    |> Log_event.Suggest |> Log_event.Paxos_action |> emit t ~level:Info
+
+  let log_announce_decided_action ~id ~alias ~assertion t =
+    {proposer_id= id; proposer_alias= alias; assertion}
+    |> Log_event.AnnounceDecided |> Log_event.Paxos_action |> emit t ~level:Info
 
   let other ?node_id ?alias t ~msg =
     emit ?node_id ?alias t ~level:Info (Log_event.Other msg)
