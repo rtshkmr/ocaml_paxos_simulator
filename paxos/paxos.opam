@@ -20,6 +20,10 @@ depends: [
   "re"
   "ppx_deriving_yojson"
   "ppx_jane"
+  "ocaml-lsp-server" {with-dev}
+  "merlin" {with-dev}
+  "ocamlformat" {with-dev}
+  "utop" {with-dev}
   "odoc" {with-doc}
 ]
 build: [

@@ -4871,6 +4871,250 @@ D. Latency Optimizations
 E. Application-Level Logic
 
    - How the application uses the results of Paxos instances
+*** TODO Key Improvements from v0
+**** KILL Improving Paxos Node State Handling with GADTs
+yes I have a GADT but it's not being used in all places. Instead of doing compile time checking based on the node's sub-states, we end up doing runtime checks.
+
+***** Current Design
+- =role_state= is a record containing =proposer=, =acceptor=, =learner= states.
+- =role_selector= is a GADT with =_= phantom type to encode which sub-state is selected:
+
+#+BEGIN_SRC ocaml
+type _ role_selector =
+  | Proposer : proposer_state role_selector
+  | Acceptor : acceptor_state role_selector
+  | Learner : learner_state role_selector
+#+END_SRC
+
+- Accessors are polymorphic:
+
+#+BEGIN_SRC ocaml
+val get_role : 'a. role_state -> 'a role_selector -> 'a
+val set_role : 'a. role_state -> 'a role_selector -> 'a -> role_state
+#+END_SRC
+
+- Quorum checks and some proposer operations require runtime pattern matching with =failwith= or =assert false=.
+
+***** Problems / Limitations
+1. Unsafe runtime checks
+   Functions like =is_quorum_reached= call =failwith= if the proposer is not in an active state:
+
+#+BEGIN_SRC ocaml
+match Proposer |> get_role rs with
+| WaitingForPromises wfp -> ...
+| ProposerAccepting pa -> ...
+| _ -> failwith "Called on non-proposer state"
+#+END_SRC
+
+2. GADT potential underutilized
+   - The =_= in =role_selector= tracks the sub-state type but does not prevent passing inactive states.
+   - The type system cannot enforce that some operations are only valid on certain sub-states.
+
+3. Limited compile-time guarantees
+   - It's possible to call operations like =is_quorum_reached= on =Idle= or =ProposerInactive= nodes.
+   - Safety is only checked at runtime.
+
+***** Proposed Improvements
+
+1. Encode active proposer states as a separate GADT
+
+#+BEGIN_SRC ocaml
+type _ active_proposer_state =
+  | WaitingForPromises : waiting_for_promise_state -> waiting_for_promise_state active_proposer_state
+  | ProposerAccepting : proposer_accepting_state -> proposer_accepting_state active_proposer_state
+#+END_SRC
+
+- Only valid states for quorum checks are allowed.
+- Eliminates runtime checks for inactive states.
+
+2. Extend =role_selector= with context-specific types
+
+#+BEGIN_SRC ocaml
+type _ role_selector =
+  | Proposer : proposer_state role_selector
+  | ActiveProposer : 'a active_proposer_state role_selector
+  | Acceptor : acceptor_state role_selector
+  | Learner : learner_state role_selector
+#+END_SRC
+
+- =ActiveProposer= ensures functions like =is_quorum_reached= can only accept =WaitingForPromises= or =ProposerAccepting=.
+- The =_= phantom type tracks the exact substate at compile time.
+
+3. Type-safe accessors
+
+#+BEGIN_SRC ocaml
+let get_role : type a. role_state -> a role_selector -> a =
+ fun rs sel ->
+  match sel with
+  | Proposer -> rs.proposer
+  | ActiveProposer -> (
+      match rs.proposer with
+      | WaitingForPromises w -> w
+      | ProposerAccepting p -> p
+      | _ -> failwith "Impossible: not an active proposer")
+  | Acceptor -> rs.acceptor
+  | Learner -> rs.learner
+#+END_SRC
+
+- Optional further improvement: fully encode the node state as a GADT to eliminate even the =failwith=.
+
+4. Encode node state as a GADT
+
+#+BEGIN_SRC ocaml
+type _ node_state =
+  | Node : {
+      proposer: 'p proposer_substate;
+      acceptor: 'a acceptor_substate;
+      learner: 'l learner_substate;
+    } -> ('p, 'a, 'l) node_state
+#+END_SRC
+
+- ='p=, ='a=, ='l= track exact sub-state types of each role.
+- Operations like =is_quorum_reached= can only be called on =active_proposer_state=.
+
+5. Example: Type-safe quorum check
+
+#+BEGIN_SRC ocaml
+let is_quorum_reached ~cluster_size (Node {proposer; _} : ('p, _, _) node_state)
+    (state : 'p active_proposer_state) : quorum_result =
+  match state with
+  | WaitingForPromises wfp -> is_quorum_reached_on_promise_wait cluster_size wfp
+  | ProposerAccepting pa -> is_quorum_reached_on_proposer_accepting_wait cluster_size pa
+#+END_SRC
+
+- ✅ Impossible to call with =Idle= or =ProposerInactive=.
+- ✅ No =_= > failwith= needed.
+- ✅ Compiler guarantees correctness.
+
+***** Advantages
+- Type safety on operations: Both role and valid substate tracked
+- Runtime checks: Eliminated for impossible states
+- Polymorphic access: Strongly typed accessors, context-specific
+- Quorum enforcement: Compile-time guaranteed only active proposer states
+- Extensibility: Adding new states enforces correctness automatically
+
+***** Rollout plan
+1. Refactor =role_state= as a GADT with type parameters for each sub-state.
+2. Introduce =active_proposer_state= GADT and update quorum functions.
+3. Update =role_selector= to include =ActiveProposer=.
+4. Refactor =get_role= / =set_role= for type-safe access.
+5. Remove all =failwith= / =assert false= for impossible states.
+6. Optional: fully encode node state as a GADT to maximize compiler guarantees.
+***** Forseen Problems
+****** GADTs won't work well with serialiser converter functions
+1. GADTs don't support serialiser ppx-es. This is unideal because we can't break the serilisation layer just for this GADT support
+2. Therefore, we have to only do a partial refactor (for now).
+***** Revised rollout plan
+Changes based on the problems above
+
+
+**** TODO Improving Paxos Node State Handling with GADTs (storage-safe variant)
+
+/[bot assisted rollout plan]/
+
+This plan introduces GADT-typed *views* for critical operations while keeping all persistent/snapshotable types serializable with =[@@deriving sexp]=. The goal is to remove runtime =failwith/assert false= in quorum/proposer logic without breaking simulator state dumping.
+
+#+BEGIN_QUOTE
+Key principle: *Two layers* — Storage (serializable) and Typed Views (GADTs).
+#+END_QUOTE
+
+***** Current Design (unchanged)
+- =role_state= is a record containing =proposer=, =acceptor=, =learner= states.
+- =role_selector= is a GADT used for polymorphic accessors:
+
+#+BEGIN_SRC ocaml
+type _ role_selector =
+  | Proposer : proposer_state role_selector
+  | Acceptor : acceptor_state role_selector
+  | Learner : learner_state role_selector
+#+END_SRC
+
+- Accessors (polymorphic) remain:
+
+#+BEGIN_SRC ocaml
+val get_role : 'a. role_state -> 'a role_selector -> 'a
+val set_role : 'a. role_state -> 'a role_selector -> 'a -> role_state
+#+END_SRC
+
+***** Problem
+- Some operations (e.g. =is_quorum_reached=) pattern-match on =proposer= and call =failwith= when the proposer is inactive. This is runtime-checked and brittle.
+
+***** Revised Approach (two-layer)
+
+****** Layer A — Storage representation (keep serializable)
+Keep these as normal variants and records with ==[@@deriving sexp]==:
+
+#+BEGIN_SRC ocaml
+(* example: keep this unchanged so sexp deriving works *)
+type proposer_state =
+  | ProposerInactive
+  | Idle
+  | Preparing of assertion
+  | WaitingForPromises of waiting_for_promise_state
+  | ProposerAccepting of proposer_accepting_state
+  | Decided of V.t
+[@@deriving sexp, yojson]
+
+type role_state = {
+  proposer: proposer_state;
+  acceptor: acceptor_state;
+  learner: learner_state;
+}
+[@@deriving sexp, yojson]
+#+END_SRC
+
+****** Layer B — Typed views (GADTs) for critical functions
+Add non-serializable GADTs to represent only the valid active cases:
+
+#+BEGIN_SRC ocaml
+type _ active_proposer_state =
+  | WaitingForPromises : waiting_for_promise_state -> waiting_for_promise_state active_proposer_state
+  | ProposerAccepting : proposer_accepting_state -> proposer_accepting_state active_proposer_state
+#+END_SRC
+
+Extend the role selector with an option to request an active-proposer view:
+
+#+BEGIN_SRC ocaml
+type _ role_selector =
+  | Proposer : proposer_state role_selector
+  | ActiveProposer : 'a active_proposer_state role_selector
+  | Acceptor : acceptor_state role_selector
+  | Learner : learner_state role_selector
+#+END_SRC
+
+***** Bridge functions (storage -> GADT view)
+Provide small converters:
+
+#+BEGIN_SRC ocaml
+let active_proposer_of : proposer_state -> _ active_proposer_state option = function
+  | WaitingForPromises w -> Some (WaitingForPromises w)
+  | ProposerAccepting p -> Some (ProposerAccepting p)
+  | _ -> None
+#+END_SRC
+
+****** Type-safe quorum functions
+New API that only accepts the typed view:
+
+#+BEGIN_SRC ocaml
+let is_quorum_reached_active ~cluster_size (state : _ active_proposer_state) : quorum_result =
+  match state with
+  | WaitingForPromises wfp -> is_quorum_reached_on_promise_wait cluster_size wfp
+  | ProposerAccepting pa -> is_quorum_reached_on_proposer_accepting_wait cluster_size pa
+#+END_SRC
+
+***** Migration strategy (incremental)
+1. Add the GADT type(s) and the bridge converter(s).
+2. Add =is_quorum_reached_active= alongside the old =is_quorum_reached= (keep old API for now).
+3. Replace call-sites incrementally:
+   - pattern: ``match active_proposer_of rs.proposer with | Some aps -> is_quorum_reached_active ~cluster_size aps | None -> (* old behavior or ignore *)``
+4. Once all call-sites use typed views, remove the old runtime-checked =is_quorum_reached= and any remaining =failwith= cases.
+5. Optional: consider a fully typed internal ==node_state== GADT only if you are ready to write custom serializers.
+
+***** Advantages
+- Preserve =[@@deriving sexp]= for dumping/loading state.
+- Gain compile-time safety for critical operations.
+- Minimal, incremental changes; compiler guides the migration.
+
 
 
 *** TODO Implementation v1 (with async frameworks) [optional -- out of scope for this sprint]
@@ -4982,11 +5226,11 @@ I want to be able to communicate some aspects of the following things:
 DEADLINE: <2025-11-01 Sat 22:00>
 — produce blog-style README + literate trace
 
-From a reader's perspective, I'd like them to first-land on the unabridged versions and then choose whether they want depth or they want abgridged parts.
++From a reader's perspective, I'd like them to first land on the unabridged versions and then choose whether they want depth or they want abgridged parts.+
 
 The blog posts will be living posts that will be continually updated as I get feedback from others, this should give me the freedom to iterate on its quality before I actually do some marketing on it and publish it on more public forums for even more feedback and test out the usefulness of the project as a teaching tool.
 
-In fact many of the things that I wish to talk about should be blog posts of their own e.g. "why emacs changed my life" but I can see some of these write ups I'll do as a jump-gate into those blog posts in the future.
+In fact, many of the things that I wish to talk about should be blog posts of their own e.g. "why emacs changed my life" but I can see some of these write ups I'll do as a jump-gate into those blog posts in the future.
 
 *** Possible Writeups
 **** Write up 1: Retro: Beauty of OCaml -- Problem Scope Of Distributed Computing

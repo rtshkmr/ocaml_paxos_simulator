@@ -28,7 +28,11 @@
   yojson
   re
   ppx_deriving_yojson
-  ppx_jane)
+  ppx_jane
+  (ocaml-lsp-server :with-dev)
+  (merlin :with-dev)
+  (ocamlformat :with-dev)
+  (utop :with-dev))
  (tags
   ("distributed" "consensus" "ocaml" "paxos" "learning")))
 

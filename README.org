@@ -29,14 +29,17 @@ For folks who are trying OCaml for the first time, there's 3 steps to take:
 
 2. Update your =PATH= variable and reload your shell.
 
-   You'll need to be able to access =opam= and =dune=. Follow the instructions that =make setup= provides.
+   Follow the instructions that =make setup= provides at the end of its run. Some common sources of error:
 
-   Remember to reload the shell (either by restarting your terminal or sourcing your config file e.g. =source ~/.zshrc=)
+   * Remember to reload the shell (either by restarting your terminal or sourcing your config file e.g. =source ~/.zshrc=).
+
+   * You'll need to be able to access =opam= and =dune= from your shell, updating the =PATH= variable will allow you to do so. If you call =which opam=, it should point you to when =opam= has been placed.
+
+   * Remember to set your =opam switch= to the local switch. Calling =which dune= and =which ocaml= should be showing locations within the local opam switch.
 
 3. Run =make magic=!
-
    It will:
-   - check =opam= / =dune= are installed
+   - check =opam= / =dune= are accessible
    - activates local opam switch
    - builds the project incrementally
    - runs simulators with the flags you supply it

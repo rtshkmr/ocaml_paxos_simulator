@@ -29,9 +29,6 @@ open Base
 open Types
 open Log
 
-(** Module type for a polymorphic type with a higher-kinded type parameter ['a t]
-    ['a] is a higher-kinded type here. It needs to be fully applied for it to be used by a functor.
-*)
 module type S = sig
   type 'a t
 
@@ -72,6 +69,37 @@ module type S = sig
 end
 
 module Event_bus : S = struct
+  (**
+  Polymorphic in-process pub/sub message broker for deterministic simulation.
+
+  {b Design:}
+  - Synchronous publish/subscribe for v0 (no concurrency)
+  - Type-generic: ['a t] carries messages of type ['a]
+  - Subscription handles allow explicit unsubscribe
+  - Buffered enqueue/drain pattern enables deterministic message delivery
+
+  {b Typical usage:}
+  {[
+    (* Create a broker for string messages *)
+    let bus = Event_bus.create ~payload_to_string:String.to_string in
+
+    (* Subscribe a handler *)
+    let handle = Event_bus.subscribe bus ~topic:MyTopic
+                   ~node_id:1 ~node_alias:"alice"
+                   (fun msg -> handle_message msg) in
+
+    (* Enqueue messages (batched) *)
+    Event_bus.enqueue bus ~alias:"alice" ((MyTopic, None), my_msg);
+
+    (* Flush batch atomically *)
+    Event_bus.drain bus
+  ]}
+
+  {b Future-proofing:}
+  The synchronous API can be replaced with Lwt/Async later without
+  changing client code, as long as drain becomes awaitable.
+*)
+
   (** sub_handle is the type for what a subscription handle looks like.
       -  [id] here refers to a subscription id (arbitrary for now)
   *)
@@ -221,16 +249,16 @@ module Event_bus : S = struct
   let stats {topics; _} =
     Hashtbl.to_alist topics
     |> List.map ~f:(fun (topic, {subs; published; delivered; queued}) ->
-           (topic, (Hashtbl.length subs, published, delivered, queued)) )
+        (topic, (Hashtbl.length subs, published, delivered, queued)) )
 
   let topic_stats {topics; _} =
     Hashtbl.to_alist topics
     |> List.map ~f:(fun (topic, {subs; published; delivered; queued}) ->
-           let subscribers = Hashtbl.length subs in
-           let topic_stat : Log_types.Log_event.topic_stat =
-             {topic; subscribers; published; delivered; queued}
-           in
-           topic_stat )
+        let subscribers = Hashtbl.length subs in
+        let topic_stat : Log_types.Log_event.topic_stat =
+          {topic; subscribers; published; delivered; queued}
+        in
+        topic_stat )
 
   let display_stats t =
     Logger.inspect_bus_stats ~bus_id:t.id ~topic_stats:(topic_stats t) t.logger

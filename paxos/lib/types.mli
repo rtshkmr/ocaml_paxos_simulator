@@ -1,13 +1,14 @@
 open Base
 
 (**
-  Core, shared primitive types for the Paxos implementation.
+  Core, shared primitive types for the whole system.
 
   Intent:
   - Provide canonical definitions for node identifiers and proposal identifiers.
-  - Offer a canonical comparator / hashable module for proposal ids to be used
-    as map/set keys. This is done using ppx annotations for its ergonomics
-  - Keep this module minimal and stable: other interfaces will refer to it.
+
+    All of these are comparable and hashable, they may be used as keys for containers like map/set
+
+  - We keep this module minimal and stable: other interfaces will refer to it.
 *)
 module Types : sig
   type node_id = int [@@deriving sexp, compare, equal, hash, yojson]

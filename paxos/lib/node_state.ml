@@ -4,58 +4,71 @@ open Types
 module type S = sig
   module V : Value.S
 
-  (** NOTE [semantics]: this is named [assertion] in the context of the paxos protocol in that:
-     - peer nodes assert on what they think the value (the state that we desire to seek consensus on) will be
+  (** In Paxos, an [assertion] is a proposed value paired with a proposal ID.
+      It represents what a proposer believes the chosen value should be.
      - the word "assertion" is unrelated to the programming construct "assertion"
+
   *)
   type assertion = V.t Types.paxos_assertion_state [@@deriving sexp, yojson]
 
-  (** NOTE [semantics]: this is named [promise] in the context of the paxos protocol in that:
-     - acceptors receive promises on what the value (the state that we desire to seek consensus on) will be
-      - a promise is a possible assertion. That's why it's optional.*)
+  (** A [promise] is the acceptor’s Phase 1 response: either a highest-seen
+      proposal/accepted value or [None] if it has no prior record. *)
   type promise = V.t Types.paxos_promise [@@deriving sexp, yojson]
 
+  (** Negative acknowledgment containing the rejected assertion and a “hint”
+      (the acceptor’s highest promise) that the proposer may use to reattempt. *)
   type nack = {rejected_assertion: assertion; hint: promise}
   [@@deriving sexp, yojson]
 
+  (** The acceptor's persistent record of:
+      - the highest proposal it has promised not to contradict
+      - the value it last accepted (Phase 2 of Paxos Protocol) *)
   type acceptor_record = {promised: promise; accepted: promise}
   [@@deriving sexp, yojson]
 
+  (** State for a proposer actively collecting Phase 1 responses. *)
   type waiting_for_promise_state =
     { assertion: assertion
     ; promises_received: promise list
     ; nacks_received: nack list }
   [@@deriving sexp, yojson]
 
+  (** State for a proposer actively collecting Phase 2 acknowledgments. *)
   type proposer_accepting_state =
     {assertion: assertion; acks: Types.node_id list; nacks_received: nack list}
   [@@deriving sexp, yojson]
 
+  (** States for the proposer role. *)
   type proposer_state =
     | ProposerInactive
-        (** this state encodes it's unavailability. When a node is inactivated, it is effectively killed -- it must look to its storage to resume partitipation thereafter *)
-    | Idle
-        (** An node may be idle to indicate that it can be a valid participant (by initiating a proposal)*)
-    | Preparing of assertion
-        (** A node that is initiating a proposal will be in the preparing state.*)
+        (** Node is unavailable; proposer cannot act until restored. *)
+    | Idle  (** Proposer is available and may initiate Phase 1. *)
+    | Preparing of assertion  (** Proposer has begun Phase 1. *)
     | WaitingForPromises of waiting_for_promise_state
-        (** A node that is gathering responses to their proposal and is waiting to reach a quorum of responses.*)
+        (** Proposer is waiting for a quorum of Phase 1 responses. *)
     | ProposerAccepting of proposer_accepting_state
-        (** A node that has suggested *)
-    | Decided of V.t
-        (** A node that has decided on the value that consensus has been achieved for*)
+        (** Proposer has entered Phase 2 and is collecting acceptances. *)
+    | Decided of V.t  (** Proposer has reached a chosen value. *)
   [@@deriving sexp, yojson]
 
-  type acceptor_state = AcceptorInactive | Idle | Accepting of acceptor_record
+  (** States for the acceptor role. *)
+  type acceptor_state =
+    | AcceptorInactive
+    | Idle  (** Acceptor has no promises or accepted values. *)
+    | Accepting of acceptor_record
+        (** Acceptor tracks its promised and accepted data. *)
   [@@deriving sexp, yojson]
 
+  (** States for the learner role. *)
   type learner_state = Learned of assertion list [@@deriving sexp, yojson]
 
+  (** Complete state of all three roles. *)
   type role_state =
     {proposer: proposer_state; acceptor: acceptor_state; learner: learner_state}
   [@@deriving sexp, yojson]
 
   val is_inactive : role_state -> bool
+  (** Whether the node is inactive in either the proposer or acceptor role. *)
 
   type _ role_selector =
     | Proposer : proposer_state role_selector
@@ -202,13 +215,13 @@ module Make_node_state (V : Value.S) = struct
   let select_highest_accepted ~(default : assertion) (promises : promise list) =
     promises
     |> List.fold ~init:default ~f:(fun best promise ->
-           match promise with
-           | None ->
-               best
-           | Some ({proposal; _} as accepted) ->
-               if Types.compare_proposal_id proposal best.proposal > 0 then
-                 accepted
-               else best )
+        match promise with
+        | None ->
+            best
+        | Some ({proposal; _} as accepted) ->
+            if Types.compare_proposal_id proposal best.proposal > 0 then
+              accepted
+            else best )
 
   let current_promise ({acceptor; _} : role_state) =
     match acceptor with
@@ -282,7 +295,7 @@ module Make_node_state (V : Value.S) = struct
     (* NOTE [INVARIANT] : when checking for acceptable suggestion, the node would have had granted permission prior in phase 1 of the paxos protocol *)
     role_state |> current_promise |> Option.value_exn
     |> fun ({proposal= promised_proposal; _} : V.t Types.paxos_assertion_state)
-       -> Types.compare_proposal_id proposal promised_proposal >= 0
+    -> Types.compare_proposal_id proposal promised_proposal >= 0
 
   type acceptor_record_spec =
     {promised: V.t Types.promise_spec; accepted: V.t Types.promise_spec}

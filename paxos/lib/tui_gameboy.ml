@@ -2,6 +2,13 @@ open Base
 open Log_types
 module F = Ansi.Formatter
 
+(**
+  GameBoy TUI
+
+  {b Purpose: }
+  A compact textual UI inspired by GameBoy layout constraints. Renders the current
+  simulator state into an ASCII/box-drawing display for compact storytelling in terminals.
+*)
 module Gameboy_ui : Ui.S = struct
   type box_chars =
     {tl: string; tr: string; bl: string; br: string; h: string; v: string}
@@ -340,7 +347,7 @@ module Gameboy_ui : Ui.S = struct
           let centered = F.center_text m in
           String.split_lines centered
           |> List.map ~f:(fun line ->
-                 line |> bg_color |> fg_color |> F.bold |> center_colored )
+              line |> bg_color |> fg_color |> F.bold |> center_colored )
     in
     String.concat ~sep:"\n"
       ([line_burst (); sim_label; line_burst ()] @ msg_lines @ [line_burst ()])

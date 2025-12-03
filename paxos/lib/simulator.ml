@@ -9,6 +9,8 @@ IMPROVEMENT CONSIDERATIONS:
    - currently, I'm just calling all *_exn functions dangerously to make failures more visible.
 
 2. use of `ignore` is likely a code smell here. the use of ignore suggests we're calling a function for its side effects but not utilising the result. If the result isn't necessary, we should consider adjusting the function signature to return unit instead of a value to make this more explicit.
+
+3. there's a huge code smell in the form of using [failwith] because this will error out immediately. My intent was to just let it be so all errors bubble up and it's faster for me to rudimentarily check correctness, but seemsl like I should have just gone with Result struct wrapping from the beginning.
 *)
 open Base
 open Time
@@ -21,7 +23,48 @@ open Types
 open Log
 
 (**
-  Implements the Runtime interface using a discrete-time event scheduler.
+  Discrete-time deterministic simulator for Paxos protocol testing.
+
+  {b Simulation model:}
+  - Logical time advances in discrete ticks (not wall-clock)
+  - Event scheduler holds timed actions (node proposals, faults, metrics)
+  - Each tick: pop due events → execute → drain buses → tick clock
+  - Fully deterministic: same seed + scenario = same trace
+
+  {b Partitioning:}
+  Nodes belong to partitions (network islands). Each partition has its own bus.
+  Nodes in different partitions cannot communicate (simulates network split).
+  {[
+    (* Move node 3 from partition 1 to partition 2 *)
+    move_node_to_partition_exn sim ~dest:2 node_id:3
+  ]}
+
+  {b Control flow:}
+  {v
+    ┌────────────┐
+    │  Scenario  │ (JSON config)
+    └─────┬──────┘
+          │ hydrate
+          ▼
+    ┌────────────┐      ┌──────────────┐
+    │ Simulator  ├─────►│EventScheduler│
+    │            │      └──────┬───────┘
+    │  - Nodes   │             │ pop due events
+    │  - Partns  │◄────────────┘
+    │  - Clock   │
+    └─────┬──────┘
+          │ tick
+          ▼ drain buses → deliver messages
+  v}
+
+  {b REPL commands:}
+  - [space] = pause
+  - [r] = resume
+  - [q] = quit
+  - [/inspect/sim/state] = dump partitions + nodes
+  - [/inspect/node/state/<alias>] = dump FSM state
+
+  See bin/simulation.ml for entry point.
 *)
 module Simulator : Runtime.S = struct
   module V = Value_string.Value_string
@@ -92,7 +135,7 @@ module Simulator : Runtime.S = struct
     in
     partition_registry |> Hashtbl.data
     |> List.iter ~f:(fun ({bus; _} : partition) ->
-           msg |> Event_bus.publish_broadcast bus ~topic:Types.Time )
+        msg |> Event_bus.publish_broadcast bus ~topic:Types.Time )
 
   let drain_buses {registries= {partition_registry; _}; _} =
     partition_registry |> Hashtbl.data
@@ -104,8 +147,8 @@ module Simulator : Runtime.S = struct
     now
     |> Event_scheduler.pop_due_events !scheduler
     |> List.iter ~f:(fun ev ->
-           ev.action () ;
-           List.iter !event_callbacks ~f:(fun cb -> cb ev) ) ;
+        ev.action () ;
+        List.iter !event_callbacks ~f:(fun cb -> cb ev) ) ;
     sim |> drain_buses ;
     clock |> Time.tick ;
     sim |> dispatch_heartbeat
@@ -185,7 +228,7 @@ module Simulator : Runtime.S = struct
     let {id= partition_id; _} =
       dest
       |> Hashtbl.find_or_add partition_registry ~default:(fun () ->
-             partition_id_counter |> Counter.next |> create_partition )
+          partition_id_counter |> Counter.next |> create_partition )
     in
     node |> add_node_to_partition_exn sim ~partition_id
 
@@ -311,7 +354,7 @@ module Simulator : Runtime.S = struct
          fun () ->
           partition_registry |> Hashtbl.data
           |> List.iter ~f:(fun ({bus; _} : partition) ->
-                 Event_bus.display_stats bus )
+              Event_bus.display_stats bus )
         in
         { Sim_event.id= Option.value id ~default:(next_event_id sim)
         ; time
@@ -430,15 +473,14 @@ module Simulator : Runtime.S = struct
     let lines =
       partition_registry |> Hashtbl.to_alist
       |> List.map ~f:(fun (_partition_id, {id; member_node_ids; bus; _}) ->
-             let member_count = Set.length member_node_ids in
-             let bus_id = Event_bus.id_of bus in
-             let member_ids =
-               member_node_ids |> Set.to_list |> List.map ~f:Int.to_string
-               |> String.concat ~sep:", "
-             in
-             Printf.sprintf
-               "Partition %d: %d nodes [%s] communicating on bus %d" id
-               member_count member_ids bus_id )
+          let member_count = Set.length member_node_ids in
+          let bus_id = Event_bus.id_of bus in
+          let member_ids =
+            member_node_ids |> Set.to_list |> List.map ~f:Int.to_string
+            |> String.concat ~sep:", "
+          in
+          Printf.sprintf "Partition %d: %d nodes [%s] communicating on bus %d"
+            id member_count member_ids bus_id )
     in
     if List.is_empty lines then "No partitions"
     else String.concat ~sep:"\n" lines
@@ -447,8 +489,8 @@ module Simulator : Runtime.S = struct
     let lines =
       node_registry |> Hashtbl.to_alist
       |> List.map ~f:(fun (node_id, node) ->
-             let alias = N.alias_of node in
-             Printf.sprintf "Node %d (%s)" node_id alias )
+          let alias = N.alias_of node in
+          Printf.sprintf "Node %d (%s)" node_id alias )
     in
     if List.is_empty lines then "No nodes" else String.concat ~sep:"\n" lines
 

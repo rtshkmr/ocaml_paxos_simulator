@@ -1,24 +1,10 @@
 (*
 IMPROVEMENT CONSIDERATIONS:
 ===========================
-1. transition role state to be broken up into things with separate concerns
+1. use GADTs better
 2. most imporantly, this feels like a godclass.
    It's doing a bunch of things that we could break into different submodules for:
-    a) The typed Paxos state machine
-    b) Subscriptions and bus wiring
-    c) Logging
-    d) I/O (snapshots)
-    e) Protocol handlers
-    f) Simulation control logic
-    g) Activation & storage lifecycle
-    h) Node construction
-    i) Operational helper plumbing (id, alias, role_of_str)
-    j) Message creation (proposal/suggestion wrappers)
-    k) Node-level FSM transitions
-    l) Time/heartbeat handlers
-    m) Assertions/printing utilities
-
-    I think a good end state in the medium term for the node.ml should be to be responsible for:
+   I think a good end state in the medium term for the node.ml should be to be responsible for it to be broken down into:
       1. Logging
       2. Routing
       3. Message formatting
@@ -33,7 +19,6 @@ IMPROVEMENT CONSIDERATIONS:
 5. ref notes in docs/planning.org on skipped task Search for "separate pure FSM logic from node-level effects" subtree.
 *)
 open Base
-open Event_bus
 open Types
 open Message
 open Log
@@ -45,9 +30,7 @@ open Make_file_storage
 module type S = sig
   module V : Value.S
 
-  module Bus : sig
-    include module type of Event_bus
-  end
+  module Bus : Event_bus.S
 
   module State : Node_state.S
 
@@ -122,11 +105,8 @@ module type S = sig
   val dump_spec : t -> string
 end
 
-module Make_node
-    (V : Value.S)
-    (Bus : sig
-      include module type of Event_bus
-    end) : S with module V = V with module Bus = Bus = struct
+module Make_node (V : Value.S) (Bus : Event_bus.S) :
+  S with module V = V with module Bus = Bus = struct
   module V = V
   module Bus = Bus
   module State = Make_node_state (V)
@@ -607,7 +587,7 @@ module Make_node
           d |> handle_decided node
       | _ ->
           failwith
-            "We can only cooordinate if we receive a coordination message." )
+            "We can only coordinate if we receive a coordination message." )
 
   (* TODO [quality] we can make this into a frozen hashtable of functions, similar to hydration here. *)
   let handle_simulation_control ({id; alias; state; logger; _} as node : t)
@@ -645,8 +625,7 @@ module Make_node
         ()
 
   (** this allows us to choose handlers based on the topic *)
-  let get_handler_for_topic node topic : V.t Event_bus.bus_registrable_callback
-      =
+  let get_handler_for_topic node topic : V.t Bus.bus_registrable_callback =
     let log_msg =
       Printf.sprintf "trace @ [%s|(node %d)] for topic=(%s)" node.alias node.id
         (topic |> Types.topic_to_str)
@@ -675,12 +654,12 @@ module Make_node
           callback |> Bus.subscribe bus ~topic ~node_id ~node_alias
         in
         ( match Hashtbl.find subs topic with
-        | Some table ->
-            table
-        | None ->
-            let table = Hashtbl.Poly.create () in
-            Hashtbl.add_exn subs ~key:topic ~data:table ;
-            table )
+          | Some table ->
+              table
+          | None ->
+              let table = Hashtbl.Poly.create () in
+              Hashtbl.add_exn subs ~key:topic ~data:table ;
+              table )
         |> Hashtbl.add_exn ~key:subscription_handle ~data:bus ) ;
     node
 
@@ -696,7 +675,7 @@ module Make_node
             in
             let key_dump =
               keys_to_remove
-              |> List.map ~f:Event_bus.sexp_of_sub_handle
+              |> List.map ~f:Bus.sexp_of_sub_handle
               |> List.map ~f:Sexp.to_string_hum
               |> String.concat ~sep:","
             in
