@@ -1,208 +1,152 @@
-module LogFormatter = struct
-  open Color.Color
-  open Types
-  open Base
-  open Core.Time_float
+open Base
+open Log_types
 
-  let get_terminal_width () =
-    let open Stdio in
-    let ic = Unix.open_process_in "tput cols" in
-    try
-      let line = Option.value (In_channel.input_line ic) ~default:"80" in
-      ignore (Unix.close_process_in ic) ;
-      Int.of_string line
-    with _ -> 80
+module Logging_backend = struct
+  type t = Stdout | Silent | Custom of (string -> unit)
 
-  let center_string_in_terminal s =
-    let width = get_terminal_width () in
-    let len = String.length s in
-    let pad = Int.max 0 ((width - len) / 2) in
-    String.make pad ' ' ^ s
-
-  let format_subroutine_flow routine_name msg =
-    let open Printf in
-    let routine_tag = sprintf "(%s)" routine_name |> yellow |> italic in
-    sprintf "|>---[%s] {##%s##}" routine_tag msg
-
-  let format_tick_msg timestamp ?(msg = "") () =
-    (* Format local current time as ISO8601 *)
-    let msg_str = msg |> italic in
-    let iso_time_str =
-      to_string_abs ~zone:(Zone.of_utc_offset ~hours:8) (now ())
-      |> String.strip |> italic
-    in
-    timestamp
-    |> fun curr_tick_str ->
-    Printf.sprintf "\n\n\t\t\t\t[Clock:Tick %s] --- realtime = %s" curr_tick_str
-      iso_time_str
-    |> bright_green |> bold |> underline |> center_string_in_terminal
-    |> fun tick_tag -> tick_tag ^ "\n\t\t\t\t" ^ msg_str
-
-  (* Role tag formatters *)
-
-  let role_tag node_id role_str =
-    Printf.sprintf "[Node%3d::Role::%s]" node_id role_str |> blue |> bold
-
-  let acceptor_tag node_id = "Acceptor" |> role_tag node_id
-
-  let proposer_tag node_id = "Proposer" |> role_tag node_id
-
-  let learner_tag node_id = "Learner" |> role_tag node_id
-
-  (* Reaction style: italic *)
-  let reaction msg = msg |> italic
-
-  (* Decision style: dim blue italic *)
-  let decision msg = msg |> blue |> dim |> italic
-
-  (* Reusable formatter building functions: *)
-  let header_tag tag header_color =
-    let width = get_terminal_width () in
-    let header_msg = tag |> bg_white |> header_color |> bold in
-    let header = String.make width '-' |> header_color |> bold in
-    (header_msg, header)
-
-  let format_topic color topic =
-    topic |> Types.sexp_of_topic
-    |> Sexp.to_string_hum ~indent:1
-    |> bold |> color
-
-  let publish_broadcast topic payload =
-    let header_msg, header = header_tag "[PUBLISH_BROADCAST]" red in
-    let topic_str = format_topic red topic in
-    Printf.sprintf "%s\n%s via topic %s:\n%s\n%s" header header_msg topic_str
-      payload header
-
-  let publish_unicast node_id topic payload =
-    let label =
-      Printf.sprintf "[PUBLISH_UNICAST] Target Node ID = %d" node_id
-    in
-    let header_msg, header = header_tag label magenta in
-    let topic_str = format_topic magenta topic in
-    Printf.sprintf "%s\n%s via topic %s:\n%s\n%s" header header_msg topic_str
-      payload header
-
-  let subscribe topic node_id subscription_id =
-    let topic_str = Types.sexp_of_topic topic |> Sexp.to_string_hum ~indent:1 in
-    let tag =
-      Printf.sprintf "<node[%d]::Subscribed @ %s>" node_id topic_str
-      |> green |> bold
-    in
-    Printf.sprintf "%s\n\ttopic=%s, node_id=%d, subscription_id=%d" tag
-      topic_str node_id subscription_id
-
-  let unsubscribe topic node_id subscription_id =
-    let topic_str = Types.sexp_of_topic topic |> Sexp.to_string_hum ~indent:1 in
-    Printf.sprintf
-      "< --- Unsubscribed --- >:\n  topic=%s, node_id=%d, subscription_id=%d"
-      topic_str node_id subscription_id
-    |> red |> bold
-
-  let enqueue topic queue_size =
-    let topic_str =
-      topic |> Types.sexp_of_topic
-      |> Sexp.to_string_hum ~indent:1
-      |> cyan |> bold
-    in
-    let header = "[event_bus::ENQUEUE]" |> yellow |> underline |> bold in
-    Printf.sprintf "%s Enqueued message, queue size now %s for topic %s" header
-      (Int.to_string queue_size |> magenta)
-      topic_str
-
-  let drain_start batch_size =
-    let header = "[event_bus::DRAIN_START]" |> bright_blue |> bold in
-    Printf.sprintf "%s Starting to drain a snapshotted queue of %s messages..."
-      header
-      (Int.to_string batch_size |> magenta |> bold)
-    |> underline
-
-  let drain_end () =
-    "[event_bus::DRAIN_END] Finished draining queue." |> bright_blue |> bold
-    |> underline
-
-  let print_stats () =
-    "[event_bus::STATS] Printing statistics..." |> blue |> bold
-
-  let format_node_state_change node_id old_state_str new_state_str =
-    Printf.sprintf "Node %d changed state from \n%s\n\t\t-----to-------\n%s\n%!"
-      node_id old_state_str new_state_str
-
-  (* Unified record type for composability *)
-  type 'a formatters =
-    { publish_broadcast: Types.topic -> string -> string
-    ; publish_unicast: Types.node_id -> Types.topic -> string -> string
-    ; subscribe: Types.topic -> int -> int -> string
-    ; unsubscribe: Types.topic -> int -> int -> string
-    ; enqueue: Types.topic -> int -> string
-    ; drain_start: int -> string
-    ; drain_end: unit -> string
-    ; format_tick_msg: string -> ?msg:string -> unit -> string
-    ; format_subroutine_flow: string -> string -> string
-    ; decision: string -> string
-    ; reaction: string -> string
-    ; format_node_state_change: int -> string -> string -> string
-    ; print_stats: unit -> string }
-
-  let make () : 'a formatters =
-    { publish_broadcast
-    ; publish_unicast
-    ; subscribe
-    ; unsubscribe
-    ; enqueue
-    ; drain_start
-    ; drain_end
-    ; format_tick_msg
-    ; format_subroutine_flow
-    ; decision
-    ; reaction
-    ; format_node_state_change
-    ; print_stats }
+  let emit ~backend s =
+    match backend with
+    | Stdout ->
+        Stdio.print_endline s
+    | Silent ->
+        ()
+    | Custom f ->
+        f s
 end
 
 module Logger = struct
-  open Stdio
+  type ui_type = Legacy | Gameboy
 
-  type 'a t = {formatters: 'a LogFormatter.formatters}
+  type t =
+    { mutable level: Log_level.t
+    ; mutable backend: Logging_backend.t
+    ; mutable ui: ui_type
+    ; module_name: string }
 
-  let create () = {formatters= LogFormatter.make ()}
+  let create ?(level = Log_level.Info) ?(backend = Logging_backend.Stdout)
+      ?(ui = Gameboy) module_name () =
+    {level; backend; module_name; ui}
 
-  (* Logging actions: always active *)
-  let log_publish_broadcast t topic payload =
-    print_endline (t.formatters.publish_broadcast topic payload)
+  (** TODO [learning, blog] Dynamic dispatch using first class modules?*)
+  let resolve_ui : ui_type -> (module Ui.S) = function
+    | Legacy ->
+        (module Tui_legacy.Legacy_ui)
+    | Gameboy ->
+        (module Tui_gameboy.Gameboy_ui)
 
-  let log_publish_unicast t node_id topic payload =
-    print_endline (t.formatters.publish_unicast node_id topic payload)
+  let set_ui t ui = t.ui <- ui
 
-  let log_subscribe t topic node_id subscription_id =
-    print_endline (t.formatters.subscribe topic node_id subscription_id)
+  let set_level t level = t.level <- level
 
-  let log_unsubscribe t topic node_id subscription_id =
-    print_endline (t.formatters.unsubscribe topic node_id subscription_id)
+  let get_level t = t.level
 
-  let log_enqueue t topic queue_size =
-    print_endline (t.formatters.enqueue topic queue_size)
+  let set_backend t backend = t.backend <- backend
 
-  let log_drain_start t batch_size =
-    print_endline (t.formatters.drain_start batch_size)
+  let emit ?(node_id = None) ?(alias : string option = None)
+      ?(ignore_header = false) t ~level event =
+    if Log_level.should_log ~local_level:level ~global_level:t.level then
+      let entry =
+        Entry.make ~level ~event ?node_id ?alias ~module_name:t.module_name ()
+      in
+      let module UI = (val resolve_ui t.ui : Ui.S) in
+      entry
+      |> UI.format_entry ~ignore_header
+      |> Logging_backend.emit ~backend:t.backend
 
-  let log_drain_end t = print_endline (t.formatters.drain_end ())
+  let publish_broadcast ~bus_id ?node_id ?alias t ~topic_s ~payload =
+    emit ?node_id ?alias t ~level:Info
+      (Log_event.Publish_broadcast {bus_id; topic_s; payload})
 
-  let log_stats_header t = print_endline (t.formatters.print_stats ())
+  let publish_unicast ~bus_id ?node_id ?alias t ~target_node ~topic_s ~payload =
+    let sender_id_s = Option.map node_id ~f:Int.to_string in
+    emit ~node_id ~alias t ~level:Info
+      (Log_event.Publish_unicast
+         { bus_id
+         ; sender_id_s
+         ; sender_alias= alias
+         ; target_node
+         ; topic_s
+         ; payload } )
 
-  let log_event_bus_stats t stats_dump =
-    log_stats_header t ; print_endline stats_dump
+  let subscribe ~node_id ~node_alias t ~bus_id ~topic_s ~sub_id =
+    emit ~node_id:(Some node_id) ~alias:(Some node_alias) t ~level:Debug
+      (Log_event.Subscribe {bus_id; topic_s; alias= node_alias; node_id; sub_id})
 
-  let log_tick t ?(msg = "") timestamp () =
-    print_endline (t.formatters.format_tick_msg timestamp ~msg ())
+  let unsubscribe ~node_id ~alias t ~bus_id ~topic_s ~sub_id =
+    emit ~node_id:(Some node_id) ~alias:(Some alias) t ~level:Debug
+      (Log_event.Unsubscribe {bus_id; topic_s; alias; node_id; sub_id})
 
-  let log_subroutine_flow t subroutine ?(msg = "") () =
-    print_endline (t.formatters.format_subroutine_flow subroutine msg)
+  let enqueue ~bus_id ?node_id t ~topic_s ~queue_size ~alias =
+    emit ?node_id ~alias:(Some alias) t ~level:Info
+      (Log_event.Enqueue {bus_id; topic_s; queue_size; alias})
 
-  let log_decision t msg = print_endline (t.formatters.decision msg)
+  let drain_start ~bus_id ?node_id ?alias t ~batch_size =
+    emit ?node_id ?alias t ~level:Debug
+      (Log_event.Drain_start {bus_id; batch_size})
 
-  let log_reaction t msg = print_endline (t.formatters.reaction msg)
+  let drain_end ~bus_id ~batch_size ?node_id ?alias t =
+    emit ?node_id ?alias t ~level:Debug
+      (Log_event.Drain_end {bus_id; batch_size})
 
-  let log_node_state_change t node_id old_state_str new_state_str =
-    t.formatters.format_node_state_change node_id old_state_str new_state_str
-    |> print_endline
+  let tick ?node_id ?alias t ~timestamp ?(msg = "") () =
+    emit ?node_id ?alias t ~level:Info
+      (Log_event.Tick {tick= timestamp; msg= Some msg})
+
+  let subroutine_flow ?node_id ?alias t ~routine ?(msg = "") () =
+    emit ~node_id ~alias t ~ignore_header:true ~level:Debug
+      (Log_event.Subroutine_flow {routine; msg= Some msg; node_id; alias})
+
+  let decision ?node_id ?alias t ~msg =
+    emit ~node_id ~alias t ~level:Info (Log_event.Decision {alias; node_id; msg})
+
+  let reaction ?node_id ?alias t ~msg =
+    emit ~node_id ~alias t ~level:Info (Log_event.Reaction {alias; node_id; msg})
+
+  let node_state_change ~node_id ?alias t ~old_state ~new_state =
+    emit ~node_id:(Some node_id) ~alias t ~level:Debug
+      (Log_event.Node_state_change {alias; node_id; old_state; new_state})
+
+  let display_scenario_preamble ~scenario_name ~preamble t =
+    {scenario_name; preamble} |> Log_event.Display_scenario_preamble
+    |> Log_event.Display
+    |> emit ~ignore_header:true t ~level:Info
+
+  let display_narration ~time ~narration t =
+    {time; narration} |> Log_event.Narration |> Log_event.Display
+    |> emit t ~level:Info ~ignore_header:true
+
+  let slash_cmd_help t =
+    Log_event.Help |> Log_event.Inspection |> emit t ~level:Info
+
+  let inspect_sim_state t ~time ~partitions ~nodes =
+    {time; partitions; nodes} |> Log_event.Sim_state |> Log_event.Sim_inspection
+    |> Log_event.Inspection |> emit t ~level:Info
+
+  let inspect_node_state t ~node_id ~alias ~dump =
+    {alias; node_id; dump} |> Log_event.Node_state |> Log_event.Node_inspection
+    |> Log_event.Inspection |> emit t ~level:Info
+
+  let inspect_node_config ~node_id ~alias t ~dump =
+    {alias; node_id; dump} |> Log_event.Node_config |> Log_event.Node_inspection
+    |> Log_event.Inspection |> emit t ~level:Info
+
+  let inspect_bus_stats ~bus_id
+      ~(topic_stats : Log_types.Log_event.topic_stat list) t =
+    {bus_id; topic_stats} |> Log_event.Bus_stats |> Log_event.Bus_inspection
+    |> Log_event.Inspection |> emit t ~level:Info
+
+  let log_proposal_action ~id ~alias ~assertion t =
+    {proposer_id= id; proposer_alias= alias; assertion}
+    |> Log_event.Propose |> Log_event.Paxos_action |> emit t ~level:Info
+
+  let log_suggestion_action ~id ~alias ~assertion t =
+    {proposer_id= id; proposer_alias= alias; assertion}
+    |> Log_event.Suggest |> Log_event.Paxos_action |> emit t ~level:Info
+
+  let log_announce_decided_action ~id ~alias ~assertion t =
+    {proposer_id= id; proposer_alias= alias; assertion}
+    |> Log_event.AnnounceDecided |> Log_event.Paxos_action |> emit t ~level:Info
+
+  let other ?node_id ?alias t ~msg =
+    emit ?node_id ?alias t ~level:Info (Log_event.Other msg)
 end

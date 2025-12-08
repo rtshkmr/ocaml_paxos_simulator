@@ -1,227 +1,157 @@
-(**
-    Node abstraction and typed internal state.
-
-    A node simulates a Paxos participant (proposer, acceptor, learner).
-
-    Design notes:
-    - The node is parameterized by the value type ['v]. All messages the node
-      receives and processes are of type ['v Message.t].
-    - The internal State is a small GADT placed inside [Node.State]. The ADT
-      constructors that carry data are polymorphic in ['v] to preserve generality.
-    - We store the ADT inside an existential wrapper so a node record can hold
-      an instance of any state variant while keeping the outer node polymorphic
-      in ['v].
-*)
-
 open Base
 open Types
 open Message
-open Event_bus
+open Log
 
+(**
+  Paxos peer node with concurrent Proposer/Acceptor/Learner roles.
+
+  {b Architecture:}
+  Each node maintains independent FSMs for three roles:
+  - {b Proposer}: Drives consensus (Idle → Preparing → WaitingForPromises →
+    ProposerAccepting → Decided)
+  - {b Acceptor}: Responds to proposals (Idle → Accepting with promises/accepted state)
+  - {b Learner}: Observes decided values (accumulates assertions)
+
+  {b Key invariants:}
+  - Acceptor state persisted on every transition (for crash recovery)
+  - Proposer may suggest only after majority promises
+  - Nodes can be Inactive (simulating partition/crash)
+
+  {b Role concurrency example:}
+  Node A can simultaneously:
+  1. Wait for promises on proposal (5, A) as proposer
+  2. Accept proposal (7, B) as acceptor
+  3. Learn value V from decided messages as learner
+
+  This models real distributed systems where roles aren't mutually exclusive.
+
+  {b Usage:}
+  {[
+    module N = Node.Make_node(MyValue)(Event_bus) in
+    let node = N.of_spec my_spec in
+    let node = N.register_node_with_bus bus node in
+    N.propose ~msg_id:1 ~time:0 ~bus ~assertion node
+  ]}
+
+  See docs/paxos.org for protocol walkthrough.
+*)
 module type S = sig
-  (** The value module determines the concrete type of values used in
-      proposals and messages throughout the node. This is injected as a functor
-      parameter but re-exposed here as a module for internal use to ensure all
-      value-dependent types consistently refer to the same underlying type. *)
+  (** Concrete value type used in Paxos proposals and messages. Re-exposed to
+      ensure all value-dependent components share the same type definition. *)
   module V : Value.S
 
-  (** The storage module provides the persistence backend for acceptor records.
-      Like [V], it is re-exposed here to ensure all internal types using [Storage.t]
-      are consistent with the injected module. *)
-  module Storage : Storage.S
+  (** Event bus providing message-passing facilities for simulation. Its types
+      and operations are re-exposed to maintain correct typing of bus instances. *)
+  module Bus : Event_bus.S
 
-  (** The event bus module provides communication mechanisms. This module includes
-      the generic polymorphic type ['a t] representing buses parameterized by
-      the message type, along with operations on buses. It is re-exposed to
-      accurately type bus usage internally. *)
-  module Bus : sig
-    include module type of Event_bus
-  end
+  module State : Node_state.S
+
+  module Storage : Storage.S with type snapshot_payload = State.role_state
+
+  type t
+
+  val id_of : t -> Types.node_id
+
+  val alias_of : t -> string
+
+  include Has_spec with type t := t
 
   (** Roles a node can play in the Paxos protocol. *)
   type role = Proposer | Acceptor | Learner
 
-  (** A list of [role]s representing the roles assigned to a node. *)
-  type roles = role list
+  val role_of_str : string -> role option
 
-  val role_of_string : string -> role
+  val logger_of : t -> Logger.t
 
-  type assertion = V.t Types.paxos_assertion_state [@@deriving sexp]
+  type assertion [@@deriving sexp]
 
   type promise = assertion option [@@deriving sexp]
 
-  (** Acceptor_record module for local acceptor state snapshot *)
-  module Acceptor_record : sig
-    (** The value a local acceptor holds as part of the Paxos state.
-
-        - [promised] is the highest proposal id this acceptor has promised not to
-          accept proposals less than.
-        - [accepted] is the optional last accepted proposal id and value pair.
-    *)
-    type value = {promised: Types.proposal_id option; accepted: promise}
-    [@@deriving sexp]
-  end
-
-  (** Internal ADT representing the various states of a node during the Paxos
-      consensus process. Each constructor optionally carries data typed using
-      [V.t], ensuring the node's state is parametrically tied to the concrete
-      value type chosen in [V]. *)
-  module State : sig
-    type nack = {rejected_assertion: assertion; hint: promise} [@@deriving sexp]
-
-    type waiting_for_promise_state =
-      { assertion: assertion
-      ; promises_received: promise list
-      ; nacks_received: nack list }
-    [@@deriving sexp]
-
-    type proposer_accepting_state =
-      {assertion: assertion; acks: Types.node_id list; nacks_received: nack list}
-    [@@deriving sexp]
-
-    type proposer_state =
-      | Inactive
-      | Idle
-      | Preparing of assertion
-      | WaitingForPromises of waiting_for_promise_state
-      | ProposerAccepting of proposer_accepting_state
-      | Decided of V.t
-    [@@deriving sexp]
-
-    type acceptor_state = Inactive | Idle | Accepting of Acceptor_record.value
-
-    type learner_state = Learned of V.t option [@@deriving sexp]
-
-    type role_state =
-      { proposer: proposer_state
-      ; acceptor: acceptor_state
-      ; learner: learner_state }
-    [@@deriving sexp]
-
-    val idle_of : unit -> role_state
-
-    val inactive_of : unit -> role_state
-
-    type quorum_result =
-      | NotReached
-      | MajorityNacks of promise
-      | MajorityGrants of assertion
-
-    val is_quorum_reached : role_state -> int -> quorum_result
-  end
-
   (** Configuration for simulation semantics, including mutable cluster_size tracking. *)
-  type simulation_config = {mutable cluster_size: int option ref}
+  type runtime_config = {cluster_size: int ref}
 
   (** Node runtime configuration consisting of simulation settings, assigned roles,
       and a persistence storage backend. The types here are tied to the [Storage]
       module injected. *)
   type config =
-    { simulation: simulation_config
-    ; roles: roles
-    ; storage: Storage.t
-    ; topics: Types.topic list }
+    {runtime: runtime_config; roles: role list; topics: Types.topic list}
 
-  (** Abstract type representing a node instance. Concrete shape is opaque. *)
-  type t
+  val register_node_with_bus : V.t Message.t Bus.t -> t -> t
+  (** Register the node with a bus so it can send and receive messages. *)
 
-  val create :
-       ?state:State.role_state
-    -> id:Types.node_id
-    -> config:config
-    -> bus:V.t Message.t Bus.t
-    -> unit
-    -> t
-  (** [create ~id ~config ~bus ?topics ?state ()] creates a new node.
-      - [id]: unique identifier for the node.
-      - [config]: configuration including roles and storage.
-      - [bus]: event bus for inter-node communication, parametrized over
-        messages of type [V.t Message.t].
-      - [topics]: optional list of topics to subscribe to.
-      - [state]: optional initial internal state of the node.
-
-      Note: The types of [bus] and messages depend on the injected [V] and [Bus]
-      modules, ensuring tight coupling between node messaging and value representation. *)
-
-  val set_node_state : t -> State.role_state -> unit
-  (** Update the internal state of a node. *)
-
-  val roles : t -> roles
-  (** Return the roles assigned to a node. *)
-
-  val state : t -> State.role_state
-  (** Return the current internal state of a node. *)
+  val deregister_node_from_bus : V.t Message.t Bus.t -> t -> t
+  (** Remove the node from a bus, disabling message delivery. *)
 
   val handle_coordination : t -> V.t Message.t -> unit
-  (** Handle a coordination message received by the node. *)
+  (** Handle coordination-layer messages (Paxos protocol messages). *)
 
   val handle_simulation_control : t -> V.t Message.t -> unit
-  (** Handle a simulation control message received by the node. *)
+  (** Handle simulator-level control messages (node activation, deactivation, etc.). *)
 
   val handle_time : t -> V.t Message.t -> unit
+  (** Handle time-step events emitted by the simulator. *)
 
   val propose :
-       t
-    -> msg_id:int
+       msg_id:int
     -> time:int
     -> bus:V.t Message.t Bus.t
-    -> proposal:Types.proposal_id
-    -> value:V.t
+    -> assertion:V.t Types.paxos_assertion_state
+    -> t
     -> unit
+  (** Initiates a proposal. This is a Paxos Phase 1 proposal. *)
 
   val suggest :
        msg_id:int
     -> time:int
     -> bus:V.t Message.t Bus.t
+    -> assertion:V.t Types.paxos_assertion_state
     -> t
-    -> proposal:Types.proposal_id
-    -> value:V.t
     -> unit
+  (** Initiates a suggestion, which is a Paxos Phase 2 suggestion. *)
 
   val sexp_of_role_state : t -> Sexp.t
 
-  val make_config :
-       topics:Types.topic list
-    -> roles:roles
-    -> storage:Storage.t
-    -> cluster_size:int option
-    -> config
-  (** Construct a configuration record for the node.
-      - [roles]: list of roles to assign.
-      - [storage]: storage backend instance.
-      - [cluster_size]: optional cluster_size, must be positive if given. *)
-
-  val make_node_idle :
-       msg_id:int
-    -> time:int
-    -> bus:'a Message.t Bus.t
-    -> 'b
-    -> node_id:int
-    -> unit
-  (** Convenience function to make a node idle in simulation control. *)
-
   val get_cluster_size : t -> int
   (** convenience cluster size getter *)
+
+  type spec =
+    { node_id: int
+    ; node_alias: string
+    ; topic_strs: string list
+    ; initial_cluster_size: int
+    ; initial_state: string option
+    ; storage_config: string option }
+  [@@deriving sexp, yojson]
+
+  val of_spec : spec -> t
+
+  val dump_state : t -> string
+
+  val dump_spec : t -> string
 end
 
-(** The functor for constructing node implementations parameterized by:
+(**
+    The functor for constructing node implementations parameterized by:
     - [V]: the value type (module of type [Value.S])
     - [Storage]: persistence backend for acceptor records (module of type [Storage.S])
     - [Bus]: event bus used for communication (module type extending [Event_bus])
 
-    The functor uses destructive substitution
-    ([with module V := V], etc.) to ensure the output signature's modules and
+    The functor uses sharing constraints
+    ([with module V = V], etc.) to ensure the output signature's modules and
     types are *precisely* tied to the injected modules, avoiding redundant
     declarations and exposing a minimal clean interface.
 
-    This means all usages of [V.t], [Storage.t], and [Bus.t] inside the output
-    signature correspond exactly to the types from the input modules passed to
-    the functor, maintaining strong type consistency and modularity.
+    This means:
+    - (1) all usages of [V.t] and value-dependent types inside the output
+          signature refer exactly to the caller-supplied [V] module;
+    - (2) all event-bus types and operations ([Bus.t], functions, etc.) are
+          shared exactly with the provided [Bus] module, ensuring correct
+          typing of communication across the system;
+
+    All types originating from [V], [Storage], and [Bus] remain
+    strictly consistent between the caller and the node implementation, preserving
+    modularity and avoiding type mismatches.
 *)
-module Make_node : functor
-  (V : Value.S)
-  (Storage : Storage.S)
-  (Bus : sig
-     include module type of Event_bus
-   end)
-  -> S with module V := V with module Storage := Storage with module Bus := Bus
+module Make_node : functor (V : Value.S) (Bus : Event_bus.S) ->
+  S with module V = V with module Bus = Bus

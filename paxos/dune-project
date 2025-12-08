@@ -5,22 +5,35 @@
 (generate_opam_files true)
 
 (source
- (github username/reponame))
+ (github rtshkmr/paxos_ocaml_demo))
 
-(authors "Ritesh Kumar <ritesh@emerald.pink>")
+(authors "Ritesh Kumar <hello@rtshkmr.com>")
 
-(maintainers "Ritesh Kumar <ritesh@emerald.pink>")
+(maintainers "Ritesh Kumar <hello@rtshkmr.com>")
 
-(license LICENSE)
-
-(documentation https://url/to/documentation)
+(license GPL-3.0-only)
 
 (package
  (name paxos)
  (synopsis "Learning paxos algo(s) using ocaml.")
- (description "A summary exercise at the end of a head-first dive into learning ocaml, this package just has some learning examples. ")
- (depends ocaml)
+ (description
+  "A summary exercise at the end of a head-first dive into learning ocaml, this package just has some learning examples")
+ (depends
+  ocaml
+  dune
+  base
+  stdio
+  core
+  core_unix
+  yojson
+  re
+  ppx_deriving_yojson
+  ppx_jane
+  (ocaml-lsp-server :with-dev)
+  (merlin :with-dev)
+  (ocamlformat :with-dev)
+  (utop :with-dev))
  (tags
-  ("add topics" "to describe" your project)))
+  ("distributed" "consensus" "ocaml" "paxos" "learning")))
 
 ; See the complete stanza docs at https://dune.readthedocs.io/en/stable/reference/dune-project/index.html

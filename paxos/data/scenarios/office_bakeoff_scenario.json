@@ -1,0 +1,70 @@
+{
+  "scenario_name": "Office Bakeoff",
+  "preamble": "Fun office bakeoff with nodes going inactive\nand reactivating.\nTesting system resilience and reconfiguration.",
+  "simulator": {
+    "max_ticks": 30
+  },
+  "nodes": [
+    {
+      "node_id": 1,
+      "node_alias": "BakeBoii",
+      "topic_strs": [
+        "Coordination",
+        "Simulation_control",
+        "Time"
+      ],
+      "initial_cluster_size": 3
+    },
+    {
+      "node_id": 2,
+      "node_alias": "PastryGurl",
+      "topic_strs": [
+        "Coordination",
+        "Simulation_control",
+        "Time"
+      ],
+      "initial_cluster_size": 3
+    },
+    {
+      "node_id": 3,
+      "node_alias": "CookieQueen",
+      "topic_strs": [
+        "Coordination",
+        "Simulation_control",
+        "Time"
+      ],
+      "initial_cluster_size": 3
+    }
+  ],
+  "events": [
+    {
+      "time": 2,
+      "kind": "proposal",
+      "target": "BakeBoii",
+      "data": "Office bakeoff starting proposal"
+    },
+    {
+      "time": 3,
+      "kind": "control",
+      "target": "CookieQueen",
+      "data": "deactivate"
+    },
+    {
+      "time": 9,
+      "kind": "control",
+      "target": "CookieQueen",
+      "data": "reactivate"
+    },
+    {
+      "time": 10,
+      "kind": "proposal",
+      "target": "PastryGurl",
+      "data": "PastryGurl makes a late proposal"
+    },
+    {
+      "time": 1,
+      "kind": "metric",
+      "data": "print_bus_stats"
+    }
+  ]
+}

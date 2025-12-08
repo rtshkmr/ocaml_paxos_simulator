@@ -1,0 +1,77 @@
+{
+  "scenario_name": "Basic Scenario",
+  "preamble": "Basic Paxos demonstration scenario.\nConsensus is reached\nwith two nodes simply proposing and agreeing.",
+  "simulator": {
+    "max_ticks": 30
+  },
+  "nodes": [
+    {
+      "node_id": 1,
+      "node_alias": "BakeBoii",
+      "topic_strs": [
+        "Coordination",
+        "Simulation_control",
+        "Time"
+      ],
+      "initial_cluster_size": 2
+    },
+    {
+      "node_id": 2,
+      "node_alias": "PastryGurl",
+      "topic_strs": [
+        "Coordination",
+        "Simulation_control",
+        "Time"
+      ],
+      "initial_cluster_size": 2
+    }
+  ],
+  "events": [
+    {
+      "time": 1,
+      "kind": "narration",
+      "data": "LET'S BEGIN, this is the message that will appear as something that the narrator said."
+    },
+    {
+      "time": 1,
+      "kind": "control",
+      "target": "PastryGurl",
+      "data": "partition",
+      "args": [
+        "2"
+      ]
+    },
+    {
+      "time": 2,
+      "kind": "metric",
+      "target": null,
+      "data": "print_bus_stats"
+    },
+    {
+      "time": 2,
+      "kind": "proposal",
+      "target": "BakeBoii",
+      "data": "Initial proposal from BakeBoii"
+    },
+    {
+      "time": 4,
+      "kind": "control",
+      "target": "PastryGurl",
+      "data": "partition",
+      "args": [
+        "1"
+      ]
+    },
+    {
+      "time": 9,
+      "kind": "proposal",
+      "target": "PastryGurl",
+      "data": "Follow-up proposal from PastryGurl"
+    },
+    {
+      "time": 1,
+      "kind": "metric",
+      "data": "print_bus_stats"
+    }
+  ]
+}

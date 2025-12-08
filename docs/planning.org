@@ -3,7 +3,7 @@
 #+OPTIONS: toc:nil
 #+OPTIONS: H:8
 #+OPTIONS: num:nil
-#+STARTUP: inlineimages
+#+STARTUP: inlineimages show2levels
 #+HTML_HEAD: <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/rtshkmr/dotfiles@main/styles/tufte.css"/>
 #+HTML_HEAD: <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/rtshkmr/dotfiles@main/styles/fonts/Fira_Code_v6.2/fira_code.css"/>
 #+HTML_HEAD: <script src="https://cdn.jsdelivr.net/gh/rtshkmr/dotfiles@main/styles/collapsible.js"></script>
@@ -821,6 +821,7 @@ we won't be doing this, but just to dump it here:
 CLOCK: [2025-10-30 Thu 20:29]--[2025-10-30 Thu 20:43] =>  0:14
 CLOCK: [2025-10-30 Thu 19:30]--[2025-10-30 Thu 20:29] =>  0:59
 :END:
+
 Time should be logical and not absolute. This allows us to have a layer of indirection for time and map it to absolute offsets almost. That layer of indirection would be powerful because then we can add in time-sync (make time go slower, faster w.r.t actual clocks) and perhaps even explore the nuances that time-synchro problems have as this demo-project evolves over time.
 
 I think Simulator should be the owner of time most likely. Ticking should happen there, and there should be a way to manage the time there. I suspect that there's a need to have a separate Time that is distinct in the near future. That timer's responsibility can likely be a logical to absolute converter. In so doing, the rest of the system (simulator, bus, ...) can just be separated from time-keeping duties (?)
@@ -996,7 +997,8 @@ Here's a plausible order of rolling this out:
 6) Use event log to record (message, time) tuples.
 
 7) (optional) Add local clocks to nodes for drift simulation.
-
+***** References
+1. [[https://doc.photonengine.com/fusion/current/concepts-and-patterns/network-simulation-loop][game engine network time simulations]]
 
 *** TODO Design Simulator Interface
 
@@ -1123,10 +1125,13 @@ I think the rough idea for this is that we can have something like a pipeline th
 
 This can be done a towards the end, when we are prettifying things.
 ** Implementation
-*** TODO Basic Instrumentation & Orchestration Code
+*** DONE Basic Instrumentation & Orchestration Code
+CLOSED: [2025-11-18 Tue 23:22]
 :PROPERTIES:
 :EFFORT:   2h
 :END:
+- CLOSING NOTE [2025-11-18 Tue 23:22] \\
+  We've done them all!
 - the driver of the events
 - the setup of the "stubs" or dummy nodes for simulation
 - event logging
@@ -1909,7 +1914,10 @@ This is necessary for the completion of this project because without it, the sim
 
 this part involves adding in the loops we were talking about.
 
-**** TODO Add storage pattern, in-mem -> persistent storage
+**** DONE Add storage pattern, in-mem -> persistent storage
+CLOSED: [2025-11-18 Tue 23:21]
+- CLOSING NOTE [2025-11-18 Tue 23:21] \\
+  This is done!
 This is not as high priority but will be cool to demonstrate how crashing can still bring things back
 *** TODO Implement v0 (basic paxos algorithm -- main goal)
 DEADLINESs: <2025-11-01 Sat 11:00>
@@ -2259,7 +2267,9 @@ For our implementation:
 
 ******** recipient
 
-All nodes that are not =Inactive=.
+All nodes that are NOT =Inactive=.
+
+NOTE: inactive notes won't even reply.
 
 This is because every node will simultaneously have state management for all 3 roles: Proposer, Acceptor, Learner. The sub-states are all independently managed.
 
@@ -2368,6 +2378,55 @@ All nodes that are not =Inactive= for their =Acceptor= state.
 
 
 One thing to note is that we don't really reset the state. This is because simple paxos is about running one instance of the paxos process. So the final state is the decided sate.
+
+NOTE: at the moment, we don't have the decided value being broadcasted. If this is added in, what's the role of the learners?
+******* TODO Behaviour of inactive nodes
+- Inactive nodes must ignore all Paxos messages related to proposals (prepare/accept requests) because they cannot participate safely.
+
+- In our implementation, this means if the node’s acceptor and proposer states are Inactive, the handlers like =handle_permission_request= should no-op or return early.
+
+  We'll just log something out.
+
+- They should not send promises, accepts, or any responses while inactive.
+
+- Inactivation simulates a node failure, network partition, or crash without stopping the simulation.
+
+- Inactivation requires no immediate persistence; the current state can be persisted at any state change.
+
+- On reactivation, node state *should be reloaded from persistent storage transparently*, restoring its last known state.
+
+- Reactivation moves the node from Inactive to Idle or appropriate state so it can resume participation.
+
+  * as a first-pass, we'll just do a state dump of the entire node and recover it again.
+
+******* TODO Learner role
+
+The Learner role is not implemented yet, I'm guessing it should just be sufficient to broadcast a learner message / decided message which doesn't do any collection of ACKs, it just broadcasts that messages to everyone and ther own learners will probably get updated as well. I'm guessing we can just keep a list of payloads within learner just to be curious what they store?
+
+- Learners do not participate in making proposals or accepting; they *only learn decided values*.
+
+- On receiving Accept messages, learners update their local learned state if consensus is reached.
+
+- When a consensus value is finally decided by proposer/acceptor quorum, a decided message should be broadcast to all learners.
+
+- Learners update their local state (e.g., store decided value) on receiving these broadcasts.
+
+- Learners can maintain a list/history of decided values or only track the latest.
+
+- Learners’ role is to provide eventual consistency of the decided state across all nodes.
+
+- Learners' state changes should also be persisted for node recovery.
+
+******* TODO Persistence for Deactivation/Reactivation
+Deactivation is just a corruption / network partition simulation so it's like going offline.
+
+It seems that at all steps / event handlers, when there are state changes, the nodes state should just be persisted.
+
+This means that there's no need to explicitly do persistance at the point in time the node becomes inactive and this inactivation can just be done silently without any worry.
+
+In the case of reactivations, we can just reload the entire state of the node from persistence.
+
+As for what the storage should be, we can do a file dump as sexp or json and then recover it from json by parsing it. The actual logic can be mediated by the Storage struct within node. That way. We can just do modify =Storage_mem= for this for now
 
 ****** Some questions
 1. [X] A node will have multiple states at once, correct?
@@ -3345,10 +3404,13 @@ Error: dependency cycle between modules in _build/default/lib:
 Had 1 error, waiting for filesystem changes...
    #+end_src
 
-**** TODO Stage 3: Storage & Learning
+**** DONE Stage 3: Storage & Learning
+CLOSED: [2025-11-23 Sun 00:58]
 :PROPERTIES:
 :EFFORT:   1.5h
 :END:
+- CLOSING NOTE [2025-11-23 Sun 00:58] \\
+  This has been done for a while. I needed to simplify the code for a bit so it needed some refactoring.
 - Goal:
 
   - Persist acceptor state and enable learners to converge.
@@ -3503,7 +3565,10 @@ CLOCK: [2025-11-09 Sun 06:07]--[2025-11-09 Sun 09:17] =>  3:10
 
 3. [X] use the =paxos_assertion_state= where possible
 
-***** [ ] Broadcast decided state (end state)
+***** [X] Broadcast decided state (end state)
+CLOSED: [2025-11-14 Fri 12:33]
+- CLOSING NOTE [2025-11-14 Fri 12:33] \\
+  this is handled already
 As per our outline, the proposer should be:
 
 #+begin_quote
@@ -3515,12 +3580,10 @@ As per our outline, the proposer should be:
 #+end_quote
 
 We haven't handled this part yet, we can add this in
-***** SKIP Add in storage helpers
-I don't really want to focus on this, I'll just add in some stub functions for now.
-
-The kill/respawning of servers is something that we shall slate for v1 extensions
-
-**** TODO Stage 3.5: Ensure happy path works, add basic tests
+**** DONE Stage 3.5: Ensure happy path works
+CLOSED: [2025-11-23 Sun 00:58]
+- CLOSING NOTE [2025-11-23 Sun 00:58] \\
+  yeah boi
 Happy path seems to be working well so far.
 
 We should be able to move onto the test-writing stuff. I just wanna demonstrate some basic
@@ -3528,6 +3591,8 @@ We should be able to move onto the test-writing stuff. I just wanna demonstrate 
 :PROPERTIES:
 :EFFORT:   1h
 :END:
+
+We wish to turn simulation setup into a data-driven fixture system—one where we can describe entire topologies and timelines declaratively, instead of writing imperative OCaml that builds them.
 
 - Goal: Demonstrate full cycle in the simulator.
 
@@ -3542,6 +3607,998 @@ We should be able to move onto the test-writing stuff. I just wanna demonstrate 
 - Deliverable:
 
   - End-to-end trace printed via Simulator.print_bus_stats + Node.dump_state.
+***** [X] Add in a cli harness to help choose predefined scenarios
+CLOSED: [2025-11-10 Mon 11:38]
+- CLOSING NOTE [2025-11-10 Mon 11:38] \\
+  a basic skeleton is done for this, we can focus on other parts
+It's just to help make the simulator more fun to use, it's also a QOL thing but it's necessary for basic polish.
+
+- [ ] allow the .exe run to be able to tell the user what are the predefined simulations, what log level they want and so on via cli args
+
+- [ ] use the cli to inject user desires into the simulation.ml, and allow the simulation.ml to orchestrate the rest of the simulation (like before).
+
+***** [X] Enrich module types with specs for easy fixtures setup
+CLOSED: [2025-11-11 Tue 17:00]
+- CLOSING NOTE [2025-11-11 Tue 17:00] \\
+  Done!
+:LOGBOOK:
+CLOCK: [2025-11-10 Mon 15:11]--[2025-11-10 Mon 21:13] =>  6:02
+CLOCK: [2025-11-10 Mon 12:12]--[2025-11-10 Mon 13:49] =>  1:37
+:END:
+
+I don't like the current ergonomics around how we seed things for a simulation. Before writing code, we need to *rethink how Config expresses simulation topology and timeline ergonomics*, so that we can express examples like the parliament scenario in a few declarative lines.
+
+For example, here's how a 2 node scenario for the parliamentarians parable would probably look based on our current system.
+
+#+begin_src ocaml
+  let base_topics =
+    [Types.Types.Coordination; Types.Types.Simulation_control; Types.Types.Time]
+
+  let make_node_spec ?(roles = ["Proposer"; "Acceptor"])
+      ?(initial_cluster_size = Some 2) ?(topics = base_topics) ~node_id () :
+      Config.node_spec =
+    { node_id
+    ; roles
+    ; initial_cluster_size
+    ; topics
+    ; initial_state= None
+    ; storage_config= None }
+
+  let node_spec_1 = make_node_spec ~node_id:1 ()
+
+  let node_spec_2 = make_node_spec ~node_id:2 ()
+
+  let sim_config =
+    { Config.max_ticks= Some 100
+    ; deterministic_seed= Some 181
+    ; default_cluster_size= Some 3
+    ; initial_nodes= [node_spec_1; node_spec_2]
+    ; log_jsonl= None }
+
+  let sim = Simulator.create ~config:sim_config
+
+  let n1 = Simulator.add_node sim ~node_spec:node_spec_1
+
+  let n2 = Simulator.add_node sim ~node_spec:node_spec_2
+
+ (* ----- New: parliament scenario seeding ----- *)
+  let seed_parliament_scenario sim ~n1 ~n2 =
+    (* Parable mapping:
+       - Speaker = node 1 (proposer)
+       - Opposition leader = node 2 (proposer)
+       We'll create a few timed events that represent the "parliament" flow:
+         t=1 Speaker proposes Law A
+         t=2 Opp proposes Law B (competing)
+         t=3 Speaker gathers promises and suggests Law A
+         t=4 Opp sees hint/nack and tries to bump (demonstrates hint)
+    *)
+    let p_speaker = Types.Types.make_proposal_id ~node:1 ~seq:1 in
+    let p_opp = Types.Types.make_proposal_id ~node:2 ~seq:2 in
+    let v s = V.t_of_sexp (Sexplib.Sexp.Atom s) in
+    let events =
+      [ Simulator.make_node_proposal_event sim ~time:1 ~initiator:n1 ~proposal:p_speaker ~value:(v "CleanAirBill")
+      ; Simulator.make_node_proposal_event sim ~time:2 ~initiator:n2 ~proposal:p_opp ~value:(v "TaxRelief")
+      ; Simulator.make_event sim ~time:3 (fun () -> Simulator.print_bus_stats sim) ()
+      ; Simulator.make_event sim ~time:5 (fun () -> Stdio.printf "Parliament scenario finished\n%!") ()
+      ]
+    in
+    List.iter events ~f:(fun e -> e |> Simulator.schedule_event sim)
+#+end_src
+
+There needs to be a better way for us to define timelines.
+
+Instead of defining imperative setup code, we move toward a data-driven declarative config.
+
+This enables “fixtures” (like parliament.json) to define entire simulations with no code.
+
+General options:
+
+1. having a singular config module that takes charge of this, including the specs and the transformations from plaintext spec to the actual struct (fixture setup)
+
+2. subsystems being in-charge of their own specs.
+
+   Each subsystem (Node, Simulator, Bus, etc.) should define its own Spec module containing its declarative record type and associated parsing / defaults. The global Config module should just compose them — that is, load, transform, and hand them off to the respective create functions.
+
+   top-level Config now becomes just a composition and ingestion layer — no business logic, no deep domain knowledge.
+
+   a) benefits of this approach :
+
+      | aspect                          | benefits                                                                                                          |
+      |                                 |                                                                                                                   |
+      |---------------------------------+-------------------------------------------------------------------------------------------------------------------|
+      | colocation of code              | The spec lives beside the logic that interprets it, so the design stays local and coherent.                       |
+      |                                 | Adding new features to Node or Simulator means extending their own Spec, not touching a monolithic global config. |
+      |                                 |                                                                                                                   |
+      | type safety                     | Each module owns its own config type; only the top-level Config module glues them together.                       |
+      |                                 |                                                                                                                   |
+      | extensibility / future-proofing | Later, if we support TOML/JSON/YAML configs, each Spec can define of_yojson/to_yojson locally                     |
+      |                                 | — useful for serialization and validation.                                                                        |
+      |                                 |                                                                                                                   |
+      | isolation                       | Each subsystem can test its own config interpretation independently.                                              |
+      |                                 |                                                                                                                   |
+
+   b) naming of converter helpers:
+
+      - =of_spec= → for pure transformation
+
+      - =init_from_spec= → for stateful initialization
+
+      - =load_spec= → for file / CLI ingestion
+
+        so CLI =load_spec= → Simulator =init_from_spec= → Node =of_spec=
+
+****** stupid nominal type gotcha that i just couldn't see for very long
+:PROPERTIES:
+:CUSTOM_ID: nominal_typing_gotcha
+:END:
+#+begin_src md
+Nice — love the energy. 🎉 Below I’ll walk through a **comprehensive, concrete** explanation of the “fresh types / functor instantiation” gotcha using your original code and small code snippets to show *why* it happens and *how* to fix or avoid it in different ways.
+
+I’ll cover:
+
+1. What actually happened in your code (step-by-step)
+2. Why OCaml treats those types as incompatible
+3. Several robust ways to fix it (with small patches/snippets)
+4. Recommendations & patterns to avoid this in future
+
+---
+
+# 1) What actually happened (walk-through using your code)
+
+You have two files/modules that both instantiate the same functor:
+
+ `simulator.ml` contains:
+
+```ocaml
+module V = Value_string.Value_string
+module S = Storage_mem.Storage_mem (V)
+module B = Event_bus
+module NodeImpl = Node.Make_node (V) (S) (B)
+```
+
+ `simulation.ml` originally contained:
+
+```ocaml
+module V = Simulator.V
+module S = Storage_mem.Storage_mem (V)
+module B = Event_bus.Event_bus
+module NodeImpl = Node.Make_node (V) (S) (B)
+```
+
+Even though both `NodeImpl` definitions use the same functor application `Node.Make_node (V) (S) (B)`, they are **two separate instantiations**. OCaml treats each functor application as producing a *fresh, distinct* module value at compile time. That means:
+
+ `simulator.ml` has a module `NodeImpl` whose `spec` type is nominally `Simulator.NodeImpl.spec`.
+ `simulation.ml` has a (different) module `NodeImpl` whose `spec` type is nominally `Simulation.NodeImpl.spec`.
+
+So when `simulation.ml` writes:
+
+```ocaml
+let node_spec_1 : NodeImpl.spec = { ... }
+let n1 = node_spec_1 |> Simulator.add_node_to_sim sim
+```
+
+the compiler sees `node_spec_1` as `Simulation.NodeImpl.spec` but `Simulator.add_node_to_sim` expects a value of type `Simulator.NodeImpl.spec`. They *look the same structurally* but they are different *nominal types* — hence the error:
+
+```
+The value node_spec_1 has type NodeImpl.spec
+but an expression was expected of type Simulator.NodeImpl.spec
+```
+
+---
+
+# 2) Why OCaml does this (terse theory)
+
+ **Nominal typing for type identity**: OCaml uses *nominal* identity for type names produced by module/functor instantiations. Even if two record types have identical fields, if they were declared as separate type definitions (or produced by separate functor instantiations), they are different types.
+ **Each functor application is a fresh module**: `Node.Make_node (...)` evaluated twice creates two distinct modules, each with their own abstract type components (like `spec`, `t`, etc.). OCaml does not automatically unify these.
+ **This is intended**: it prevents accidental mixing of types from different runtime configurations (helps soundness / modularity). But it bites when you expected a single shared implementation-type across different files.
+
+Important nuance: it’s not about structural equality of record layout at runtime; it’s about *compile-time nominal identity* for type-checking.
+
+---
+
+# 3) Ways to fix / design patterns (with concrete code)
+
+Below are several practical solutions. Pick the one that best matches your design goals.
+
+## Fix A — **Share one NodeImpl module instance** (my earlier recommended fix)
+
+Make `simulation.ml` reuse the `NodeImpl` from `Simulator` rather than instantiating the functor again.
+
+**Change in `simulation.ml`:**
+
+```ocaml
+(* before *)
+(* module NodeImpl = Node.Make_node (V) (S) (B) *)
+
+(* after: reuse the simulator's NodeImpl *)
+module NodeImpl = Simulator.NodeImpl
+```
+
+Why this works: Both files now refer to *the same* module value, so `NodeImpl.spec` is the same nominal type everywhere.
+
+---
+
+## Fix B — **Expose NodeImpl from Simulator and use it everywhere**
+
+In `simulator.ml`:
+
+```ocaml
+module NodeImpl = Node.Make_node (V) (S) (B)
+module N = NodeImpl    (* alias exposed in the module *)
+```
+
+Then in `simulation.ml`:
+
+```ocaml
+module NodeImpl = Simulator.N
+```
+
+or refer as `Simulator.N.spec`. This is the same idea as Fix A but makes the `Simulator` API explicit about exposing the concrete node module.
+
+---
+
+## Fix C — **Parameterise by the Node module (functorize the Simulation driver)**
+
+If you want multiple runtime backends, make `Simulation` a functor that accepts the runtime implementation:
+
+```ocaml
+module Make_simulation (R : sig
+  module V : Value.S
+  module NodeImpl : Node.S
+  val add_node_to_sim : R.t -> NodeImpl.spec -> NodeImpl.t
+  ... (* other needed functions *)
+end) = struct
+  module V = R.V
+  module NodeImpl = R.NodeImpl
+  ...
+end
+```
+
+Then instantiate `Make_simulation (Simulator)` where `Simulator` is a module exposing the required components. This avoids re-instantiating `Node.Make_node`.
+
+---
+
+## Fix D — **Use a single module file that instantiates the functor and is shared**
+
+Create a file `node_impl.ml`:
+
+```ocaml
+(* node_impl.ml *)
+module V = Value_string.Value_string
+module S = Storage_mem.Storage_mem (V)
+module B = Event_bus
+module NodeImpl = Node.Make_node (V) (S) (B)
+```
+
+Then `simulator.ml` and `simulation.ml` open or refer to `NodeImpl` from that file (`Node_impl.NodeImpl`). This centralizes the instantiation.
+
+---
+
+## Fix E — **First-class modules** (more advanced; less ergonomic)
+
+You can create a first-class module value and pass it around; this avoids compile-time nominal mismatch but is more verbose:
+
+```ocaml
+let node_impl_module : (module Node.S) =
+  (module Node.Make_node (V) (S) (B) : Node.S)
+```
+
+Then unpack `(module M : Node.S) = node_impl_module` where needed. Use only when you need runtime selection between implementations.
+
+---
+
+## Fix F — **Use manifest types in .mli to force equality** (if practical)
+
+If you have an interface that must expose the concrete `spec` type to be the same, you can put a manifest in `simulator.mli`:
+
+```ocaml
+module NodeImpl : Node.S with type spec = ... (* concrete type expression *)
+```
+
+This is fiddly because you must write the concrete type expression exactly. Usually less pleasant than sharing the module.
+
+---
+
+# 4) Practical small check-list to avoid this in future
+
+ If two modules need to share types produced by a functor instantiation, **instantiate the functor exactly once** and reuse that module (Option A or D).
+ If you want swappable backends, **parameterize** the code via functors or first-class modules rather than instantiating the same functor twice.
+ When writing `.mli` signatures, **expose the module** (or alias) you want other code to use — that enforces a single canonical identity.
+ Avoid naming collisions like `module NodeImpl = Node.Make_node ...` in multiple files unless you intentionally want independent instantiations.
+
+---
+
+# 5) Small diagnostics & tips
+
+ If you see an error that says “value has type X but expression expected type Y”, check whether `X` and `Y` are the same name in the same module path. If the paths differ (e.g. `NodeImpl.spec` vs `Simulator.NodeImpl.spec`), they are separate types.
+ Ask the compiler to print inferred types for small expressions (in utop, use `#show` or `#show_module`?), or compile a small file to see the error location — the mismatch path usually tells you which module instance each type belongs to.
+ Grep your workspace for `Make_node (` to see how many instantiations you create. If there’s more than one, you'll likely see this error.
+
+---
+
+# 6) Example of the single-line patch that fixed your code
+
+From your working solution, you did the equivalent of:
+
+```ocaml
+(* simulation.ml *)
+module NodeImpl = Simulator.NodeImpl
+```
+
+This resolves the mismatch because now there’s exactly one `NodeImpl` module (the one in `Simulator`), and both `simulation.ml` and `simulator.ml` refer to it.
+
+---
+
+# 7) Final thoughts & recommended pattern
+
+For many projects I recommend:
+
+ Instantiate core functors in a single *composition* module (e.g., `runtime_impl.ml` or `node_impl.ml`) and **export** the concrete module(s) from there.
+ Have higher-level code/fuzzers/tests import that concrete module rather than re-instantiating the functor repeatedly.
+ When you need test-specific variants, use functor-based factories that *explicitly* return a module matching a module type, and then pass that module around — i.e., make dependency wiring explicit.
+
+---
+
+If you want, I can:
+
+ show a concrete small repo-like layout (3–4 files) with the “correct” wiring and `.mli` boundaries; or
+ transform your current code snippets into one canonical refactor (single `node_impl.ml` and updated `simulator.ml` + `simulation.ml`) and paste the exact patch.
+
+Which do you prefer?
+
+
+#+end_src
+
+****** [X] Add alias to nodes for story telling purposes
+CLOSED: [2025-11-11 Tue 09:15]
+
+- CLOSING NOTE [2025-11-11 Tue 09:15] \\
+  Finished this already, though the logging side isn't improved yet
+This is a QOL thing, so that the simulaation outputs look good.
+
+****** [X] Adding context within EventScheduler Events
+CLOSED: [2025-11-11 Tue 15:48]
+- CLOSING NOTE [2025-11-11 Tue 15:48] \\
+  done, we have a =Sim_event= module for this
+:LOGBOOK:
+CLOCK: [2025-11-11 Tue 10:43]--[2025-11-11 Tue 13:07] =>  2:24
+CLOCK: [2025-11-11 Tue 09:03]--[2025-11-11 Tue 09:45] =>  0:42
+:END:
+
+Currently, an event that is scheduled by the =EventScheduler= is just ={time; action; id}=.
+
+It’s opaque — we can’t introspect what kind of event it was (message vs metric vs node control).
+
+In debugging and logging, this becomes painful and we might wishh to do some record replay type behaviour for this simulator in the future. We shall add a =sim_event_type=.
+
+the main benefit that we are trying to reach here: defining event timelines will be cleaner this way
+
+****** [X] Improving the usefulness of +config+ SimLoader
+CLOSED: [2025-11-11 Tue 16:56]
+
+- CLOSING NOTE [2025-11-11 Tue 16:56] \\
+  We have a =Simulation_loader= now
+Currently, config.ml is just a rudimentary separation of concerns. The idea is that config will define plaintext specs that we can use to create the other structs like nodes, simulation, scenarios and so on. It's also important to be able to define simulation events properly so that we essentially have the entire simulation timeline defined in plaintext, adhering to specs that will be easy to create sophisticated scenarios.
+
+eventually in a later iteration, I would want to just define json files or some plaintext serialised seeder file that I can just use to set up the entire simulation fixture.
+
+This means that the config specs should play well with the creation functions of the structs they will be creating and so on.
+
+I'm don't have a good imagination around how this can be done simply and with the least effort yet.
+
+-----
+
+Config can become the orchestrator for injecting data-driven simulation fixture setup
+
+This is where we can do loading of simualtion timelines from json file. I think it's worth the effort to allow people to play around with it.
+
+****** implementation notes:
+ 1. this is a good case study on showing somehow how type constraint sharing can be done.
+
+***** [X] Rewire node controls for sim control events
+CLOSED: [2025-11-11 Tue 20:50]
+- CLOSING NOTE [2025-11-11 Tue 20:50] \\
+  This works, though on deactivation and reactivation, the storage side still needs to be handled.
+:LOGBOOK:
+CLOCK: [2025-11-11 Tue 19:47]--[2025-11-11 Tue 20:50] =>  1:03
+:END:
+  - [X] we need to be able to make the node inactive for our simulations to work
+
++ We can schedule control events like that:
+  #+begin_src json
+    {
+      "id": null,
+      "time": 2,
+      "kind": "control",
+      "target": "BakeBoii",
+      "data": "deactivate"
+    }
+  #+end_src
+***** [X] Define scenarios
+CLOSED: [2025-11-11 Tue 22:08]
+- CLOSING NOTE [2025-11-11 Tue 22:08] \\
+  This is somewhat done, there's some missing logic that has to be added in.
+the following are rough examples, they may have minor errors in theh DSL usage, the actual files are the sources of truth.
+
+1) basic
+   #+begin_src json
+{
+  "preamble": "Basic Paxos demonstration scenario.\nConsensus is reached\nwith two nodes simply proposing and agreeing.",
+  "simulator": {
+    "max_ticks": 181,
+    "deterministic_seed": 181,
+    "log_jsonl": false
+  },
+  "nodes": [
+    {
+      "node_id": 1,
+      "node_alias": "BakeBoii",
+      "topic_strs": ["Coordination", "Simulation_control", "Time"],
+      "initial_cluster_size": 2,
+      "initial_state": null,
+      "storage_config": null
+    },
+    {
+      "node_id": 2,
+      "node_alias": "PastryGurl",
+      "topic_strs": ["Coordination", "Simulation_control", "Time"],
+      "initial_cluster_size": 2,
+      "initial_state": null,
+      "storage_config": null
+    }
+  ],
+  "events": [
+    {
+      "id": null,
+      "time": 2,
+      "kind": "proposal",
+      "target": "BakeBoii",
+      "data": "Initial proposal from BakeBoii"
+    },
+    {
+      "id": null,
+      "time": 9,
+      "kind": "proposal",
+      "target": "PastryGurl",
+      "data": "Follow-up proposal from PastryGurl"
+    },
+    {
+      "id": null,
+      "time": 1,
+      "kind": "metric",
+      "target": null,
+      "data": "print_bus_stats"
+    }
+  ]
+}
+   #+end_src
+2) office_bakeoff
+   #+begin_src json
+{
+  "preamble": "Fun office bakeoff with nodes going inactive\nand reactivating.\nTesting system resilience and reconfiguration.",
+  "simulator": {
+    "max_ticks": 181,
+    "deterministic_seed": 987,
+    "log_jsonl": false
+  },
+  "nodes": [
+    {
+      "node_id": 1,
+      "node_alias": "BakeBoii",
+      "topic_strs": ["Coordination", "Simulation_control", "Time"],
+      "initial_cluster_size": 3,
+      "initial_state": null,
+      "storage_config": null
+    },
+    {
+      "node_id": 2,
+      "node_alias": "PastryGurl",
+      "topic_strs": ["Coordination", "Simulation_control", "Time"],
+      "initial_cluster_size": 3,
+      "initial_state": null,
+      "storage_config": null
+    },
+    {
+      "node_id": 3,
+      "node_alias": "CookieQueen",
+      "topic_strs": ["Coordination", "Simulation_control", "Time"],
+      "initial_cluster_size": 3,
+      "initial_state": null,
+      "storage_config": null
+    }
+  ],
+  "events": [
+    {
+      "id": null,
+      "time": 2,
+      "kind": "proposal",
+      "target": "BakeBoii",
+      "data": "Office bakeoff starting proposal"
+    },
+    {
+      "id": null,
+      "time": 3,
+      "kind": "control",
+      "target": "CookieQueen",
+      "data": "deactivate"
+    },
+    {
+      "id": null,
+      "time": 5,
+      "kind": "control",
+      "target": "CookieQueen",
+      "data": "reactivate"
+    },
+    {
+      "id": null,
+      "time": 9,
+      "kind": "proposal",
+      "target": "PastryGurl",
+      "data": "PastryGurl makes a late proposal"
+    },
+    {
+      "id": null,
+      "time": 1,
+      "kind": "metric",
+      "target": null,
+      "data": "print_bus_stats"
+    }
+  ]
+}
+   #+end_src
+3) parliament
+
+   #+begin_src json
+{
+  "preamble": "Parliament simulation with multiple nodes paving\npaths to consensus.\nInspired by Leslie Lamport's original Paxos parable.",
+  "simulator": {
+    "max_ticks": 500,
+    "deterministic_seed": 1234,
+    "log_jsonl": false
+  },
+  "nodes": [
+    { "node_id": 1, "node_alias": "Speaker", "topic_strs": ["Coordination", "Simulation_control", "Time"], "initial_cluster_size": 5, "initial_state": null, "storage_config": null },
+    { "node_id": 2, "node_alias": "MemberA", "topic_strs": ["Coordination", "Simulation_control", "Time"], "initial_cluster_size": 5, "initial_state": null, "storage_config": null },
+    { "node_id": 3, "node_alias": "MemberB", "topic_strs": ["Coordination", "Simulation_control", "Time"], "initial_cluster_size": 5, "initial_state": null, "storage_config": null },
+    { "node_id": 4, "node_alias": "MemberC", "topic_strs": ["Coordination", "Simulation_control", "Time"], "initial_cluster_size": 5, "initial_state": null, "storage_config": null },
+    { "node_id": 5, "node_alias": "MemberD", "topic_strs": ["Coordination", "Simulation_control", "Time"], "initial_cluster_size": 5, "initial_state": null, "storage_config": null }
+  ],
+  "events": [
+    {"id": null, "time": 1, "kind": "proposal", "target": "Speaker", "data": "Opening remarks and initial proposal."},
+    {"id": null, "time": 10, "kind": "proposal", "target": "MemberA", "data": "MemberA proposes alternative."},
+    {"id": null, "time": 20, "kind": "proposal", "target": "MemberB", "data": "MemberB joins consensus."},
+    {"id": null, "time": 30, "kind": "control", "target": "MemberC", "data": "inactive"},
+    {"id": null, "time": 50, "kind": "control", "target": "MemberC", "data": "reactivate"},
+    {"id": null, "time": 100, "kind": "metric", "target": null, "data": "print_bus_stats"}
+  ]
+}
+   #+end_src
+***** [X] Cleanup dependency issues by refactoring [0/0]
+CLOSED: [2025-11-16 Sun 20:31]
+
+- CLOSING NOTE [2025-11-16 Sun 20:31] \\
+  The main learning here is that when we feel friction, we should realise that these are signals that something is not designed right. We should respond to the signals by stepping back and taking a bird's eye view to see if the initial intent needs a re-strategising.
+
+  Because I was tired, I ended up just doubling down on bad design and so the last parts took a ridiculous amount of time.
+This is blocking. The current state dependency tree is messy and we can't proceed with the file persistence aspects.
+
+So I ended up [[https://excalidraw.com/#room=4731e06144a5b25147e7,LQlsAo6VkSRE6E2tYHoZ7Q][digramming it out on excalidraw]] and have the following decisions that relate to refactoring.
+
+****** [X] Refactoring: use better names
+CLOSED: [2025-11-14 Fri 17:58]
+:PROPERTIES:
+:EFFORT:   30min
+:END:
+- CLOSING NOTE [2025-11-14 Fri 17:58] \\
+  nice small wins will snowball
+:LOGBOOK:
+CLOCK: [2025-11-14 Fri 17:45]--[2025-11-14 Fri 17:58] =>  0:13
+:END:
+- [X] =Storage_mem= to be named =Make_mem_storage= instead since it's a functor and I want to standardise the naming.
+- [X] =Color= to =Ansi_formatter=
+
+****** [X] Fix Separation of Concern issues
+CLOSED: [2025-11-16 Sun 19:42]
+- CLOSING NOTE [2025-11-16 Sun 19:42] \\
+  Finally, this is clear and completed.
+
+
+  we just have to polish the code a little.k
+:LOGBOOK:
+CLOCK: [2025-11-14 Fri 18:32]--[2025-11-14 Fri 18:37] =>  0:05
+:END:
+- [X] Hydration helpers to be brought back into simulator instead of being within the loader.
+******* [X] Type Dependency Refactors
+CLOSED: [2025-11-16 Sun 19:36]
+- CLOSING NOTE [2025-11-16 Sun 19:36] \\
+  This was massive but it made things significantly clearer
+:LOGBOOK:
+CLOCK: [2025-11-16 Sun 17:15]--[2025-11-16 Sun 19:36] =>  2:21
+CLOCK: [2025-11-16 Sun 17:14]--[2025-11-16 Sun 17:15] =>  0:01
+CLOCK: [2025-11-16 Sun 08:07]--[2025-11-16 Sun 09:30] =>  1:23
+CLOCK: [2025-11-16 Sun 08:04]--[2025-11-16 Sun 08:07] =>  0:03
+CLOCK: [2025-11-16 Sun 08:04]--[2025-11-16 Sun 08:07] =>  0:03
+CLOCK: [2025-11-14 Fri 21:50]--[2025-11-15 Sat 02:00] =>  4:10
+CLOCK: [2025-11-14 Fri 20:27]--[2025-11-14 Fri 21:37] =>  1:10
+CLOCK: [2025-11-14 Fri 18:37]--[2025-11-14 Fri 19:30] =>  0:53
+:END:
+- [X] Kill =Acceptor_record= module Keep =Acceptor_record= local to =Node_state=, make it a record type instead of a submodule
+  1. update the =Make_node_state= functor to receive =Value= module as the param, instead of =Acceptor_record=
+- [X] Keep =Storage= within =Node=
+- [X] Update the storage interface
+  1. Storage interface needs to keep =node_state= $\implies$ =Make_*_storage=
+- [X] Update the simulator states
+  1) =ActivateNode= message
+  2) =Node.activate=
+  3) update the DSL side, allow it to mean "activate"
+
+***** [X] Add in file storage for persistence
+CLOSED: [2025-11-16 Sun 20:32]
+- CLOSING NOTE [2025-11-16 Sun 20:32] \\
+  Completed via a =Make_file_storage= that is local to a node.
+:LOGBOOK:
+CLOCK: [2025-11-12 Wed 19:36]--[2025-11-12 Wed 20:30] =>  0:54
+:END:
+
+For the paxos protocol, we may consider cases where network partitioning / corruption / crashes ... make the peer node inactive.
+
+At that point, the node will not be able to participate in the process and at least in the basic paxos scenario, there's no leader to automagically update the cluster size and update what it takes to reach quorum.
+
+Eventually, the node may recover and participate again.
+
+So for inactive to recovered state, there should be some persistence we can rely on to return to the last state the node was at before it went down.
+
+Since we have storage module associated to node modules, we can always do snapshotting of the node state whenever we have a state transition.
+
+We can just add in snapshotting @ the =transition_role_state= function.
+
+At the moment, our interface for storage hasn't really been used so much of it can be changed to suit our needs. At the least, we should have:
+
+1. snapshotting capability where the entire node's state is "persisted"
+
+2. I just want to be able to store in json / sexp / both and then recover it and create the whole runtime state again.
+
+   I forsee this to be similar to how we use the simulation_loader to load from a file then hydrate the state. I forsee some overlaps here
+
+   for this v0, we shall ignore the fact that there are "side-effects" that won't be stored and needs "rehydration":
+
+   - callback registrations when a node is subscribed to topics on the event bus
+
+
+3. Til now we just had a =Storage_mem.ml=, maybe we can explore a file storage where the module just stores on a file at tmp/ or something it would be nice for the IO (e.g. file IO) to be as fast as possible. Cool to explore performance
+
+
+I really don't want to do this, we shall try skip this if possible
+****** DONE Change the Storage interface
+CLOSED: [2025-11-16 Sun 19:37]
+
+- CLOSING NOTE [2025-11-16 Sun 19:37] \\
+  Donezo
+Right now storage will be kept local to =Node_state=. This is to encourage every peer to take charge of their own storage.
+
+
+What to store?
+
+Ans: we shall Update the storage interface to have node state. We will do constraint sharing for this at the functor, so we can name the internal module type something more relevant to storage (e.g. =snapshot_payload=, =consensus_payload=)
+
+NOTE: i changed this to just =snapshot_payload= and also kept a changelog of states within it.
+
+****** DONE extract node state out of node
+******* GOTCHA: destructive substitution actually destroys things
+
+this "Bug" burned away half a day man. What the heck.
+
+So I first extracted out the =Acceptor_record= and created a signature for it. Since the record depends on the value that consensus is being achieved, it makes sense to write a functor for it so I had =Make_acceptor_record=. Naturally, we'd have a type within the functor to have a handle for the value type we're using and this can abstract. Eventually, we'd need to indicate that the injected module's type and the value type are the same.
+
+Then, I extracted out the =Node_state= and it too depends on =Value= and also =Acceptor_record=. I wanted them to share constraints since both =Acceptor_record= and =Node_state= actually use the "same" value type. Therefore, the functor was defined something like so:
+#+begin_src ocaml
+module Make_node_state (A : Acceptor_record.S) :
+  S with module Acceptor_record := A = struct
+  module V = A.V
+
+  type assertion = A.assertion [@@deriving sexp, yojson]
+
+  type promise = A.promise [@@deriving sexp, yojson]
+
+...
+#+end_src
+
+Finally, the intention was to just use the two functors within =node.ml= like so:
+
+#+begin_src ocaml
+module Make_node
+    (V : Value.S)
+    (Storage : Storage.S)
+    (Bus : sig
+      include module type of Event_bus
+    end) :
+  S with module V := V with module Storage := Storage with module Bus := Bus =
+struct
+  module Acceptor_record = Make_acceptor_record (V)
+  module State = Make_node_state (Acceptor_record)
+
+  type role = Proposer | Acceptor | Learner
+
+  type roles = role list
+
+...
+#+end_src
+
+I had not understood destructive substitution properly. The thing is when we write =module Make_acceptor_record(V: Value.S): S with module V:== =V=. The destructive substitution removes the =module V= from the signature entirely (that's probably why the struct for destructively substituted modules don't have the module indicated as an abstract module within the struct but DO have it within the signature).
+
+So when my =Make_node_state= was attempting to access =A.V=, this fails.
+
+Fixing this has 2 options:
+
+1. not using destructive substitution and just using plain constraint sharing
+   - we ended up doing this.
+
+2. injecting =V= into the =Make_node_state= functor as well.
+   - this is a little odd and doesn't feel right because our intention was to do the constraint sharing.
+
+
+Why it was difficult to figure out this problem:
+
+1. No mental model of how destructive substitution works $\implies$ ended up exploring unrelated possbilities for the source of error
+
+2. the compiler's outputs were too generic.
+
+
+takeaways:
+
+    - Substituting a type name within a signature: t := SomeModule.t changes how t is seen downstream.
+
+    - Substituting submodules can affect access to nested members; ensure downstream code references the correct substituted paths.
+
+    - Local substitutions give more control and reduce unintended leakage of original bindings.
+
+
+JUST PLAIN UNFORTUNATE HOW LONG THIS TOOK
+***** [X] Handle Learner behaviour & no-op for inactive nodes
+CLOSED: [2025-11-16 Sun 20:34]
+- CLOSING NOTE [2025-11-16 Sun 20:34] \\
+  Works, though we need to use more complex scenarios for it
+******* DONE Noop on Messages arriving after quorum is reached
+CLOSED: [2025-11-12 Wed 08:34]
+
+- CLOSING NOTE [2025-11-12 Wed 08:34]
+For messages that arrive AFTER the quorum has already been reached, we will no-op ignore it.
+
+Those incoming messages shall be deemed as unnecessary
+
+******* DONE Broadcast Learner role
+CLOSED: [2025-11-12 Wed 13:42]
+
+- CLOSING NOTE [2025-11-12 Wed 13:42] \\
+  Broadcasting works, it's beautiful
+The Learner role is not implemented yet, I'm guessing it should just be sufficient to broadcast a learner message / decided message which doesn't do any collection of ACKs, it just broadcasts that messages to everyone and ther own learners will probably get updated as well. I'm guessing we can just keep a list of payloads within learner just to be curious what they store?
+
+- Learners do not participate in making proposals or accepting; they *only learn decided values*.
+
+- On receiving Accept messages, learners update their local learned state if consensus is reached.
+
+- When a consensus value is finally decided by proposer/acceptor quorum, a decided message should be broadcast to all learners.
+
+- Learners update their local state (e.g., store decided value) on receiving these broadcasts.
+
+- Learners can maintain a list/history of decided values or only track the latest.
+
+- Learners’ role is to provide eventual consistency of the decided state across all nodes.
+
+- Learners' state changes should also be persisted for node recovery.
+
+******* DONE Behaviour of inactive nodes
+CLOSED: [2025-11-16 Sun 20:33]
+
+- CLOSING NOTE [2025-11-16 Sun 20:33] \\
+  when deactivated, it will NOT do any peristence.
+
+  Only on reactivation do we attempt a loading from storage.
+:LOGBOOK:
+CLOCK: [2025-11-11 Tue 22:09]--[2025-11-11 Tue 23:05] =>  0:56
+:END:
+- Inactive nodes must ignore all Paxos messages related to proposals (prepare/accept requests) because they cannot participate safely.
+
+- In our implementation, this means if the node’s acceptor and proposer states are Inactive, the handlers like =handle_permission_request= should no-op or return early.
+
+  We'll just log something out.
+
+- They should not send promises, accepts, or any responses while inactive.
+
+- Inactivation simulates a node failure, network partition, or crash without stopping the simulation.
+
+- Inactivation requires no immediate persistence; the current state can be persisted at any state change.
+
+- On reactivation, node state *should be reloaded from persistent storage transparently*, restoring its last known state.
+
+- Reactivation moves the node from Inactive to Idle or appropriate state so it can resume participation.
+
+  * as a first-pass, we'll just do a state dump of the entire node and recover it again.
+***** [X] Add proper partitioning simulation
+CLOSED: [2025-11-18 Tue 21:24]
+:PROPERTIES:
+:EFFORT:   2h
+:END:
+
+- CLOSING NOTE [2025-11-18 Tue 21:24] \\
+  Wonderful, this feels so good. I can smell the finish line.
+Currently, we have a primitive implementation of "partitioning" by just making a node inactive. This process is more accurate to simulate nodes crashing instead. My current implementation only focuses on a single simulator and I don't particularly have a clean implementation for partitioning yet.
+
+I have only implemented the ability for nodes to be turned inactive (to mimic corruption or just crashing and being inactive). This is not the same as simulating partitioning because nodes within distinct partitions won't be communicating with each other. The system currently uses an event bus for communication and at the point of node registration and so on. The bus is currently a singleton and all nodes that the simulator keeps are registered onto this bus.
+
+In order to simulate partitioning more accurately, a simulator would likely have to hold a registry of busses to represent each partition.
+
+It might be a good time to introduce a new module for "partition" to establish some abstract behaviour.
+
+A partition should revolve around the following requirements:
+
+1. be a collection of nodes
+
+2. nodes within a partition should be able to communicate to each other $\implies$
+
+   a) each partition has a singular bus
+
+   b) each partition should have a fixed quorum value $\implies$ we could let the simulation orchestrator (simulator itself) be responsible for updating the quorum.
+
+      QQ: not sure if this makes sense -- how is cluster size / quorum value updated within an actual system and who updates it? the leader ? the supervisor ?
+
+3. nodes are unaware of the partition that they're in.
+
+
+The value of adding in this simulation capability would be to have a more complete simulation of the original paxos parable (with the part-time-parliamentarians). This would be a good wrap on the functionality that I have supported so far for this project.
+
+However, I expect a 1-2h effort on this. I'm unusure if I should be adding this functionality in.
+
+QQ: the following outline of a more comprehensive parliament parable, is it actually true to lamport's original inspirations? Is it a predefined simulation actually worth supporting?
+#+begin_src txt
+Parliament Parable Scenario
+
+A five-node medieval parliament (Cardinal, Archbishop, Bishop, Abbot, Friar) deciding between building a Cathedral (A) or keeping Temples (B). The scenario includes:
+
+    Phase 1 (Ticks 5–50): Cardinal proposes Cathedral, achieves quorum promises
+
+    Phase 2 (Ticks 60–120): Network partition isolates Abbot/Friar; they attempt Temple but can't reach majority quorum (safe failure)
+
+    Phase 3 (Ticks 150–300): Partition heals; Archbishop initiates fresh proposal, is forced to adopt Cathedral due to prior accepts, reaffirms consensus
+
+    Phase 4 (Ticks 301–400): Cardinal crashes and recovers; Bishop reaffirms under reduced quorum
+
+    Phase 5 (Ticks 401–500): Cardinal attempts to reverse to Temple but is forced to adopt Cathedral anyway (safety demonstrated)
+#+end_src
+****** Healing of partitions
+
+When we merge a minor partition into the major partition, we might be merging nodes from the minor partition who are in a "hung" state because their phases were unable to achieve quorum to enact the FSM state changes.
+
+_Consider this case:_
+
+1. original cluster size was 10. This means to achieve a quorum (success / nack), 6 peers need to vote.
+2. minor partition of size 4 gets created, leaving a major partition of 6
+   1. since the simple paxos regards the cluster size and quorum to be static, this value never gets updated.
+   2. the major partition would still be able to make forward progress
+   3. the minor partition will not and instead nodes will be waiting to achieve quorum.
+
+      this is also because in my current implementation I don't want to add in timeouts or retries that would serve as elements of a forward progression seeking mechanism.
+
+3. when the minor partition heals, then the nodes all fall under the major partition now.
+
+   however, the nodes coming from the minor partition may have been waiting to achieve quorum.
+
+   QQ: how should the healing process account for intermediate states within the FSM where nodes are waiting for replies prior to deeming that a quorum has been reached? should they just "abort"?
+
+   ANS: no need to handle anything specifically. We already would have a basic partitioning support without any retry logic and so on.
+******* [X] Add partitioning
+CLOSED: [2025-11-18 Tue 21:23]
+:PROPERTIES:
+:EFFORT:   1h
+:END:
+- CLOSING NOTE [2025-11-18 Tue 21:23] \\
+  Wonderful
+:LOGBOOK:
+CLOCK: [2025-11-17 Mon 16:34]--[2025-11-17 Mon 17:23] =>  0:49
+CLOCK: [2025-11-17 Mon 16:30]--[2025-11-17 Mon 16:33] =>  0:03
+:END:
+
+This doesn't need to be a module of its own, we can just define it as a record type.
+
+We will invoke partitioning via a control event that will look like this:
+
+#+begin_src json
+    {
+      "time": 3,
+      "kind": "control",
+      "target": "CookieQueen",
+      "data": "partition",
+      "args": ["2"]
+    },
+
+#+end_src
+
+Handled the registration changes and such too!
+
+******* KILL Add simulation control to abort hung states
+CLOSED: [2025-11-18 Tue 21:23]
+
+- CLOSING NOTE [2025-11-18 Tue 21:23] \\
+  this seems like something we can skip for now because the thing still works alright, and it doesn't actually hang.
+this should only be for proposer states that are hung, it's so that the simulation can go on
+
+so here, when we do the simulation control to update the partitions, then that handler should be coupled with the "resetting" logic. this is just for simplicity of the simulation.
+***** [X] Need to set the =proposal_ids= from the json
+CLOSED: [2025-11-23 Sun 07:56]
+
+- CLOSING NOTE [2025-11-23 Sun 07:56] \\
+  alright I wired this up. However, it's not really that useful because there's an assertion that proposals can only be made when a node's proposer state is idle.
+
+  This assertion makes sense, it's just that we need to use the simulation to change this part. What happens is that once the proposer state is in decided, then we need to be able to emit a simulation event that will allow us to allow that node to
+
+  This is part of the muddying of functionality (originally just wanted simple paxos for v0) but I added a bit more functionality.
+
+  I'll leave it as it is for now.
+This should allow us to mimic the proposals clashing and so on
+***** [X] Better support for custom scenarios
+CLOSED: [2025-11-23 Sun 12:10]
+- CLOSING NOTE [2025-11-23 Sun 12:10] \\
+  nice
+Just a convenience thing. We should be able to just put in any custom json. Names for the scenario should be within the input files so that it's injected via the data file instead of being dependent on the code.
+
+This is necessary to add in the cheeky scenarios that are camel-themed.
+
+***** [X] Logging cleanups: Wire up global and module-specific logging to avoid dirty log statements
+CLOSED: [2025-11-30 Sun 21:53]
+
+- CLOSING NOTE [2025-11-30 Sun 21:53] \\
+  This was ridiculously time-taking also, the logging subsytem now has a UI scaffold and feels a little bit of band-aidy. It's alright for now.
+the problem i'm facing looks like this:
+
+1. my custom logger implementation is too unpolished and so when using it, readability is taking a hit.
+
+   solution: for sim-actions, we need to move the printing into the predefined events for some things.
+
+2. the terminal output sometimes can be really verbose.
+
+   solution: log levels
+
+****** wishlist
+1. all of them should display their id and aliases in their header tags
+
+   - broadcasts and unicasts are actually from the =event_bus= so they should be also diplaying which bus the broadcast and such is happening
+
+2. ordering of logging matters else it's confusing
+
+3. log levels really should be implemented
+
+****** current problems
+1. Logger too coupled with formatting
+   - it's a ball of mud with log formatting library, terminal-style renderer and logging backend fused together
+
+   - a logger shouldn't know about domain concepts, it should be as stupid as possible
+
+2. no log levels, can't be composed and turned off
+   - violates:
+
+     - ergonomics
+
+     - performance
+
+     - readability
+
+     - control at the simulation level
+
+     In a distributed simulator, logs should be “zoomable”.
+
+3. =formatters= has no purpose
+
+   a. They don’t depend on internal state.
+
+   b. They’re not overridden.
+
+   c. They’re not extensible.
+
+   d. They don’t compose.
+
+   e. There’s no polymorphism.
+****** Notes
+1. the logger is now improved, @ the point of instantiation of a struct, we end up defining whhat the log level is
 **** TODO Stage 5: Refinements & Cleanup
 :PROPERTIES:
 :EFFORT:   1h
@@ -3552,49 +4609,247 @@ We should be able to move onto the test-writing stuff. I just wanna demonstrate 
 - Tasks:
   1) Move logging into a small Node.debug helper.
 
-  2) Remove unnecessary Stdio.printf noise.
+  2) Remove unnecessary =Stdio.printf= noise.
 
   3) Tighten signatures, remove unsafe partial matches.
 
   4) Final documentation pass.
-***** Simulator Logging Improvements
-- [ ] add a rudimentary implementation for log levels, allow the settings to cascade down from one point of setting it (sim)
 ***** Refactoring Goals
+****** Personal Style
+Here are somethings about my syntax preferences:
+
+1. I like it when the struct is destructured at the input parameters because of how that is common in the elixir world. I prefer that
+
+   However, any good thing can be abused. There are instances where I'm doing really deep destructures and that worsens readability
+
+2. I'm an enjoyer of pipes.
+
+   I would like to use it as much as possible because it's easier form me to see data sinks and sources. It's also easier for me to see transformations to a shape clearly when we use pipes.
+
+   I guess this follows a general monadic pattern to implementation. I would like to encourage more use of this.
+
+
+
+3. I like it when functions are defined clearly. It's important for me to names that read off the tongue well and I absolutely despise code golfers.
+
 ****** General Refactoring Goals
-- [ ] Avoid long let-binding chains
+a) Visual cleanliness
+   - [X] Avoid long let-binding chains
 
-  kind of forgot when i first wrote up teh thing that we can be more elixir-like and do destructuring @ the message parameters
+     kind of forgot when i first wrote up teh thing that we can be more elixir-like and do destructuring @ the message parameters
 
-  this will make a lot more of the code cleaner.
+     this will make a lot more of the code cleaner.
 
-- [ ] for function params, keep t as the first one. Consider adding stuff that can be piped continuously
+b) Reduce cognitive load on reading the code
+   a) [ ] use more small isolated helpers that will allow us to pipe things
+      #+begin_src ocaml
+(* before: *)
+let handle_incoming t msg =
+  let a = something t msg in
+  let b = longer_transformation a in
+  let c = analyze b in
+  final_action t c
+(* after: *)
+let parse t msg = ...
+let compute ctx = ...
+let finalize t ctx = ...
 
-- [ ] use assertions instead of =failwith= s
+let handle_incoming t msg =
+  msg |>  parse t |> compute |> finalize t
+      #+end_src
+   b) [ ] more idiomatic handling of optionals
+      examples:
+      - =Option.value_map opt ~default ~f=
 
-- [ ] avoid accessor functions if we don't hide it at the interface level
-  here's an example:
-  #+begin_src ocaml
-  (* TODO: [REFACTOR] I think such accessors are useless, we can pattern-match destructure them anyway. Keep only if we wanna hide the internal state struct @ the interface boundary *)
-  let id t = t.id
-  let roles t = t.config.roles
-  let state t = t.state
-  let buses_for_topic t topic =
-    match Hashtbl.find t.subs topic with
-    | Some table -> Hashtbl.fold table ~init:[] ~f:(fun ~key:_ ~data:bus acc -> bus :: acc)
-    | None -> []
-  #+end_src
+      - =Option.iter= for side effects (prefer using =Log= rather than printing directly)
 
-- [ ] add assertions to communicate invariants
+      - =let%bind= with =Option= using =Option.bind= where nested unwrapping occurs
 
+      - use =Option.map= where possible
+
+        Here's an example:
+        #+begin_src diff
+    -  let of_spec
+    -      {promised: proposal_id_spec option; accepted: assertion_spec option} :
+    -      value =
+    -    let promised =
+    -      match promised with
+    -      | None ->
+    -          None
+    -      | Some spec ->
+    -          Some (spec |> proposal_of_spec)
+    -    in
+    -    let accepted =
+    -      match accepted with
+    -      | None ->
+    -          None
+    -      | Some spec ->
+    -          Some (spec |> assertion_of_spec)
+    -    in
+    +  let of_spec ({promised; accepted} : spec) : value =
+    +    let promised = promised |> Option.map ~f:proposal_of_spec in
+    +    let accepted = accepted |> Option.map ~f:assertion_of_spec in
+         {promised; accepted}
+        #+end_src
+   c) Better defensive code $\implies$ I'll likely just be noting this down but not actually doing this part
+
+      - Invariant checks: use =assert (condition)= or =assert (not ...)= with comment.
+
+      - Bad user input: =invalid_arg "meaningful message"= (this is conventional for argument errors).
+
+      - Recoverable parse errors: return =Result.Error= and let the caller log and handle.
+
+      - [ ] instead of =failwith=, use =Result= , =invalid_arg=
+
+      - [ ] add assertions to communicate invariants
+
+c) no ignored side-effects
+
+   Replace with:
+
+   Change the invoked function to return =unit= explicitly; OR
+
+   If function can fail, propagate a =Result= or =Deferred.t= as appropriate; OR
+
+   =let (_ : unit) = do_side_effect ()= with a comment explaining the intentional discard.
+
+   Better: design functions to return =unit= when they are primarily for side-effects.
+
+   1. they should return =Results=, which the caller can choose to ignore
+
+d) [ ] for function params, keep t as the first one. Consider adding stuff that can be piped continuously
+
+e) [ ] try to avoid using ignore
+
+   I notice that in some places I ended up using quite a bit of ignore.
+   This feels like a code smell.
+
+   I rather a more monadic style function signatures that would allow me to pipe even more.
+
+f) [ ] avoid accessor functions if we don't hide it at the interface level
+   here's an example:
+   #+begin_src ocaml
+   (* TODO: [REFACTOR] I think such accessors are useless, we can pattern-match destructure them anyway. Keep only if we wanna hide the internal state struct @ the interface boundary *)
+   let id t = t.id
+   let roles t = t.config.roles
+   let state t = t.state
+   let buses_for_topic t topic =
+     match Hashtbl.find t.subs topic with
+     | Some table -> Hashtbl.fold table ~init:[] ~f:(fun ~key:_ ~data:bus acc -> bus :: acc)
+     | None -> []
+   #+end_src
+
+g) pipe enjoyment:
+   - try not to mix it with side-effects, use it mainly for functional transformations. else it gives a false sense of assurance that there's no side-effect there.
 ****** Runtime and Simulator
 - simulator is very blown up and there's a lot of unnecessary functions exposed.
-- [ ] there should be a way for the simulator to allow simulation (runner module) to control node lifecycle
-- [ ] should be a way to:
+- [X] there should be a way for the simulator to allow simulation (runner module) to control node lifecycle
+- [X] should be a way to:
   - make a node initiate a proposal without violating the abstraction boundaries. So the node needs to call its own propose function
 
   - add their own messages (typically a simulation control message only) to theh eventbuss for message passing. This can directly enqueue to the event bus
 
   - allow other simulation events to directly be run (e.g. state dumps of one of the nodes and so on) -- these are things that don't rely on the event bus
+***** Features to add in
+****** DONE Custom scenarios
+
+already supported, we can just point it to custom mode and supply any satisfactory json file to seed the simulation.
+
+****** DONE Inspection @ REPL mode
+This feature is an aspect of polish that is needed to hopefully make it a better tooling for learning.
+
+For now, we shall just go for a barebones sexp or json dump of these tbh
+
+******* objective
+Since part of this includes teaching people the paxos protocol and exploring it.
+
+Paxos is notoriously hard because the learner must track:
+
+- Who promised what?
+
+- What proposal numbers have been seen?
+
+- What value is currently supported?
+
+- What quorums have been formed?
+
+- Why did a message get ignored?
+
+- What is currently in flight?
+
+Our simulator already contains this information. The goal is to make them explicit “inspection events’’ or REPL-viewable structures.
+
+
+***** Simulator Logging Improvements
+- [X] add a rudimentary implementation for log levels, allow the settings to cascade down from one point of setting it (sim)
+***** Skipped tasks
+****** [ ] separate pure FSM logic from node-level effects
+
++ Context:
+
+  We already did some work on distinguishing pure Paxos state-machine transitions from impure node orchestration in =node.ml=. Some functionality was moved into =node_state.ml=, but the module boundary remains partially blurred. Our goal should be to make =node_state.ml= the canonical home of all pure, functional role/substate transitions, while =node.ml= handles orchestration, I/O, logging, scheduling, and storage.
+
++ Current Status:
+  - Several pure transitions were identified but remain embedded in =node.ml=.
+
+  - Some helper functions exist in =node_state=, but not all state updates flow through them.
+
+  - Mixed responsibilities still exist inside handlers (e.g., constructing substate records inline).
+
+  - =transition_role_state= still performs both pure and impure work.
+
++ TODO:
+
+  This set of todos is partly compiled via a bot, not everything here is actually correct and will be worth doing. I'm doing a rudimentary dump of it here for future pick-up.
+
+  1) Identify and extract all pure state-machine transitions from =node.ml=
+
+     + Any logic that constructs or transforms =State.*= substates (e.g., proposer, acceptor, learner).
+
+     + Any logic performing “logical transitions” based only on inputs + prior state.
+
+     + NACK/ACK accumulation, quorum progress inside substates, and proposer/acceptor role movement.
+
+  2) Centralize state-machine transitions in =node_state.ml=
+
+     + Implement pure helper functions for each transition.
+
+     + Ensure =node_state.ml= performs no logging, no I/O, no persistence.
+
+  3) Refactor =node.ml= to call pure transitions only
+
+     + =node.ml= should orchestrate: message routing, logging, persistence, time, and bus operations.
+
+     + Replace all inline state manipulation with calls into =node_state=.
+
+  4) Split the transition function into two layers
+
+     + Pure: =node_state.apply_role_transition=
+
+     + Impure: a wrapper in =node.ml= (logging + persistence).
+
+       This preserves the ergonomic =transition_role_state= calls while enforcing boundaries.
+
+  5) Clean up handler logic
+
+     + After extraction, remove obsolete pattern matches and unreachable branches.
+
+     + Ensure handlers do only orchestration and delegation.
+
+  6) Verify invariants
+
+     + State transitions should be deterministic given inputs.
+
+     + Node-level side effects should wrap transitions cleanly.
+
+     + Acceptor/proposer/learner substates should not be mutated directly in node.ml.
+
++ Outcome:
+
+  - A clean separation between the pure Paxos state machine (in node_state.ml) and node orchestration (in node.ml), enabling easier testing, auditability, and potential formal verification.
+
+  - the possibility to have some sort of injection pattern for the FSM state management layer or the orchestration layer and perhaps allowing us the ability to inject in "protocols" like liveness checks, leader election, byzantine elements and so on. Something modular of a policy or protocol to just define and it will work. That would be a great future.
+
 **** TODO Correctness check: Isolated areas in consideration
 
 These are mechanisms that we need to add in part by part. It would be greate to add a sort of pipelining capability to this though and to just add in policy elements direclty.
@@ -3616,6 +4871,250 @@ D. Latency Optimizations
 E. Application-Level Logic
 
    - How the application uses the results of Paxos instances
+*** TODO Key Improvements from v0
+**** KILL Improving Paxos Node State Handling with GADTs
+yes I have a GADT but it's not being used in all places. Instead of doing compile time checking based on the node's sub-states, we end up doing runtime checks.
+
+***** Current Design
+- =role_state= is a record containing =proposer=, =acceptor=, =learner= states.
+- =role_selector= is a GADT with =_= phantom type to encode which sub-state is selected:
+
+#+BEGIN_SRC ocaml
+type _ role_selector =
+  | Proposer : proposer_state role_selector
+  | Acceptor : acceptor_state role_selector
+  | Learner : learner_state role_selector
+#+END_SRC
+
+- Accessors are polymorphic:
+
+#+BEGIN_SRC ocaml
+val get_role : 'a. role_state -> 'a role_selector -> 'a
+val set_role : 'a. role_state -> 'a role_selector -> 'a -> role_state
+#+END_SRC
+
+- Quorum checks and some proposer operations require runtime pattern matching with =failwith= or =assert false=.
+
+***** Problems / Limitations
+1. Unsafe runtime checks
+   Functions like =is_quorum_reached= call =failwith= if the proposer is not in an active state:
+
+#+BEGIN_SRC ocaml
+match Proposer |> get_role rs with
+| WaitingForPromises wfp -> ...
+| ProposerAccepting pa -> ...
+| _ -> failwith "Called on non-proposer state"
+#+END_SRC
+
+2. GADT potential underutilized
+   - The =_= in =role_selector= tracks the sub-state type but does not prevent passing inactive states.
+   - The type system cannot enforce that some operations are only valid on certain sub-states.
+
+3. Limited compile-time guarantees
+   - It's possible to call operations like =is_quorum_reached= on =Idle= or =ProposerInactive= nodes.
+   - Safety is only checked at runtime.
+
+***** Proposed Improvements
+
+1. Encode active proposer states as a separate GADT
+
+#+BEGIN_SRC ocaml
+type _ active_proposer_state =
+  | WaitingForPromises : waiting_for_promise_state -> waiting_for_promise_state active_proposer_state
+  | ProposerAccepting : proposer_accepting_state -> proposer_accepting_state active_proposer_state
+#+END_SRC
+
+- Only valid states for quorum checks are allowed.
+- Eliminates runtime checks for inactive states.
+
+2. Extend =role_selector= with context-specific types
+
+#+BEGIN_SRC ocaml
+type _ role_selector =
+  | Proposer : proposer_state role_selector
+  | ActiveProposer : 'a active_proposer_state role_selector
+  | Acceptor : acceptor_state role_selector
+  | Learner : learner_state role_selector
+#+END_SRC
+
+- =ActiveProposer= ensures functions like =is_quorum_reached= can only accept =WaitingForPromises= or =ProposerAccepting=.
+- The =_= phantom type tracks the exact substate at compile time.
+
+3. Type-safe accessors
+
+#+BEGIN_SRC ocaml
+let get_role : type a. role_state -> a role_selector -> a =
+ fun rs sel ->
+  match sel with
+  | Proposer -> rs.proposer
+  | ActiveProposer -> (
+      match rs.proposer with
+      | WaitingForPromises w -> w
+      | ProposerAccepting p -> p
+      | _ -> failwith "Impossible: not an active proposer")
+  | Acceptor -> rs.acceptor
+  | Learner -> rs.learner
+#+END_SRC
+
+- Optional further improvement: fully encode the node state as a GADT to eliminate even the =failwith=.
+
+4. Encode node state as a GADT
+
+#+BEGIN_SRC ocaml
+type _ node_state =
+  | Node : {
+      proposer: 'p proposer_substate;
+      acceptor: 'a acceptor_substate;
+      learner: 'l learner_substate;
+    } -> ('p, 'a, 'l) node_state
+#+END_SRC
+
+- ='p=, ='a=, ='l= track exact sub-state types of each role.
+- Operations like =is_quorum_reached= can only be called on =active_proposer_state=.
+
+5. Example: Type-safe quorum check
+
+#+BEGIN_SRC ocaml
+let is_quorum_reached ~cluster_size (Node {proposer; _} : ('p, _, _) node_state)
+    (state : 'p active_proposer_state) : quorum_result =
+  match state with
+  | WaitingForPromises wfp -> is_quorum_reached_on_promise_wait cluster_size wfp
+  | ProposerAccepting pa -> is_quorum_reached_on_proposer_accepting_wait cluster_size pa
+#+END_SRC
+
+- ✅ Impossible to call with =Idle= or =ProposerInactive=.
+- ✅ No =_= > failwith= needed.
+- ✅ Compiler guarantees correctness.
+
+***** Advantages
+- Type safety on operations: Both role and valid substate tracked
+- Runtime checks: Eliminated for impossible states
+- Polymorphic access: Strongly typed accessors, context-specific
+- Quorum enforcement: Compile-time guaranteed only active proposer states
+- Extensibility: Adding new states enforces correctness automatically
+
+***** Rollout plan
+1. Refactor =role_state= as a GADT with type parameters for each sub-state.
+2. Introduce =active_proposer_state= GADT and update quorum functions.
+3. Update =role_selector= to include =ActiveProposer=.
+4. Refactor =get_role= / =set_role= for type-safe access.
+5. Remove all =failwith= / =assert false= for impossible states.
+6. Optional: fully encode node state as a GADT to maximize compiler guarantees.
+***** Forseen Problems
+****** GADTs won't work well with serialiser converter functions
+1. GADTs don't support serialiser ppx-es. This is unideal because we can't break the serilisation layer just for this GADT support
+2. Therefore, we have to only do a partial refactor (for now).
+***** Revised rollout plan
+Changes based on the problems above
+
+
+**** TODO Improving Paxos Node State Handling with GADTs (storage-safe variant)
+
+/[bot assisted rollout plan]/
+
+This plan introduces GADT-typed *views* for critical operations while keeping all persistent/snapshotable types serializable with =[@@deriving sexp]=. The goal is to remove runtime =failwith/assert false= in quorum/proposer logic without breaking simulator state dumping.
+
+#+BEGIN_QUOTE
+Key principle: *Two layers* — Storage (serializable) and Typed Views (GADTs).
+#+END_QUOTE
+
+***** Current Design (unchanged)
+- =role_state= is a record containing =proposer=, =acceptor=, =learner= states.
+- =role_selector= is a GADT used for polymorphic accessors:
+
+#+BEGIN_SRC ocaml
+type _ role_selector =
+  | Proposer : proposer_state role_selector
+  | Acceptor : acceptor_state role_selector
+  | Learner : learner_state role_selector
+#+END_SRC
+
+- Accessors (polymorphic) remain:
+
+#+BEGIN_SRC ocaml
+val get_role : 'a. role_state -> 'a role_selector -> 'a
+val set_role : 'a. role_state -> 'a role_selector -> 'a -> role_state
+#+END_SRC
+
+***** Problem
+- Some operations (e.g. =is_quorum_reached=) pattern-match on =proposer= and call =failwith= when the proposer is inactive. This is runtime-checked and brittle.
+
+***** Revised Approach (two-layer)
+
+****** Layer A — Storage representation (keep serializable)
+Keep these as normal variants and records with ==[@@deriving sexp]==:
+
+#+BEGIN_SRC ocaml
+(* example: keep this unchanged so sexp deriving works *)
+type proposer_state =
+  | ProposerInactive
+  | Idle
+  | Preparing of assertion
+  | WaitingForPromises of waiting_for_promise_state
+  | ProposerAccepting of proposer_accepting_state
+  | Decided of V.t
+[@@deriving sexp, yojson]
+
+type role_state = {
+  proposer: proposer_state;
+  acceptor: acceptor_state;
+  learner: learner_state;
+}
+[@@deriving sexp, yojson]
+#+END_SRC
+
+****** Layer B — Typed views (GADTs) for critical functions
+Add non-serializable GADTs to represent only the valid active cases:
+
+#+BEGIN_SRC ocaml
+type _ active_proposer_state =
+  | WaitingForPromises : waiting_for_promise_state -> waiting_for_promise_state active_proposer_state
+  | ProposerAccepting : proposer_accepting_state -> proposer_accepting_state active_proposer_state
+#+END_SRC
+
+Extend the role selector with an option to request an active-proposer view:
+
+#+BEGIN_SRC ocaml
+type _ role_selector =
+  | Proposer : proposer_state role_selector
+  | ActiveProposer : 'a active_proposer_state role_selector
+  | Acceptor : acceptor_state role_selector
+  | Learner : learner_state role_selector
+#+END_SRC
+
+***** Bridge functions (storage -> GADT view)
+Provide small converters:
+
+#+BEGIN_SRC ocaml
+let active_proposer_of : proposer_state -> _ active_proposer_state option = function
+  | WaitingForPromises w -> Some (WaitingForPromises w)
+  | ProposerAccepting p -> Some (ProposerAccepting p)
+  | _ -> None
+#+END_SRC
+
+****** Type-safe quorum functions
+New API that only accepts the typed view:
+
+#+BEGIN_SRC ocaml
+let is_quorum_reached_active ~cluster_size (state : _ active_proposer_state) : quorum_result =
+  match state with
+  | WaitingForPromises wfp -> is_quorum_reached_on_promise_wait cluster_size wfp
+  | ProposerAccepting pa -> is_quorum_reached_on_proposer_accepting_wait cluster_size pa
+#+END_SRC
+
+***** Migration strategy (incremental)
+1. Add the GADT type(s) and the bridge converter(s).
+2. Add =is_quorum_reached_active= alongside the old =is_quorum_reached= (keep old API for now).
+3. Replace call-sites incrementally:
+   - pattern: ``match active_proposer_of rs.proposer with | Some aps -> is_quorum_reached_active ~cluster_size aps | None -> (* old behavior or ignore *)``
+4. Once all call-sites use typed views, remove the old runtime-checked =is_quorum_reached= and any remaining =failwith= cases.
+5. Optional: consider a fully typed internal ==node_state== GADT only if you are ready to write custom serializers.
+
+***** Advantages
+- Preserve =[@@deriving sexp]= for dumping/loading state.
+- Gain compile-time safety for critical operations.
+- Minimal, incremental changes; compiler guides the migration.
+
 
 
 *** TODO Implementation v1 (with async frameworks) [optional -- out of scope for this sprint]
@@ -3638,7 +5137,6 @@ That being said, I'll likely come back to this real soon after I do some explain
 **** Command-line interactive harness
 
 - Use Notty/Lwt/Voodoo if you want a terminal UI — not required for demo; skip unless you have spare time.
-
 
 ** Testing
 *** TODO Iterate and test scenarios
@@ -3709,6 +5207,7 @@ I want to be able to communicate some aspects of the following things:
            - A few friends have described how when they hire, the rigour that the talent pool seems to show is now more bimodal and we've had conversations about the role of AI products and their impact on learners....
 
         c) I'm really want to work on problems where ocaml is a natural fit for the problem and solution space and how engineers are well-organised to solve problems at scale better, as a by-product of the language's design primitives and its ecosystem.
+
    - proof of competence goals and artefacts
      a) what I managed to achieve in a "short" period of time
         - what systems have been designed
@@ -3725,13 +5224,13 @@ I want to be able to communicate some aspects of the following things:
 
 ** TODO Write-ups
 DEADLINE: <2025-11-01 Sat 22:00>
-— produce blog-style REDEEM + literate trace
+— produce blog-style README + literate trace
 
-From a reader's perspective, I'd like them to first-land on the unabridged versions and then choose whether they want depth or they want abgridged parts.
++From a reader's perspective, I'd like them to first land on the unabridged versions and then choose whether they want depth or they want abgridged parts.+
 
 The blog posts will be living posts that will be continually updated as I get feedback from others, this should give me the freedom to iterate on its quality before I actually do some marketing on it and publish it on more public forums for even more feedback and test out the usefulness of the project as a teaching tool.
 
-In fact many of the things that I wish to talk about should be blog posts of their own e.g. "why emacs changed my life" but I can see some of these write ups I'll do as a jump-gate into those blog posts in the future.
+In fact, many of the things that I wish to talk about should be blog posts of their own e.g. "why emacs changed my life" but I can see some of these write ups I'll do as a jump-gate into those blog posts in the future.
 
 *** Possible Writeups
 **** Write up 1: Retro: Beauty of OCaml -- Problem Scope Of Distributed Computing
@@ -3747,7 +5246,8 @@ In fact many of the things that I wish to talk about should be blog posts of the
 ****** What theses to validate w.r.t working styles?
 ****** Areas of Improvement
 **** Write up 3: Using this as a tutorial
-
+- noise in online spaces and online "gurus" would probably make a more impressionable me think of giving up in school
+- why is OCaml not more popular? seems like a pedagogiccal product might actually be beneficial to the community if I manage to iterate on it, have the right polish and so on.
 
 ** Temporary dump from scratch notes
 
@@ -3832,6 +5332,10 @@ let bus =
 ```
 
 #+end_src
+***** [ ] still falling for the nominal typing gotcha, exacerbated by silly naming
+
+See [[#nominal_typing_gotcha][here]]
+
 ***** [ ] type unionisation, parameter binding: sharing constraints vs destructive substitution
 
 I faced significant hurdles trying to extract out an inline signature for my node module, because it was inlined in a functor that depended on the injected polymorphic types from 3 other modules
@@ -4082,7 +5586,7 @@ The difference between destructuring in the function parameter list and destruct
 
 This happens because in the parameter destructuring case, the pattern is coupled with the function's type signature which tells the compiler exactly what record type is expected.
 
-***
+**
 
 ### How to fix or understand this better:
 
@@ -4113,6 +5617,118 @@ This is a standard behavior in OCaml’s type and pattern matching system and be
 
 
 #+end_src
+***** [ ] destructive substitution is actually destructive
+****** GOTCHA: destructive substitution actually destroys things
+
+this "Bug" burned away half a day man. What the heck.
+
+So I first extracted out the =Acceptor_record= and created a signature for it. Since the record depends on the value that consensus is being achieved, it makes sense to write a functor for it so I had =Make_acceptor_record=. Naturally, we'd have a type within the functor to have a handle for the value type we're using and this can abstract. Eventually, we'd need to indicate that the injected module's type and the value type are the same.
+
+Then, I extracted out the =Node_state= and it too depends on =Value= and also =Acceptor_record=. I wanted them to share constraints since both =Acceptor_record= and =Node_state= actually use the "same" value type. Therefore, the functor was defined something like so:
+#+begin_src ocaml
+module Make_node_state (A : Acceptor_record.S) :
+  S with module Acceptor_record := A = struct
+  module V = A.V
+
+  type assertion = A.assertion [@@deriving sexp, yojson]
+
+  type promise = A.promise [@@deriving sexp, yojson]
+
+...
+#+end_src
+
+Finally, the intention was to just use the two functors within =node.ml= like so:
+
+#+begin_src ocaml
+module Make_node
+    (V : Value.S)
+    (Storage : Storage.S)
+    (Bus : sig
+      include module type of Event_bus
+    end) :
+  S with module V := V with module Storage := Storage with module Bus := Bus =
+struct
+  module Acceptor_record = Make_acceptor_record (V)
+  module State = Make_node_state (Acceptor_record)
+
+  type role = Proposer | Acceptor | Learner
+
+  type roles = role list
+
+...
+#+end_src
+
+I had not understood destructive substitution properly. The thing is when we write =module Make_acceptor_record(V: Value.S): S with module V:== =V=. The destructive substitution removes the =module V= from the signature entirely (that's probably why the struct for destructively substituted modules don't have the module indicated as an abstract module within the struct but DO have it within the signature).
+
+So when my =Make_node_state= was attempting to access =A.V=, this fails.
+
+Fixing this has 2 options:
+
+1. not using destructive substitution and just using plain constraint sharing
+   - we ended up doing this.
+
+2. injecting =V= into the =Make_node_state= functor as well.
+   - this is a little odd and doesn't feel right because our intention was to do the constraint sharing.
+
+
+Why it was difficult to figure out this problem:
+
+1. No mental model of how destructive substitution works $\implies$ ended up exploring unrelated possbilities for the source of error
+
+2. the compiler's outputs were too generic.
+
+
+takeaways:
+
+    - Substituting a type name within a signature: t := SomeModule.t changes how t is seen downstream.
+
+    - Substituting submodules can affect access to nested members; ensure downstream code references the correct substituted paths.
+
+    - Local substitutions give more control and reduce unintended leakage of original bindings.
+
+
+JUST PLAIN UNFORTUNATE HOW LONG THIS TOOK
+***** [ ] mutability snag::mutating hashtbl during iteration is illegal (as expected)
+
+So this will throw an exception:
+
+#+begin_src ocaml
+
+  let deregister_node_from_bus bus ({config= {topics; _}; subs; _} as node) =
+    List.iter topics ~f:(fun topic ->
+        match Hashtbl.find subs topic with
+        | Some table ->
+            Hashtbl.fold table ~init:()
+              ~f:(fun ~key:sub_handle ~data:sub_bus () ->
+                if phys_equal sub_bus bus then (
+                  Bus.unsubscribe bus sub_handle ;
+                  Hashtbl.remove table sub_handle ) ) ;
+            if Hashtbl.is_empty table then Hashtbl.remove subs topic
+        | None ->
+            () ) ;
+    node
+#+end_src
+
+and this will not
+
+#+begin_src ocaml
+let deregister_node_from_bus bus ({config= {topics; _}; subs; _} as node) =
+  List.iter topics ~f:(fun topic ->
+    match Hashtbl.find subs topic with
+    | Some table ->
+        let keys_to_remove =
+          Hashtbl.fold table ~init:[] ~f:(fun ~key:sub_handle ~data:sub_bus acc ->
+            if phys_equal sub_bus bus then sub_handle :: acc else acc)
+        in
+        List.iter keys_to_remove ~f:(fun sub_handle ->
+          Bus.unsubscribe bus sub_handle ;
+          Hashtbl.remove table sub_handle) ;
+        if Hashtbl.is_empty table then Hashtbl.remove subs topic
+    | None -> ());
+  node
+#+end_src
+
+
 
 **** [ ] Syntax snags
    - optional args and the need for unit as one of the args
@@ -4168,6 +5784,7 @@ Error (warning 8 [partial-match]): this pattern-matching is not exhaustive.
 Here is an example of a case that is not matched:
 Inactive
   #+end_src
+****** [ ] how did the compiler go from "complaining" to "whispering"
 
 ***** [ ] working with generics and expressiveness of the type system
 
@@ -4259,16 +5876,441 @@ Inactive
 ***** [ ] language features with pleasant ergonomics
 - pattern matching like in elixir
   - we can do param destructuring, so no need long let-binds just to prepare structs for usage within the body + standardisation of field names $\implies$ consistent naming and a focus on the linguistic choices behind variable naming $\implies$ intentional communication behind the chohice of a name
+- pattern matching arms and not inversions / if-flattening patterns in other languages like python, where you do the negated cases first (the rule of thumb) and how that naturallly happens when we consider arms.
+- [pattern] dispatch pattern feels very natural to this langauge, there's 2 flavours that I've used in this version:
+
+  * runtime-adapting chaos needs flexibility, we can use frozen hashtables for this
+    #+begin_src ocaml
+    (* frozen dispatch table *)
+    let event_hydrators =
+        [ ("proposal", hydrate_proposal_event)
+        ; ("metric", hydrate_metric_event)
+        ; ("control", hydrate_control_event) ]
+        |> Hashtbl.of_alist_exn (module String) ~growth_allowed:false
+
+    let hydrate_event sim ({kind; _} as spec : Sim_event.spec) =
+        kind
+        |> Hashtbl.find event_hydrators
+        |> Option.value ~default:hydrate_fallback
+        |> fun hydrator -> spec |> hydrator sim
+
+    (* negative example, not lazy. Side-effect management not too good *)
+    let hydrate_event_ sim ({kind; _} as spec : Sim_event.spec) =
+        kind
+        |> Hashtbl.find event_hydrators
+        |> Option.value_map
+            ~f:(fun hydrator -> spec |> hydrator sim)
+            ~default:(spec |> hydrate_fallback sim) (*<-- this is eagerly evaluated*)
+    #+end_src
+
+    I think this is a good example of how NOT having clear areas that are side-effect reliant and others that are pure gives us cases where we may accidentally introduce subtle eagerness/laziness that may make the tracing of bugs harder.
+
+    Also this is better for runtime-facing flexibity I think. An alterante way to have dispatch table is to just literally create a record type. There's a lot of type safety that we get from doing that!!
+
+  * typical stable code surfaces:
+
+    #+begin_src ocaml
+type coord_handler = t -> _ coordination_msg -> unit
+
+let handlers = {
+  permission_request = handle_permission_request;
+  permission_granted = handle_permission_granted;
+  suggestion = handle_suggestion;
+  accepted = handle_accepted;
+  nack = handle_nack;
+  decided = handle_decided;
+}
+
+let handle_coordination node = function
+  | PermissionRequest pr -> handlers.permission_request node pr
+  | PermissionGranted pg -> handlers.permission_granted node pg
+  | ...
+
+    #+end_src
 
 ***** [ ] beauty of pipes (though it's not unique to ocaml)
+- i think this miight be a usesful callout:
+  #+begin_src ocaml
+  (** Atomic file writing trick for reference.
+
+     NOTE: this is suposedly make it non-portable code, but it's alright we can add an assumption that it's for Unix.
+     refs:
+     - https://lists.racket-lang.org/dev/archive/2011-January/005420.html
+     - https://stackoverflow.com/questions/30385225/is-there-an-os-independent-way-to-atomically-overwrite-a-file/30549434#30549434
+  *)
+  let atomic_write_exn filepath contents =
+    let tmp = filepath ^ ".tmp" in
+    Stdio.Out_channel.write_all tmp ~data:contents ;
+    Unix.rename tmp filepath
+
+  let write_to_file filepath data =
+    try
+      data |> persisted_data_to_yojson |> Yojson.Safe.pretty_to_string
+      |> atomic_write_exn filepath ;
+      Ok ()
+    with exn -> exn |> Error.of_exn |> Error
+
+  let read_from_file filepath =
+    try
+      if not (Stdlib.Sys.file_exists filepath) then Ok None
+      else
+        let extraction_outcome =
+          filepath |> Stdio.In_channel.read_all |> Yojson.Safe.from_string
+          |> persisted_data_of_yojson
+        in
+        match extraction_outcome with
+        | Ok data ->
+            Ok (Some data)
+        | Error msg ->
+            Error (Error.of_string ("JSON deserialization error: " ^ msg))
+    with exn -> exn |> Error.of_exn |> Error
+
+  #+end_src
+  - file io tricks
+  - naming
+  - pipelineing data prep
+***** [ ] things i like about the ecosystem
+1. Makefiles are more common here
+   - [[https://bost.ocks.org/mike/make/][for the love of make files]]
+
 **** Quirks
 ***** [ ] Minor wishlist
-- i wish assert expressions had associated messages that we could use (we could always wrap this and make a custom assertion but still)
+A) i wish assert expressions had associated messages that we could use (we could always wrap this and make a custom assertion but still)
+
+B) wish param destructures could be done for named parameters
+   #+begin_quote
+ If you want to destructure topics directly in the function argument (destructuring a record within a named parameter), OCaml syntax doesn't support destructuring named parameters in the argument list directly. You have to destructure inside the function body.
+   #+end_quote
+
+C) wish i could destructure @ the pattern match
+
+   like this would be illegal, but is commonplace in elixir:
+   #+begin_src ocaml
+let hydrate_control_event sim ({target; data; id; time; _} : Sim_event.spec) =
+  match (target, data) with
+  | Some alias, Some ("deactivate " ^ target_alias) -> (*<===== not supported in OCaml?*)
+      { Sim_event.id= Option.value id ~default:(Simulator.next_event_id sim)
+      ; time
+      ; kind= Sim_event.Control
+      ; action=
+          (fun () ->
+            Stdio.printf "[sim_control] node=%s control=%s\n%!" alias action_str )
+      }
+  | _ ->
+      failwith "Malformed control event spec"
+   #+end_src
+   #+begin_src elixir
+def hydrate_control_event(%{target: target, data: data, id: id, time: time} = _sim_event) do
+  case {target, data} do
+    {alias, <<"deactivate ", target_alias::binary>>} when is_binary(alias) and is_binary(target_alias) ->
+      %{
+        id: id || next_event_id(),
+        time: time,
+        kind: :control,
+        action: fn ->
+          IO.puts("[sim_control] node=#{alias} control=deactivate #{target_alias}")
+          # your action logic here
+        end
+      }
+
+    _ ->
+      raise "Malformed control event spec"
+  end
+end
+   #+end_src
+
+
+
+
 ***** [ ] *_of accessors vs pattern-matched destructuring
 
 I notice an overlap in purpose of dedicated accessor functions and how they overlap with pattern-matching destructurers. I realise that the expressiveness of pattern-matching is probably more modern for the language.
 
 I wonder whether this means that dedicated accessor function is more for "only when it's too messy to destructure" and for trivial situations, we should just use pattern-matched destructures
+***** [ ] labelled arg destructuring is odd
+
+compare the two below:
+#+begin_src ocaml
+(* # correct: *)
+  (** Represents the act of a node driving the first step of the paxos process (asking for permission).
+      This means that the node's state as a Proposer will change from [ Idle ] to [ Peparing ], as we create the message then dispatch it. Once done dispatching,
+      the node will change its state to [ WaitingForPromises ], marking it ready to receive responses (both grants and nacks) for that proposal.
+
+      As such, every paxos process can be uniquely identified via its [proposal_id]
+   *)
+  let propose t ~msg_id ~time ~bus ~(assertion : V.t Types.paxos_assertion_state)
+      =
+    let proposal = assertion.proposal in
+    let value = assertion.value in
+    match t.state.proposer with
+    | State.Idle ->
+        {value; proposal} |> State.Preparing
+        |> transition_role_state t State.Proposer ;
+        let perm_request_msg =
+          Message.make_permission_request ~msg_id ~topic:Types.Coordination
+            ~from:t.id ~proposal ~value ~time
+        in
+        let msg = Message.Coordination perm_request_msg in
+        let thunk = ((Types.Coordination, None), msg) in
+        Bus.enqueue bus thunk ;
+        let assertion : assertion = {value; proposal} in
+        {assertion; promises_received= []; nacks_received= []}
+        |> State.WaitingForPromises
+        |> transition_role_state t State.Proposer
+    | _ ->
+        assert false (* we can only propose if we are currently idle *)
+
+
+
+
+(* # wrong: *)
+
+  (** Represents the act of a node driving the first step of the paxos process (asking for permission).
+      This means that the node's state as a Proposer will change from [ Idle ] to [ Peparing ], as we create the message then dispatch it. Once done dispatching,
+      the node will change its state to [ WaitingForPromises ], marking it ready to receive responses (both grants and nacks) for that proposal.
+
+      As such, every paxos process can be uniquely identified via its [proposal_id]
+   *)
+  let propose t ~msg_id ~time ~bus ~(assertion : V.t Types.paxos_assertion_state)
+      =
+    let {value; proposal} = assertion in
+    match t.state.proposer with
+    | State.Idle ->
+        {value; proposal} |> State.Preparing
+        |> transition_role_state t State.Proposer ;
+        let perm_request_msg =
+          Message.make_permission_request ~msg_id ~topic:Types.Coordination
+            ~from:t.id ~proposal ~value ~time
+        in
+        let msg = Message.Coordination perm_request_msg in
+        let thunk = ((Types.Coordination, None), msg) in
+        Bus.enqueue bus thunk ;
+        let assertion : assertion = {value; proposal} in
+        {assertion; promises_received= []; nacks_received= []}
+        |> State.WaitingForPromises
+        |> transition_role_state t State.Proposer
+    | _ ->
+        assert false (* we can only propose if we are currently idle *)
+
+
+#+end_src
+
+
+#+begin_src md
+The main reason you cannot use destructuring like
+
+```ocaml
+let { value; proposal } = assertion in
+```
+
+in your "incorrect" example, and get the error
+
+```
+Error: Unbound record field value
+```
+
+while the "correct" example works fine with direct field access, is that **OCaml requires the type of the record be fully known at the point of pattern matching/destructuring**.
+
+***
+
+### Explanation
+
+- To destructure a record `{ value; proposal }` via pattern matching, OCaml needs to know the exact **record type** of `assertion`.
+- If `assertion` is of a **polymorphic, abstract, or GADT type** without a known concrete record type at that scope, the compiler cannot resolve the field names `value` and `proposal`.
+- Your "correct" example uses direct field access `assertion.proposal` and `assertion.value` which can sometimes work even if the type is abstract but comes from an object or module exposing the field.
+- The destructuring requires concrete knowledge of the type definition.
+
+***
+
+### What to do
+
+1. **Ensure the type of `assertion` is explicitly annotated as the known record type before destructuring**
+
+For example:
+
+```ocaml
+let (assertion : assertion) = assertion in
+let {value; proposal} = assertion in
+```
+
+or directly annotate `assertion`'s argument with a concrete known type (the record type) in the function parameters.
+
+2. If `assertion` is a GADT or polymorphic variant with no fixed record shape, you cannot destructure it with `{ ... }`.
+
+3. Using `match` against record constructors rather than variable destructuring is sometimes more reliable.
+
+***
+
+### Summary:
+
+- OCaml's record destructuring `let {field; ...} = expr` works only when the type of `expr` is known to be exactly a record type with those fields.
+- If the type is abstract, polymorphic, or a GADT, the compiler cannot find field names — it throws "Unbound record field" error.
+- Annotate the type explicitly or avoid destructuring, using field access `expr.field` or pattern-match on constructors if applicable.
+
+***
+
+This is why your "correct" version with `assertion.proposal` and `assertion.value` works, but the destructuring fails.
+
+If you want, I can help you rewrite the code safely to support destructuring with explicit typing or better patterns.
+
+[1](https://stackoverflow.com/questions/63165980/ocaml-pattern-matching-a-variable-with-the-destructured-elements-of-a-tuple)
+[2](https://www2.lib.uchicago.edu/keith/ocaml-class/pattern-matching.html)
+[3](https://ocaml.org/manual/4.08/coreexamples.html)
+[4](https://www-users.cse.umn.edu/~kauffman/2041/06-pattern-matching.pdf)
+[5](https://ocaml.org/docs/tour-of-ocaml)
+[6](https://discuss.ocaml.org/t/non-exhaustive-destructuring-binding/8341)
+[7](https://ocaml.org/docs/guidelines)
+[8](https://reasonml.github.io/docs/en/destructuring)
+[9](https://reasonml.chat/t/destructuring-array-or-list/1848)
+[10](https://www.reddit.com/r/ProgrammingLanguages/comments/f4gfum/pattern_matching_in_your_language/)
+
+#+end_src
+***** [ ] Dev environment
+- [ ] not sure if it's just me but Tuareg seems to not handle renamings well. Additionally, references are just specific to that module and I can't trace a name's use beyond the immediate module def
+*** [3] Learnings on Patterns and Smells
+**** smells
+***** Useless Parallel Type Converters Smelt Bad $\implies$ problem was in aliasing
+
+  * Summary of main learning:
+
+    #+begin_quote
+By removing explicit type specifications from the interface and defining all type aliases inside the =Make_node= functor, the type equalities become *implicitly enforced by module parameterisation rather than by signature constraints*.
+
+The message layer, the event bus, the node state, and the storage layer are all instantiated with the *same module argument* =V : Value.S=, so their *exposed types all carry the same type constructor* =V.t=. This induces structural sharing of type parameters across the modules, producing the necessary type equalities without requiring explicit =with type= clauses in the interface.
+
+OCaml's module system ensures that *all these modules refer to the same instance of =V=,* which is *sufficient to unify the types of assertions, messages, accepted values*, etc.
+
+The resulting unification is robust, type-safe, and requires *no explicit signature annotation*.
+    #+end_quote
+
+  * The smell:
+    #+begin_src ocaml
+  (** v0: for simple paxos, we shall just keep it to proposal id, can expand to (proposal_id, node_id) for multi-paxos *)
+  type proposal_key = Types.proposal_id [@@deriving sexp_of]
+
+  type inbox_entry = {mutable messages: V.t Message.t list} [@@deriving sexp_of]
+
+  type assertion = V.t Types.paxos_assertion_state [@@deriving sexp]
+
+  let paxos_assertion_of_assertion (a : assertion) :
+      V.t Types.paxos_assertion_state =
+    {proposal= a.proposal; value= a.value}
+
+  type promise = assertion option [@@deriving sexp]
+
+  let paxos_promise_of_promise (p : promise) : V.t Types.paxos_promise =
+    p
+    |> Option.value_map ~default:None ~f:(fun {value; proposal; _} ->
+           Some ({value; proposal} : V.t Types.paxos_assertion_state) )
+
+  let assertion_of_paxos_assertion (paxos_a : V.t Types.paxos_assertion_state) :
+      assertion =
+    {proposal= paxos_a.proposal; value= paxos_a.value}
+
+  let promise_of_paxos_promise (paxos_p : V.t Types.paxos_promise) : promise =
+    paxos_p
+    |> Option.value_map ~default:None ~f:(fun paxos_a ->
+           paxos_a |> assertion_of_paxos_assertion |> Some )
+   #+end_src
+
+    Here, we have 2 parallel types for the same semantic object
+    1. internal node type
+    2. message-layer type
+
+    Feels like a smell because:
+    1. surely this is redundant
+    2. need extra boilerplate around it with no benefit at all
+
+  * The fix:
+
+    This is a useful case study. the actual problem was in type unification that was being done wrongly:
+
+    1. both =Event_bus='s =Message= (message layer) and the =Node= (node fsm state layer) deal with the same notion of =assertion= and =promise=, as defined @ =Types= module.
+
+    2. previously, the =Node= signature would explicitly set the type for assertion. Our original intent was for =Node.assertion= to act as a convenient alias to =V.t Types.paxos_assertion_state= within the functor definition.
+
+    #+begin_src diff
+    @@ -54,12 +54,12 @@ module type S = sig
+
+       val role_of_str : string -> role option
+
+    -  type assertion = V.t Types.paxos_assertion_state [@@deriving sexp]
+    +  type assertion [@@deriving sexp]
+
+       type promise = assertion option [@@deriving sexp]
+          #+end_src
+
+    With this change, =S= no longer fixes the internal types =assertion=, =promise= or the message types. So, within =Make_node(V)(Bus)= we end up re-introducing it via =type assertion = V.t Types.paxos_assertion_state= and for the other types.
+
+    Now, the message layer (=Message=) and the event bus use the same =V= because we instantiated them with the same =V= argument. Even if the interface doesn't explicitly define the type equality constraints, we now have a case where the types are unioned implicitly -- from using *a single shared module parameter*.
+
+  * Type theory stuff:
+    - module functors induce module-level type equalities when:
+      * each module usese the same type component ( =V.t= in this example ), and
+
+      * those types appear in type definitions within the functor.
+
+    - in our case, we did "indirect type sharing via parameterisation"
+
+      Key Points About Indirect Type Sharing in OCaml:
+
+        - Achieved via parametric polymorphism (type parameters on types, modules, records).
+
+        - Keeps interfaces abstract but flexible via parameters.
+
+        - Useful in functors, polymorphic variants, GADTs, and abstract types in signatures.
+
+        - Enables modular, reusable, and type-safe abstractions.
+***** mistake I made using pipes:
+From the elixir world, using pipes is enjoyable and in some ways it's "just syntactic sugar" especially so because elixir is functional through and through. So we don't need to be sensitive about which areas have side-effects and which areas don't.
+
+However, in this case, I ended up not being more sensitive about that so I have pipes being used in places that have side-effects. I think this is a smell because when someone else is going to read it, they might associate pipes as purely functional transformations and hence might subconsciously not be able to place their attention on the side-effects.
+
+For this, I left it as is, so you'll end up seeing many many pipes being used everywhere and in some cases, being used wrongly. Left it because i guess this is more of a stylistic choice and if this involved more people, it's something for a team to come to a common ground on.
+
+**** gotchas
+***** destructures are static binds
+in the snippet below, note how After the state change, the param-destructured name =state= would actually be stale, so I'd need to do a access. Or we could just use =new_state= but the point of highlighting this is to show the possible stale value.
+
+#+begin_src ocaml
+  (** Polymorphic transition function for role state. This is a classic GADT-indexed update.
+
+      Learning NOTE:
+      1. Importance of locally abstract types for type safety
+      - [(type a)] introduces a locally abstract type [a] scoped within the function, tied by GADT patterns to a specific substate type ([proposer_state], [acceptor_state], or [learner_state]).
+      - Locally abstract types enable type-safe polymorphic dispatch: each constructor of the GADT carries different precise type information for ['a].
+      - The function can only accept or return values consistent with ['a] as determined by the GADT constructor.
+      - This is what makes GADT-based functions type-safe and flexible without unsafe casts or polymorphic variants.
+  *)
+  let transition_role_state ({id; alias; logger; state; storage; _} as node)
+      time (type a) (sel : a State.role_selector) (new_substate : a) =
+    let new_state = new_substate |> State.set_role state sel in
+    Logger.node_state_change ~node_id:id ~alias:(Some alias) logger
+      ~old_state:(state |> State.state_to_str)
+      ~new_state:(new_state |> State.state_to_str) ;
+    node.state <- new_state ;
+    let updated_storage =
+      match node.state |> Storage.persist_snapshot !storage time with
+      | Ok updated_storage ->
+          updated_storage
+      | Error e ->
+          (* TODO [LOG] shift to logger *)
+          Stdio.eprintf "Warning: failed to persist snapshot: %s\n%!"
+            (Error.to_string_hum e) ;
+          !(node.storage)
+    in
+    node.storage := updated_storage
+#+end_src
+*** [3] Missed Opportunities to learn
+**** Not enough time to incorporate memory model learnings from the book
+- so 0 performance considerations done when writing this.
+- no idea what the latest developments are. like apparently I can used unboxed types for faster compilations/runs? but also seems like just within the jane-street version of ocaml
+**** Reasons why async was avoided
+
+- seems like multicore support is fresh in OCaml 5. There's a need to understand older concurrency primitives that are floated by frameworks like Lwt and such and see how they play well with the new primitives to have an intuitive understanding of the design decisions taken. It's a chunk of its own so I chose to omit it.
+**** dependent types in the functional world
+- e.g. of some resources on this:
+  - dependent types in ocaml ([[https://gist.github.com/Hirrolot/27e6b02a051df333811a23b97c375196][gist ref]])
 
 *** [3] What I learnt about myself from this
 **** [ ] Importance of exposure for improving intuition
@@ -4305,7 +6347,7 @@ OCaml has genuinely felt like the language thhat resonates with my thhinking sty
 
 The process of adhering to static typing, allowing algebraic / abstract nature of behaviours and protocols is very aligned with.
 
-Syntax makes the code I write as a novice easy to read, though I'd consider the same for elixir, when writing elixir code, I ended up thinking in EIP patterns more so than in OCaml. In OCaml, it ends up being more of a type-matching / struct-based focus. I'm not sure whichh I like more yet, but it aligns with my working style where I usually prefer to build bottom up interfaces but design top-down.
+Syntax makes the code I write as a novice easy to read, though I'd consider the same for elixir, when writing elixir code, I ended up thinking in EIP patterns more so than in OCaml. In OCaml, it ends up being more of a type-matching / struct-based focus. I'm not sure which I like more yet, but it aligns with my working style where I usually prefer to build bottom up interfaces but design top-down.
 
 The OCaml code reads like pseudocode. that's amazing.
 
