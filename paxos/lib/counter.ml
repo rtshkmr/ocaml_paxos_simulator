@@ -1,3 +1,8 @@
+(*
+Improvements for Consideration:
+==============================
+1. not sure if it's important to guard against overflows, though I don't expect to encounter them for this project
+*)
 module Counter : sig
   type t
 

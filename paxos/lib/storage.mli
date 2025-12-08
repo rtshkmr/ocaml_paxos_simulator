@@ -1,44 +1,38 @@
 open Base
+open Time
 
-(**
-  Abstract storage signature for acceptor persistence.
-
-  Storage persists the latest promise or acceptance that underlies the current state.
-
-  Intent:
-  - Provide a minimal abstraction over persistence so acceptors can persist their
-    promised/accepted records.
-  - Keep API synchronous for v0; later the storage can be implemented with async IO
-    but the core paxos logic will call the storage interface in the same places.
-
-  Note:
-  - The 'key' and 'value' are abstract; an implementation for acceptor state will
-    concretize these types (e.g., string -> serialized bytes or a small record).
-*)
 module type S = sig
-  type t [@@deriving sexp]
+  (** Abstract payload representing the entire node state snapshot.
+      Kept generic and opaque to avoid coupling with node internals.
+      Must be serializable with sexp and yojson. *)
+  type snapshot_payload [@@deriving sexp, yojson]
 
-  (** typically the <node_id> / <slot_id>*)
-  type key [@@deriving sexp]
+  (** Abstract handle representing storage context or connection.
+      Can be an in-memory map, file handle, DB connection, etc. *)
+  type t
 
-  (** value will typically be a compact record*)
-  type value [@@deriving sexp]
+  (** A log entry for the distributed consensus record, containing:
+      - [timestamp] when the entry was created or agreed upon
+      - [snapshot] the node state snapshot at that point *)
+  type log_entry = {timestamp: Time.t; snapshot: snapshot_payload}
+  [@@deriving sexp, yojson]
 
-  type payload [@@deriving sexp]
+  val create : alias:string -> unit -> t
+  (** Create a new storage context/handle for persistence. *)
 
-  val create : ?config:string -> unit -> t
+  val persist_snapshot :
+    t -> Time.t -> snapshot_payload -> (t, Error.t) Result.t
+  (** Persist a full node snapshot durably.
+      Called on key state transitions.
+      Returns [Ok ()] on success or [Error _] on failure. *)
 
-  val persist : t -> key -> value -> (unit, Error.t) Result.t
+  val load_snapshot : t -> (snapshot_payload option, Error.t) Result.t
+  (** Load the most recent node snapshot, if any.
+      Returns [Ok (Some _)] if found, [Ok None] if none, or [Error _] on failure. *)
 
-  val load : t -> key -> (value option, Error.t) Result.t
+  val load_consensus_log : t -> (log_entry list, Error.t) Result.t
+  (** Load the full ordered consensus log. For large logs, consider streaming/batching. *)
 
-  val snapshot : t -> (unit, Error.t) Result.t
-
-  val get_promised_id : t -> key -> Types.Types.proposal_id option
-
-  val get_accepted_value : t -> key -> payload option
-
-  val update_promise : t -> key -> Types.Types.proposal_id -> unit
-
-  val update_accepted : t -> key -> Types.Types.proposal_id -> payload -> unit
+  val compact_log : t -> (t, Error.t) Result.t
+  (** Optional compaction or truncation to reduce log size for performance. *)
 end

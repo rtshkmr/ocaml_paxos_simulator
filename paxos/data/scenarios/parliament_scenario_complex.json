@@ -1,0 +1,101 @@
+{
+  "scenario_name": "Parliament Complex Scenario",
+  "preamble": "Paxos Parliament (Complex): The Part-Time Parliament meets once more. Callimachos, Themiston, Kleio, Elianos, and Herodoros attempt to pass a decree amidst absences and hall disruptions. Kleio is missing at the outset, and soon after the chamber splits into isolated groups. Callimachos’s decree cannot gather a quorum. When Kleio returns and the legislators reconvene, Elianos initiates a new proposal, allowing the assembly to finally reach a consistent decree.",
+  "simulator": { "max_ticks": 30 },
+  "nodes": [
+    { "node_id": 1, "node_alias": "Callimachos", "topic_strs": ["Coordination","Simulation_control","Time"], "initial_cluster_size": 5 },
+    { "node_id": 2, "node_alias": "Themiston",   "topic_strs": ["Coordination","Simulation_control","Time"], "initial_cluster_size": 5 },
+    { "node_id": 3, "node_alias": "Kleio",       "topic_strs": ["Coordination","Simulation_control","Time"], "initial_cluster_size": 5 },
+    { "node_id": 4, "node_alias": "Elianos",     "topic_strs": ["Coordination","Simulation_control","Time"], "initial_cluster_size": 5 },
+    { "node_id": 5, "node_alias": "Herodoros",   "topic_strs": ["Coordination","Simulation_control","Time"], "initial_cluster_size": 5 }
+  ],
+  "events": [
+    {
+      "time": 1,
+      "kind": "narration",
+      "data": "The chamber opens, but one clerk's desk sits empty—Kleio is nowhere to be found."
+    },
+    {
+      "time": 1,
+      "kind": "control",
+      "target": "Kleio",
+      "data": "inactivate"
+    },
+    {
+      "time": 2,
+      "kind": "narration",
+      "data": "A sudden disruption in the hallway divides the assembly into two separate groups."
+    },
+    {
+      "time": 2,
+      "kind": "control",
+      "target": "Themiston",
+      "data": "partition",
+      "args": ["2"]
+    },
+    {
+      "time": 2,
+      "kind": "control",
+      "target": "Kleio",
+      "data": "partition",
+      "args": ["2"]
+    },
+    {
+      "time": 2,
+      "kind": "control",
+      "target": "Herodoros",
+      "data": "partition",
+      "args": ["2"]
+    },
+    {
+      "time": 3,
+      "kind": "narration",
+      "data": "Callimachos puts forward a decree: 'Lower the olive tax by one drachma.'"
+    },
+    {
+      "time": 3,
+      "kind": "proposal",
+      "target": "Callimachos",
+      "data": "Decree: Lower the olive tax by one drachma."
+    },
+    {
+      "time": 10,
+      "kind": "narration",
+      "data": "The decree stalls—insufficient responses from the divided assembly."
+    },
+    {
+      "time": 10,
+      "kind": "metric",
+      "target": null,
+      "data": "print_bus_stats"
+    },
+    {
+      "time": 12,
+      "kind": "narration",
+      "data": "Kleio finally returns, parchment in hand. The hall begins to settle."
+    },
+    {
+      "time": 12,
+      "kind": "control",
+      "target": "Kleio",
+      "data": "activate"
+    },
+    {
+      "time": 13,
+      "kind": "narration",
+      "data": "Elianos issues a fresh decree proposal—one that can finally reach the full quorum."
+    },
+    {
+      "time": 13,
+      "kind": "proposal",
+      "target": "Elianos",
+      "data": "Decree: Lower the olive tax by one drachma."
+    },
+    {
+      "time": 20,
+      "kind": "metric",
+      "target": null,
+      "data": "print_bus_stats"
+    }
+  ]
+}

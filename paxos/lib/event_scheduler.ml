@@ -1,56 +1,56 @@
+open Base
 open Time
-(**
-  A simple deterministic event scheduler that orders events by logical time.
+open Sim_event
+open Counter
 
-  TODO: [Perf] This is definitely not performant, a better datastructure could be used.
-*)
-module EventScheduler : sig
-  type event = {time: Time.t; action: unit -> unit; id: int}
-
+module type S = sig
   type t
 
-  val create_event : int -> int -> (unit -> unit) -> event
-
   val create : unit -> t
-  (** Create an empty scheduler. *)
 
-  val add_event : t -> event -> unit
-  (** Add an event to the scheduler. *)
+  val add_event : t -> Sim_event.t -> unit
 
-  val pop_due_events : t -> Time.t -> event list
-  (** Return all events scheduled for execution at or before [now]. *)
+  val pop_due_events : t -> Time.t -> Sim_event.t list
 
   val peek_next_event_time : t -> Time.t option
-  (** Return time of the next scheduled event, if any. *)
-end = struct
+end
 
-  (** Represents a simulation event for our simulator.
-
-      Events will be kept by this EventScheduler, which on every tick, will gather the events that are viable to
-      dispatch.
+(**
+  A deterministic event scheduler holding `Sim_event.t` values, ordered by logical time.
 *)
-  type event = {time: Time.t; action: unit -> unit; id: int}
+module Event_scheduler : S = struct
+  type e = {insert_id: int; event: Sim_event.t}
 
-  let create_event id time action =
-    {time; action;id}
+  type t = {events: e list ref; insert_counter: Counter.t}
 
-  type t = event list ref
+  let create () = {events= ref []; insert_counter= Counter.create 0}
 
-  let create () = ref []
+  let add_event t event =
+    let insert_id = Counter.next t.insert_counter in
+    let entry = {insert_id; event} in
+    t.events := entry :: !(t.events)
 
+  let pop_due_events t now =
+    let is_due ({event= {time; _}; _} : e) = Time.compare time now <= 0 in
+    let due, future = List.partition_tf !(t.events) ~f:is_due in
+    t.events := future ;
+    due
+    |> List.sort ~compare:(fun a b ->
+           let c = Time.compare a.event.time b.event.time in
+           if c <> 0 then c else Int.compare a.insert_id b.insert_id )
+    |> List.map ~f:(fun e -> e.event)
 
-  let add_event q ev = q := ev :: !q
-
-  let pop_due_events q now =
-    let due, future =
-      List.partition (fun ev -> Time.compare ev.time now <= 0) !q
-    in
-    q := future ;
-    List.sort (fun a b -> Time.compare a.time b.time) due
-
-  let peek_next_event_time q =
-    List.fold_left
-      (fun acc ev ->
-        match acc with None -> Some ev.time | Some t -> Some (min t ev.time) )
-      None !q
+  let peek_next_event_time t =
+    List.fold_left !(t.events) ~init:None
+      ~f:(fun acc ({insert_id; event= {time; _}} : e) ->
+        match acc with
+        | None ->
+            Some (time, insert_id)
+        | Some (curr_time, curr_insert_id) ->
+            let cmp_time = Time.compare time curr_time in
+            if cmp_time < 0 then Some (time, insert_id)
+            else if cmp_time = 0 && insert_id < curr_insert_id then
+              Some (time, insert_id)
+            else acc )
+    |> Option.map ~f:fst
 end

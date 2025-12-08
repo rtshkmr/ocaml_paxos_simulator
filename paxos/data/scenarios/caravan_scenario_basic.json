@@ -1,0 +1,65 @@
+{
+  "scenario_name": "Caravan Basic Scenario",
+  "preamble": "Caravan Crossing (Basic): Five caravans travel across the Sahara. Communication between groups is carried out by trained human runners—lean, heat-hardened couriers who carry parchment slips between caravans whenever decisions must be coordinated. In this scenario, the lead caravan dispatches runners carrying a proposal for where to make camp. The nearby caravans acknowledge the message and their own runners depart in return. With everyone reachable and no sandstorms blocking the paths, a majority is quickly achieved. Consensus is reached on the campsite and all caravans record the decision in their travel-ledgers.",
+  "simulator": {
+    "max_ticks": 30
+  },
+  "nodes": [
+    {
+      "node_id": 1,
+      "node_alias": "AmberLead",
+      "topic_strs": ["Coordination","Simulation_control","Time"],
+      "initial_cluster_size": 5
+    },
+    {
+      "node_id": 2,
+      "node_alias": "SiennaScout",
+      "topic_strs": ["Coordination","Simulation_control","Time"],
+      "initial_cluster_size": 5
+    },
+    {
+      "node_id": 3,
+      "node_alias": "OchreChronicler",
+      "topic_strs": ["Coordination","Simulation_control","Time"],
+      "initial_cluster_size": 5
+    },
+    {
+      "node_id": 4,
+      "node_alias": "NavajoElder",
+      "topic_strs": ["Coordination","Simulation_control","Time"],
+      "initial_cluster_size": 5
+    },
+    {
+      "node_id": 5,
+      "node_alias": "SaffronHerald",
+      "topic_strs": ["Coordination","Simulation_control","Time"],
+      "initial_cluster_size": 5
+    }
+  ],
+  "events": [
+    {
+      "time": 1,
+      "kind": "metric",
+      "target": null,
+      "data": "print_bus_stats"
+    },
+    {
+      "time": 2,
+      "kind": "proposal",
+      "target": "AmberLead",
+      "data": "Proposal delivered by runner: Make camp at Oasis Z"
+    },
+    {
+      "time": 6,
+      "kind": "metric",
+      "target": null,
+      "data": "print_bus_stats"
+    },
+    {
+      "time": 8,
+      "kind": "proposal",
+      "target": "SiennaScout",
+      "data": "Follow-up dispatch: Confirm water stores and route markings"
+    }
+  ]
+}

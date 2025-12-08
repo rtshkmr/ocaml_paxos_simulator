@@ -1,0 +1,44 @@
+{
+  "scenario_name": "Part-time Parliament!",
+  "preamble": "Simulation inspired by Leslie Lamport's Part-Time Parliament.\nModels part-time legislators coming and going, network partitions,\nand consensus on legislative proposals via Paxos.",
+  "simulator": {
+    "max_ticks": 320
+  },
+  "nodes": [
+    { "node_id": 1, "node_alias": "SageSpeaker", "topic_strs": ["Coordination", "Simulation_control", "Time"], "initial_cluster_size": 5 },
+    { "node_id": 2, "node_alias": "VenerableViscount", "topic_strs": ["Coordination", "Simulation_control", "Time"], "initial_cluster_size": 5 },
+    { "node_id": 3, "node_alias": "EsteemedElder", "topic_strs": ["Coordination", "Simulation_control", "Time"], "initial_cluster_size": 5 },
+    { "node_id": 4, "node_alias": "FierceFriar", "topic_strs": ["Coordination", "Simulation_control", "Time"], "initial_cluster_size": 5 },
+    { "node_id": 5, "node_alias": "SilentScribe", "topic_strs": ["Coordination", "Simulation_control", "Time"], "initial_cluster_size": 5 }
+  ],
+  "events": [
+    { "time": 1, "kind": "proposal", "target": "SageSpeaker", "data": "Decree A: Build grand cathedral." },
+    { "time": 4, "kind": "proposal", "target": "VenerableViscount", "data": "Decree B: Preserve old temples." },
+    { "time": 7, "kind": "partition", "target": "FierceFriar", "args": ["2"] },
+    { "time": 7, "kind": "partition", "target": "SilentScribe", "args": ["2"] },
+
+    { "time": 10, "kind": "proposal", "target": "FierceFriar", "data": "Decree C: Renovate temples." },
+
+    { "time": 14, "kind": "proposal", "target": "EsteemedElder", "data": "Decree A reaffirmed." },
+
+    { "time": 20, "kind": "deactivate", "target": "FierceFriar" },
+    { "time": 23, "kind": "reactivate", "target": "FierceFriar" },
+
+    { "time": 25, "kind": "partition", "target": "FierceFriar", "args": ["1"] },
+    { "time": 25, "kind": "partition", "target": "SilentScribe", "args": ["1"] },
+
+    { "time": 27, "kind": "proposal", "target": "SilentScribe", "data": "Decree A consensus push." },
+
+    { "time": 33, "kind": "proposal", "target": "VenerableViscount", "data": "Decree B renewed challenge." },
+
+    { "time": 36, "kind": "metric", "data": "print_bus_stats" },
+    { "time": 37, "kind": "proposal", "target": "SageSpeaker", "data": "Final resolution for Decree A." },
+
+    { "time": 38, "kind": "control", "target": "VenerableViscount", "data": "deactivate" },
+    { "time": 39, "kind": "control", "target": "VenerableViscount", "data": "reactivate" },
+
+    { "time": 40, "kind": "proposal", "target": "VenerableViscount", "data": "Renewed proposal for Decree A." },
+
+    { "time": 44, "kind": "metric", "data": "print_bus_stats" }
+  ]
+}
