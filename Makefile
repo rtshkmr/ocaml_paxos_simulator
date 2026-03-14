@@ -20,6 +20,7 @@ endif
 help:
 	@echo "Available targets:"
 	@echo " make setup        - Setup native environment (first time only)"
+	@echo " make test         - Run tests using dune"
 	@echo " make magic        - Run the simulator (after setup)"
 	@echo " make quickstart   - Setup + run in one command (requires PATH update first)"
 	@echo " make cleanup      - Run the cleanup script"
@@ -62,6 +63,11 @@ dev:
 	echo "🔧 Building with $$CORES cores..."; \
 	cd paxos && dune build -w -j $$CORES
 
+# --- Run tests ---
+test:
+	@echo "🧪 Running tests..."
+	@CORES=$$(if [ "$$(uname)" = "Darwin" ]; then sysctl -n hw.ncpu 2>/dev/null || echo 4; else nproc 2>/dev/null || echo 4; fi); \
+    cd paxos && dune runtest -j $$CORES
 
 # --- Direct execution (for advanced users) ---
 exec:
