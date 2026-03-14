@@ -96,7 +96,3 @@ let command_simulate =
           Scenario.resolve_scenario_file (scenario_kind, scenario_file)
         in
         scenario.path |> Simulation.Simulation.run ~max_log_level ~allow_step]
-
-let () =
-  Command_unix.run
-    (Command.group ~summary:"Paxos sim" [("run", command_simulate)])
