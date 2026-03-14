@@ -7701,7 +7701,6 @@ e) I really like the stdlib naming! It has intentional naming and mnemonics that
 partition_tf t ~f returns a pair t1, t2, where t1 is all elements of t that satisfy f, and t2 is all elements of t that do not satisfy f. The "tf" suffix is mnemonic to remind readers that the result is (trues, falses).
    #+end_src
 
-
 *** Antipatterns
 
 **** tmp file usage vs using a tmp
