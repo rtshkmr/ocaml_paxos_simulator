@@ -1,13 +1,3 @@
-(*
-POSSBILE IMPROVEMENTS:
-=====================
-1. Defensive:
-    a) File IO:
-      - file IO is classically hairy, for nowmy zero-deps approach is the rason why i'm not offloading it to other packages in the ecosystem. I would never claim to handle this myself with complete guarantee of correctness :')
-
-2. Better Error handling:
-    a) why are we catching and throwing the same error? we should be adding some context to it e.g. by wrapping into a custom error. For now, I'll just leave it as is.
- *)
 open Base
 open Time
 
@@ -136,3 +126,14 @@ module Make_file_storage (NS : Node_state.S) :
         | Error e ->
             Error e )
 end
+
+(*
+TODO POSSBILE IMPROVEMENTS:
+=====================
+1. Defensive:
+    a) File IO:
+      - file IO is classically hairy, for nowmy zero-deps approach is the rason why i'm not offloading it to other packages in the ecosystem. I would never claim to handle this myself with complete guarantee of correctness :')
+
+2. Better Error handling:
+    a) why are we catching and throwing the same error? we should be adding some context to it e.g. by wrapping into a custom error. For now, I'll just leave it as is.
+ *)

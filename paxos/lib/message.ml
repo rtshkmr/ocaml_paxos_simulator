@@ -1,8 +1,3 @@
-(*
-Improvements for consideration:
-==============================
-1. TODO [DEFENSIVE] don't use the fail-with, use custom errors or something
-*)
 open Base
 open Types
 open Time
@@ -99,7 +94,7 @@ module Message = struct
 
   let make_meta id timestamp topic : Meta.t = {id; timestamp; topic}
 
-  let coordination_meta = function
+  let meta_of_coordination = function
     | PermissionRequest {meta; _}
     | PermissionGranted {meta; _}
     | Suggestion {meta; _}
@@ -108,7 +103,7 @@ module Message = struct
     | Nack {meta; _} ->
         meta
 
-  let control_meta = function
+  let meta_of_control = function
     | MakeNodeInactive {meta; _}
     | ActivateNode {meta; _}
     | MakeNodeIdle {meta; _}
@@ -118,17 +113,17 @@ module Message = struct
     | Inject {meta} ->
         meta
 
-  let time_meta = function
+  let meta_of_time = function
     | Heartbeat {meta; _} | SyncTo {meta; _} | DiffOffset {meta; _} ->
         meta
 
   let meta_of = function
     | Coordination msg ->
-        msg |> coordination_meta
+        msg |> meta_of_coordination
     | Control msg ->
-        msg |> control_meta
+        msg |> meta_of_control
     | Time msg ->
-        msg |> time_meta
+        msg |> meta_of_time
 
   let topic_of msg =
     let {topic; _} : Meta.t = msg |> meta_of in
@@ -210,3 +205,9 @@ module Message = struct
     {meta= make_meta msg_id time Types.Coordination; from; decided_assertion}
     |> Decided |> Coordination
 end
+
+(*
+Improvements for consideration:
+==============================
+1. TODO [DEFENSIVE] don't use the fail-with, use custom errors or something
+*)

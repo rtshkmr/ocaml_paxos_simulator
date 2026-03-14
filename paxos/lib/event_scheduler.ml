@@ -16,7 +16,7 @@ module type S = sig
 end
 
 (**
-  A deterministic event scheduler holding `Sim_event.t` values, ordered by logical time.
+  A deterministic event scheduler holding [ Sim_event.t ] values, ordered by logical time.
 *)
 module Event_scheduler : S = struct
   type e = {insert_id: int; event: Sim_event.t}
@@ -36,8 +36,8 @@ module Event_scheduler : S = struct
     t.events := future ;
     due
     |> List.sort ~compare:(fun a b ->
-           let c = Time.compare a.event.time b.event.time in
-           if c <> 0 then c else Int.compare a.insert_id b.insert_id )
+        let c = Time.compare a.event.time b.event.time in
+        if c <> 0 then c else Int.compare a.insert_id b.insert_id )
     |> List.map ~f:(fun e -> e.event)
 
   let peek_next_event_time t =
