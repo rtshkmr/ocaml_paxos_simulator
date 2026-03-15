@@ -5,15 +5,12 @@ module Time : sig
   type t = int [@@deriving sexp, compare, equal, yojson]
 
   val zero : t
-
   val increment : t -> t
 
   (* Clock manages logical time *)
   type clock
 
   val create_clock : unit -> clock
-
   val now : clock -> t
-
   val tick : clock -> unit
 end

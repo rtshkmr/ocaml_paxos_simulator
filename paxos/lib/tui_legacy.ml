@@ -41,8 +41,7 @@ module Legacy_ui : Ui.S = struct
     let target_str = Printf.sprintf "Node %d" target_node |> highlight in
     let sender_str =
       match (sender_node, sender_alias) with
-      | None, _ | _, None ->
-          ""
+      | None, _ | _, None -> ""
       | Some sender_node_s, Some sender_alias_s ->
           let sender_node_tag =
             Printf.sprintf "(Node %s)" sender_node_s |> highlight
@@ -162,8 +161,7 @@ module Legacy_ui : Ui.S = struct
     in
     let identity =
       match (alias, node_id) with
-      | _, None | None, _ ->
-          ""
+      | _, None | None, _ -> ""
       | Some al, Some nid ->
           Printf.sprintf "::control_flow::[%s:node %d]" al nid |> highlight
     in
@@ -181,8 +179,7 @@ module Legacy_ui : Ui.S = struct
     in
     let identity_s =
       match (alias, node_id) with
-      | _, None | None, _ ->
-          ""
+      | _, None | None, _ -> ""
       | Some alias_s, Some node_id_s ->
           Printf.sprintf "::decision::[%s:node %d]" alias_s node_id_s
           |> highlight
@@ -197,8 +194,7 @@ module Legacy_ui : Ui.S = struct
     in
     let identity_s =
       match (alias, node_id) with
-      | _, None | None, _ ->
-          ""
+      | _, None | None, _ -> ""
       | Some alias_s, Some node_id_s ->
           Printf.sprintf "::reason::[%s:node %d]" alias_s node_id_s |> highlight
     in
@@ -247,9 +243,9 @@ module Legacy_ui : Ui.S = struct
     Printf.sprintf "| Narration @ time %d|\n%s" time narration
 
   let format_display_event = function
-    | Log_event.Display_scenario_preamble {scenario_name; preamble} ->
+    | Log_event.Display_scenario_preamble { scenario_name; preamble } ->
         format_display_scenario_preamble scenario_name preamble
-    | Log_event.Narration {time; narration} ->
+    | Log_event.Narration { time; narration } ->
         format_narration ~time ~narration
 
   let format_paxos_action_event _pa =
@@ -259,40 +255,35 @@ module Legacy_ui : Ui.S = struct
     "TODO [low-priority] add inspection support on legacy UI"
 
   let format_log_event = function
-    | Log_event.Publish_broadcast {bus_id; topic_s; payload} ->
+    | Log_event.Publish_broadcast { bus_id; topic_s; payload } ->
         format_publish_broadcast_event bus_id topic_s payload
     | Log_event.Publish_unicast
-        {bus_id; sender_id_s; sender_alias; target_node; topic_s; payload} ->
+        { bus_id; sender_id_s; sender_alias; target_node; topic_s; payload } ->
         format_publish_unicast_event bus_id target_node sender_id_s sender_alias
           topic_s payload
-    | Log_event.Subscribe {bus_id; topic_s; node_id; alias; sub_id} ->
+    | Log_event.Subscribe { bus_id; topic_s; node_id; alias; sub_id } ->
         format_subscribe_event bus_id topic_s node_id sub_id alias
-    | Log_event.Unsubscribe {bus_id; topic_s; node_id; alias; sub_id} ->
+    | Log_event.Unsubscribe { bus_id; topic_s; node_id; alias; sub_id } ->
         format_unsubscribe_event bus_id topic_s node_id sub_id alias
-    | Log_event.Enqueue {bus_id; topic_s; queue_size; alias} ->
+    | Log_event.Enqueue { bus_id; topic_s; queue_size; alias } ->
         format_enqueue_event bus_id topic_s queue_size alias
-    | Log_event.Drain_start {bus_id; batch_size} ->
+    | Log_event.Drain_start { bus_id; batch_size } ->
         format_drain_start bus_id batch_size
-    | Log_event.Drain_end {bus_id; batch_size} ->
+    | Log_event.Drain_end { bus_id; batch_size } ->
         format_drain_end bus_id batch_size
-    | Log_event.Tick {tick; msg} ->
-        format_tick tick msg
-    | Log_event.Subroutine_flow {routine; msg; alias; node_id} ->
+    | Log_event.Tick { tick; msg } -> format_tick tick msg
+    | Log_event.Subroutine_flow { routine; msg; alias; node_id } ->
         format_subroutine_flow routine msg alias node_id
-    | Log_event.Decision {alias; node_id; msg} ->
+    | Log_event.Decision { alias; node_id; msg } ->
         format_decision alias node_id msg
-    | Log_event.Reaction {alias; node_id; msg} ->
+    | Log_event.Reaction { alias; node_id; msg } ->
         format_reason alias node_id msg
-    | Log_event.Node_state_change {alias; node_id; old_state; new_state} ->
+    | Log_event.Node_state_change { alias; node_id; old_state; new_state } ->
         format_state_change alias node_id old_state new_state
-    | Log_event.Display display ->
-        format_display_event display
-    | Log_event.Paxos_action pa ->
-        format_paxos_action_event pa
-    | Log_event.Inspection inspection ->
-        format_inspection_event inspection
-    | Log_event.Other s ->
-        s
+    | Log_event.Display display -> format_display_event display
+    | Log_event.Paxos_action pa -> format_paxos_action_event pa
+    | Log_event.Inspection inspection -> format_inspection_event inspection
+    | Log_event.Other s -> s
 
   let format_entry ?(ignore_header = false) (entry : Entry.t) =
     let body = format_log_event entry.event in
@@ -303,7 +294,7 @@ module Legacy_ui : Ui.S = struct
           (Log_level.to_string entry.level)
           (Time_float_unix.format entry.time
              ~zone:(Lazy.force Time_float_unix.Zone.local)
-             "%Y-%m-%dT%H:%M:%S" )
+             "%Y-%m-%dT%H:%M:%S")
           (Option.value entry.module_name ~default:"")
           (Option.value_map entry.node_id ~default:"" ~f:Int.to_string)
       in

@@ -14,45 +14,53 @@ module Scenario = struct
     | Custom
   [@@deriving equal, enumerate, sexp]
 
-  type t = {kind: kind; path: string} [@@deriving sexp]
+  type t = { kind : kind; path : string } [@@deriving sexp]
 
   let arg_type =
     Command.Arg_type.of_alist_exn
-      [ ("basic", Basic)
-      ; ("office_bakeoff", Office_bakeoff)
-      ; ("camel_caravan", Camel_caravan_basic)
-      ; ("camel_caravan_complex", Camel_caravan_complex)
-      ; ("parliament", Parliament_basic)
-      ; ("parliament_complex", Parliament_complex)
-      ; ("custom", Custom) ]
+      [
+        ("basic", Basic);
+        ("office_bakeoff", Office_bakeoff);
+        ("camel_caravan", Camel_caravan_basic);
+        ("camel_caravan_complex", Camel_caravan_complex);
+        ("parliament", Parliament_basic);
+        ("parliament_complex", Parliament_complex);
+        ("custom", Custom);
+      ]
 
   let scenario_dir = "data/scenarios/"
 
   let resolve_scenario_file = function
-    | Basic, _ ->
-        {kind= Basic; path= scenario_dir ^ "basic_scenario.json"}
+    | Basic, _ -> { kind = Basic; path = scenario_dir ^ "basic_scenario.json" }
     | Office_bakeoff, _ ->
-        { kind= Office_bakeoff
-        ; path= scenario_dir ^ "office_bakeoff_scenario.json" }
+        {
+          kind = Office_bakeoff;
+          path = scenario_dir ^ "office_bakeoff_scenario.json";
+        }
     | Camel_caravan_basic, _ ->
-        { kind= Camel_caravan_basic
-        ; path= scenario_dir ^ "caravan_scenario_basic.json" }
+        {
+          kind = Camel_caravan_basic;
+          path = scenario_dir ^ "caravan_scenario_basic.json";
+        }
     | Camel_caravan_complex, _ ->
-        { kind= Camel_caravan_complex
-        ; path= scenario_dir ^ "caravan_scenario_complex.json" }
+        {
+          kind = Camel_caravan_complex;
+          path = scenario_dir ^ "caravan_scenario_complex.json";
+        }
     | Parliament_basic, _ ->
-        { kind= Parliament_basic
-        ; path= scenario_dir ^ "parliament_scenario_basic.json" }
+        {
+          kind = Parliament_basic;
+          path = scenario_dir ^ "parliament_scenario_basic.json";
+        }
     | Parliament_complex, _ ->
-        { kind= Parliament_complex
-        ; path= scenario_dir ^ "parliament_scenario_complex.json" }
-    | Custom, Some path ->
-        {kind= Custom; path}
-    | _ ->
-        failwith "Can't resolve scenario arguments."
+        {
+          kind = Parliament_complex;
+          path = scenario_dir ^ "parliament_scenario_complex.json";
+        }
+    | Custom, Some path -> { kind = Custom; path }
+    | _ -> failwith "Can't resolve scenario arguments."
 
   let flag = "-scenario"
-
   let doc = "SCENARIO Select the predefined scenario to simulate."
 end
 

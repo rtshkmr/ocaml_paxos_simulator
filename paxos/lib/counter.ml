@@ -2,7 +2,6 @@ module Counter : sig
   type t
 
   val create : int -> t
-
   val next : t -> int
 end = struct
   type t = int ref
@@ -11,7 +10,7 @@ end = struct
 
   let next counter =
     let v = !counter in
-    counter := v + 1 ;
+    counter := v + 1;
     v
 end
 (*

@@ -1,10 +1,11 @@
-.PHONY: help setup magic cleanup quickstart dev exec check_install
+.PHONY: help setup magic cleanup quickstart dev exec check_install test fmt
 
 # vars overridable via cli injection
 scenario ?= camel_caravan_complex
 override_log_level ?= info
 allow_step ?= true
 cleanup_after ?= false
+autopromote ?= false
 
 # Setup simulator flags conditionally
 SIM_FLAGS := -scenario $(scenario) -log-level $(override_log_level) -allow-step $(allow_step)
@@ -16,11 +17,19 @@ else
 CLEANUP_FLAG :=
 endif
 
+# Add autopromote flag for dune tests if requested
+ifeq ($(autopromote),true)
+AUTOPROMOTE_FLAG := --auto-promote
+else
+AUTOPROMOTE_FLAG :=
+endif
+
 # --- Help target ---
 help:
 	@echo "Available targets:"
 	@echo " make setup        - Setup native environment (first time only)"
 	@echo " make test         - Run tests using dune"
+	@echo " make fmt          - Format code using dune fmt"
 	@echo " make magic        - Run the simulator (after setup)"
 	@echo " make quickstart   - Setup + run in one command (requires PATH update first)"
 	@echo " make cleanup      - Run the cleanup script"
@@ -37,6 +46,7 @@ help:
 	@echo " make magic scenario=parliament"
 	@echo " make magic scenario=camel_caravan_complex"
 	@echo " make magic scenario=camel_caravan allow_step=false"
+	@echo " make test autopromote=true"
 
 # --- Base simulator runner (assumes setup already done) ---
 magic: check_install
@@ -63,11 +73,16 @@ dev:
 	echo "🔧 Building with $$CORES cores..."; \
 	cd paxos && dune build -w -j $$CORES
 
+# --- Format code ---
+fmt:
+	@echo "🎨 Formatting code with dune fmt..."
+	cd paxos && dune fmt
+
 # --- Run tests ---
 test:
 	@echo "🧪 Running tests..."
 	@CORES=$$(if [ "$$(uname)" = "Darwin" ]; then sysctl -n hw.ncpu 2>/dev/null || echo 4; else nproc 2>/dev/null || echo 4; fi); \
-    cd paxos && dune runtest -j $$CORES
+	cd paxos && dune runtest $(AUTOPROMOTE_FLAG) -j $$CORES
 
 # --- Direct execution (for advanced users) ---
 exec:
