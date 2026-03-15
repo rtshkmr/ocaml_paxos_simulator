@@ -1,23 +1,3 @@
-(*
-IMPROVEMENT CONSIDERATIONS:
-===========================
-1. use GADTs better
-2. most imporantly, this feels like a godclass.
-   It's doing a bunch of things that we could break into different submodules for:
-   I think a good end state in the medium term for the node.ml should be to be responsible for it to be broken down into:
-      1. Logging
-      2. Routing
-      3. Message formatting
-      4. Transition invocation
-
-3. there's multiple matches for node.state.proposer we can probably improve it.
-   This is actually an indication of a design issue. We should be keeping the node_state functional and doing immutable state transformations. Then node can remain stateful and do the update within the node.
-4. small stuff:
-   - param destructuring sometimes too deep
-   - many places do rudimentary pattern matching on optionals instead of using the option api
-
-5. ref notes in docs/planning.org on skipped task Search for "separate pure FSM logic from node-level effects" subtree.
-*)
 open Base
 open Types
 open Message
@@ -731,3 +711,23 @@ module Make_node (V : Value.S) (Bus : Event_bus.S) :
 
   let dump_spec node = node |> to_spec |> sexp_of_spec |> Sexp.to_string_hum
 end
+(*
+IMPROVEMENT CONSIDERATIONS:
+===========================
+1. use GADTs better
+2. most imporantly, this feels like a godclass.
+   It's doing a bunch of things that we could break into different submodules for:
+   I think a good end state in the medium term for the node.ml should be to be responsible for it to be broken down into:
+      1. Logging
+      2. Routing
+      3. Message formatting
+      4. Transition invocation
+
+3. there's multiple matches for node.state.proposer we can probably improve it.
+   This is actually an indication of a design issue. We should be keeping the node_state functional and doing immutable state transformations. Then node can remain stateful and do the update within the node.
+4. small stuff:
+   - param destructuring sometimes too deep
+   - many places do rudimentary pattern matching on optionals instead of using the option api
+
+5. ref notes in docs/planning.org on skipped task Search for "separate pure FSM logic from node-level effects" subtree.
+*)

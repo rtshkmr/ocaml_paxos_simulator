@@ -1,0 +1,18 @@
+{
+  "scenario_name": "Caravan Basic",
+  "preamble": "Four caravan masters coordinate at an oasis. Simple single-proposal happy path demonstration.",
+  "simulator": {
+    "max_ticks": 30
+  },
+  "nodes": [
+    { "node_id": 1, "node_alias": "Alice_Camel",  "topic_strs": ["Coordination","Simulation_control","Time"], "initial_cluster_size": 4 },
+    { "node_id": 2, "node_alias": "Ben_Camel",    "topic_strs": ["Coordination","Simulation_control","Time"], "initial_cluster_size": 4 },
+    { "node_id": 3, "node_alias": "Chloe_Camel",  "topic_strs": ["Coordination","Simulation_control","Time"], "initial_cluster_size": 4 },
+    { "node_id": 4, "node_alias": "Dylan_Camel",  "topic_strs": ["Coordination","Simulation_control","Time"], "initial_cluster_size": 4 }
+  ],
+  "events": [
+    { "time": 1, "kind": "metric", "data": "print_bus_stats" },
+    { "time": 2, "kind": "proposal", "target": "Alice_Camel", "data": "Pasta for dinner?" },
+    { "time": 12, "kind": "metric", "data": "print_bus_stats" }
+  ]
+}

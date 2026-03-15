@@ -1,41 +1,3 @@
-(*
-TODO [improvements]
-Consider improvements:
-===========================
-1. this module mixes the following, we could split along these responsibilities:
-  - low-level ANSI functions
-  - high-level named styles
-  - pastel custom theme
-  - centering/padding logic
-
-2. natural outcome of this is going to be theme defs.
-
-2. annoyance: too many functions defined here.
-   possible cleanup: define style variants and use them via a render pipeline of sorts
-  - e.g. style:
-    type t =
-      | Fg of int
-      | Bg of int
-      | Bold
-      | Italic
-      | Underline
-      | Rgb_fg of int * int * int
-      | Rgb_bg of int * int * int
-
-    let render styles =
-      let codes =
-          List.map styles ~f:(function
-            | Bold -> "1"
-            | Italic -> "3"
-            | Underline -> "4"
-            | Fg n -> Printf.sprintf "38;5;%d" n
-            | Bg n -> Printf.sprintf "48;5;%d" n
-            | Rgb_fg (r,g,b) -> Printf.sprintf "38;2;%d;%d;%d" r g b
-            | Rgb_bg (r,g,b) -> Printf.sprintf "48;2;%d;%d;%d" r g b)
-      in
-      let code = String.concat ~sep:";" codes in
-      fun s -> Printf.sprintf "\027[%sm%s\027[0m" code s
-*)
 open Base
 
 (** A custom coloriser, full ANSI support with wrappers; see gist for RGB and 256-color support. *)
@@ -294,3 +256,42 @@ module Formatter = struct
 
   let fg_brick_red = fg_rgb 130 60 52
 end
+
+(*
+TODO [improvements]
+Consider improvements:
+===========================
+1. this module mixes the following, we could split along these responsibilities:
+  - low-level ANSI functions
+  - high-level named styles
+  - pastel custom theme
+  - centering/padding logic
+
+2. natural outcome of this is going to be theme defs.
+
+2. annoyance: too many functions defined here.
+   possible cleanup: define style variants and use them via a render pipeline of sorts
+  - e.g. style:
+    type t =
+      | Fg of int
+      | Bg of int
+      | Bold
+      | Italic
+      | Underline
+      | Rgb_fg of int * int * int
+      | Rgb_bg of int * int * int
+
+    let render styles =
+      let codes =
+          List.map styles ~f:(function
+            | Bold -> "1"
+            | Italic -> "3"
+            | Underline -> "4"
+            | Fg n -> Printf.sprintf "38;5;%d" n
+            | Bg n -> Printf.sprintf "48;5;%d" n
+            | Rgb_fg (r,g,b) -> Printf.sprintf "38;2;%d;%d;%d" r g b
+            | Rgb_bg (r,g,b) -> Printf.sprintf "48;2;%d;%d;%d" r g b)
+      in
+      let code = String.concat ~sep:";" codes in
+      fun s -> Printf.sprintf "\027[%sm%s\027[0m" code s
+*)
