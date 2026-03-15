@@ -203,17 +203,6 @@ let decided_value_of (proposer_sexp : Sexp.t) : string option =
 (** Extract the string value from a Learned sexp. Input shape: (Learned
     (((proposal (...)) (value "some value")) ...)) Returns the value from the
     first assertion in the list. *)
-let learned_value_of (learner_sexp : Sexp.t) : string option =
-  match learner_sexp with
-  | List [ Atom "Learned"; List (first_assertion :: _) ] -> (
-      match find_field "value" first_assertion with
-      | Some (Atom v) -> Some v
-      | _ -> None)
-  | _ -> None
-
-(** Extract the value string from the most recent (first) assertion in a Learned
-    sexp. Input shape: (Learned (((proposal (...)) (value "v")) ...)) The list
-    is prepended so index 0 is always the most recent. *)
 let latest_learned_value (learner_sexp : Sexp.t) : string option =
   match learner_sexp with
   | List [ Atom "Learned"; List (first_assertion :: _) ] -> (

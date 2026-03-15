@@ -80,7 +80,7 @@ fmt:
 
 # --- Run tests ---
 test:
-	@echo "🧪 Running tests..."
+	@echo "⚗️ Running tests..."
 	@CORES=$$(if [ "$$(uname)" = "Darwin" ]; then sysctl -n hw.ncpu 2>/dev/null || echo 4; else nproc 2>/dev/null || echo 4; fi); \
 	cd paxos && dune runtest $(AUTOPROMOTE_FLAG) -j $$CORES
 
