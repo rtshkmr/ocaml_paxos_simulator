@@ -94,6 +94,8 @@ module Gameboy_ui : Ui.S = struct
           F.yellow lvl
       | Error ->
           F.red lvl
+      | Off ->
+          ""
     in
     let m = Option.value e.module_name ~default:"" in
     let realtime_str =

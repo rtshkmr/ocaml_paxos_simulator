@@ -82,7 +82,7 @@ let command_simulate =
           ~doc:
             "PATH The file path to custom scenario file .json. This is \
              required if -scenario custom"
-      and max_log_level =
+      and override_log_level =
         flag Log_level.flag
           (optional_with_default Log_level.Info Log_level.arg_type)
           ~doc:Log_level.doc
@@ -95,4 +95,5 @@ let command_simulate =
         let scenario =
           Scenario.resolve_scenario_file (scenario_kind, scenario_file)
         in
-        scenario.path |> Simulation.Simulation.run ~max_log_level ~allow_step]
+        scenario.path
+        |> Simulation.Simulation.run ~override_log_level ~allow_step]

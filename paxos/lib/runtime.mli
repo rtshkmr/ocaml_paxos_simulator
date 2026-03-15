@@ -2,6 +2,7 @@ open Time
 open Types
 open Sim_event
 open Log
+open Log_types
 
 module type S = sig
   type t
@@ -57,9 +58,12 @@ module type S = sig
   val next_event_id : t -> int
 
   (* Struct construction *)
-  type spec = {max_ticks: int option} [@@deriving sexp, yojson]
+  type spec =
+    { max_ticks: int option [@default None] [@yojson_drop_default]
+    ; log_level: Log_level.spec [@default "Info"] [@yojson_drop_default] }
+  [@@deriving sexp, yojson]
 
-  val of_spec : spec -> t
+  val of_spec : ?override_log_level:Log_level.t -> spec -> t
 
   val handle_slash_command : t -> string -> unit
 end

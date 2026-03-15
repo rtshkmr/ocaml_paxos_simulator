@@ -2,12 +2,12 @@
 
 # vars overridable via cli injection
 scenario ?= camel_caravan_complex
-max_log_level ?= info
+override_log_level ?= info
 allow_step ?= true
 cleanup_after ?= false
 
 # Setup simulator flags conditionally
-SIM_FLAGS := -scenario $(scenario) -max-log-level $(max_log_level) -allow-step $(allow_step)
+SIM_FLAGS := -scenario $(scenario) -log-level $(override_log_level) -allow-step $(allow_step)
 
 # Add cleanup flag if requested (for run.sh, not simulator)
 ifeq ($(cleanup_after),true)

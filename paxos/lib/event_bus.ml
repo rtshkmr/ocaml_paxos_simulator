@@ -3,12 +3,15 @@
 open Base
 open Types
 open Log
+open Log_types
 open Message
 
 module type S = sig
   type 'a t
 
   val id_of : _ t -> int
+
+  val logger_of : _ t -> Log.Logger.t
 
   type sub_handle = {topic: Types.topic; id: int; node_id: Types.node_id}
   [@@deriving sexp, compare, equal, hash]
@@ -17,7 +20,11 @@ module type S = sig
 
   type 'a bus_registrable_callback = 'a Message.t -> unit
 
-  val create : payload_to_string:'a payload_serialiser -> 'a t
+  val create :
+       ?log_level:Log_level.t
+    -> payload_to_string:'a payload_serialiser
+    -> unit
+    -> 'a t
 
   val subscribe :
        'a t
@@ -110,13 +117,15 @@ module Event_bus : S = struct
 
   let id_of t = t.id
 
-  let create ~payload_to_string =
+  let logger_of t = t.logger
+
+  let create ?(log_level = Log_level.Info) ~payload_to_string () =
     let random_id = Random.int 10000 in
     { id= random_id
     ; next_id= 0
     ; topics= Hashtbl.Poly.create ()
     ; queue= Queue.create ()
-    ; logger= Logger.create Stdlib.__MODULE__ ()
+    ; logger= Logger.create ~level:log_level Stdlib.__MODULE__ ()
     ; payload_to_string }
 
   (** Returns the [topic_state] for [topic] if exists else initialises one for that topic and returns it.
@@ -231,7 +240,7 @@ module Event_bus : S = struct
     Hashtbl.to_alist topics
     |> List.map ~f:(fun (topic, {subs; published; delivered; queued}) ->
         let subscribers = Hashtbl.length subs in
-        let topic_stat : Log_types.Log_event.topic_stat =
+        let topic_stat : Log_event.topic_stat =
           {topic; subscribers; published; delivered; queued}
         in
         topic_stat )
