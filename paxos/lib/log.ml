@@ -150,3 +150,173 @@ module Logger = struct
   let other ?node_id ?alias t ~msg =
     emit ?node_id ?alias t ~level:Info (Log_event.Other msg)
 end
+
+(** %%%% Custom Event-Based Structured Logging System %%%%
+
+  This module implements a **domain-specific logging system** for the Paxos
+    simulator for v0 of the project.
+
+    Instead of generic log levels (DEBUG, INFO, WARN, ERROR), we use a structured event type that captures Paxos-specific semantics (see log_types.ml).
+
+  ## Design: Domain-Specific vs. Industry Standard
+
+  ### What We Built Here
+
+    Events are first-class values:
+    ```ocaml
+
+    type Log_event.t =
+      | Publish_broadcast of {bus_id: int; topic_s: string; payload: string}
+      | Decision of {alias: string option; node_id: int option; msg: string}
+      | Node_state_change of {alias: string option; node_id: int; old: string; new_state: string}
+      | ... (* ~15 variants for Paxos concepts *)
+
+    ```
+
+  Each event carries semantic information (node ID, alias, assertion) instead
+  of a generic format string like "INFO: Alice decided X".
+
+  ### Why Pick This Approach?
+
+  #### Strengths
+
+  1. **Type safety**: Log calls cannot pass invalid data. The compiler prevents typos.
+
+  2. **Domain clarity**: "Decision" reads better than "INFO: state=decided". The event
+     type explicitly documents what simulator events can happen.
+
+  3. **Rendering flexibility**: Different backends (Gameboy TUI, Legacy TUI) format
+     the same events differently. The events are independent of rendering.
+
+  4. **Determinism in tests**: Events are data, so logging is side-effect-free from
+     a *logical* perspective (the data is structured, not a string).
+
+  #### Limitations vs. Industrial Logging
+
+  Compared to established libraries (Core.Logger (OCaml), Serilog (.NET), Bunyan (elixir)):
+
+  1. **No hierarchical context**: Core.Logger lets us create nested loggers:
+     ```ocaml
+     let proposer_log = logger |> Logger.with_scope "proposer_state" in
+     ```
+     We have flat context (just module_name). Nesting would require extending Logger.t.
+
+  2. **No structured export**: Our logs are pretty-printed strings, not JSON.
+     Real systems export `{"event": "decision", "node_id": 0, "assertion": "..."}`.
+     This makes logs queryable: grep for all decisions by node 0.
+
+  3. **No unification of call sites**: Log calls are scattered:
+     - Logger.publish_broadcast (in Event_bus)
+     - Logger.decision (in Node)
+     - Logger.log_proposal_action (in Node)
+     Each wraps Logger.emit differently, inconsistently.
+
+    4. **The god object problem** (classic code smell):
+      Log_event.t has ~15 variants. Each adds a new case:
+     - Adding "Timeout" event requires updating Log_event, Entry, Ui.format_entry, etc.
+     - Compounds over time; becomes a bottleneck.
+
+  ## Why Not Use an Established Library
+
+  We were aware of alternatives (Core.Logger, Serilog, structured logging patterns).
+  Reasons for hand-rolling:
+
+  1. **Time**: Learning Core.Logger's async model and context propagation would have
+     taken hours we didn't have.
+
+  2. **Domain fit**: Generic libraries treat logs as strings: "INFO: consensus reached".
+     We wanted logs to be Paxos values: Decision {node_id; assertion; ...}.
+     This forced us to choose: generic or domain-specific.
+
+  3. **Pedagogical intent**: For a teaching simulation, domain-specific events are
+     more valuable than production-grade aggregation infrastructure.
+
+  The trade-off was deliberate: simplicity + clarity over reusability + scalability.
+
+  However, spending some time looking at prior art might have given better approaches to mitigate some of the problems.
+
+  ## Future Improvements (If Domain Grows)
+
+  If this system needs to evolve:
+
+  ### Stage 1: Structured Export (Easy)
+  ─────────────────────────────────
+
+  Add JSON/S-expression output:
+
+    let event_to_json (e : Log_event.t) : Yojson.Safe.t = ...
+
+  This enables:
+    - Logging to files for post-analysis
+    - Streaming to structured log tools (ELK, Datadog, etc.)
+    - Filtering by field ("all events from node 0")
+
+  ### Stage 2: Consolidate Log Calls (Medium)
+  ───────────────────────────────────────────
+
+  Currently ~20 log_* functions scattered across Node, Event_bus, Simulator.
+  Each has slightly different behavior:
+
+    ```ocaml
+    Logger.publish_broadcast ~bus_id ~topic_s ~payload
+    Logger.decision ~node_id ~alias ~msg
+    Logger.log_reached_grant_quorum (special logic inside)
+    ```
+
+  Consolidate into a single `log` function:
+
+    ```ocaml
+    let log logger (entry : Log_entry.t) =
+      Logger.emit logger ~node_id:entry.node_id ~event:entry.event
+    ```
+
+  Benefit: consistent interface, easier to extend, less duplicated code.
+
+  ### Stage 3: Hierarchical Context (Hard)
+  ────────────────────────────────────────
+
+  Add nested loggers with inherited context (inspired by Core.Logger):
+
+   ```ocaml
+    type t = {
+      ...
+      mutable context: (string * string) list;
+    }
+
+    let with_context logger ~key ~data = ...
+    ```
+  Usage:
+
+    ```ocaml
+    let proposer_log = logger |> Log.with_context ~key:"role" ~data:"proposer" in
+    let waiting_log = proposer_log |> Log.with_context ~key:"state" ~data:"waiting" in
+    ```
+
+  Benefit: automatic context propagation, less boilerplate at log sites.
+
+  ### Stage 4: Study Prior Art (Optional Learning)
+  ────────────────────────────────────────────────
+
+  Explore how established systems solved this:
+
+    - Core.Logger (Jane Street): Hierarchical, printf-style, implicit context
+    - Serilog (.NET): Structured fields, JSON pipeline, composable
+    - OpenTelemetry: Distributed tracing, span context, baggage propagation
+    - ELK Stack: Machine-parseable logs, Kibana visualization
+
+  Each represents different design choices. Our system is closest to Core.Logger
+  in spirit (domain-aware) but lighter weight.
+
+  ## The Broader Design Lesson
+
+  The real question was never "use a library or build custom?" It was:
+
+    **"Should logs be optimized for human reading or machine parsing?"**
+    **"Generic log levels (INFO, DEBUG) or domain concepts (Decision, Suggestion)?"**
+
+  Industry standard answers: human + generic (for broad applicability).
+  Our answer: human + domain-specific (for teaching clarity).
+
+  Both are valid; the key is **conscious choice** and **documenting the trade-off**.
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%*)

@@ -1,5 +1,6 @@
 open Base
 open Types
+open Log_types
 
 (**
   Polymorphic in-process pub/sub message broker for deterministic simulation.
@@ -36,6 +37,8 @@ module type S = sig
 
   val id_of : _ t -> int
 
+  val logger_of : _ t -> Log.Logger.t
+
   type sub_handle = {topic: Types.topic; id: int; node_id: Types.node_id}
   [@@deriving sexp, compare, equal, hash]
 
@@ -46,7 +49,11 @@ module type S = sig
   *)
   type 'a bus_registrable_callback = 'a Message.Message.t -> unit
 
-  val create : payload_to_string:'a payload_serialiser -> 'a t
+  val create :
+       ?log_level:Log_level.t
+    -> payload_to_string:'a payload_serialiser
+    -> unit
+    -> 'a t
 
   val subscribe :
        'a t

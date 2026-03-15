@@ -1,3 +1,6 @@
-(test
+(library
+ (name paxos_tests)
+ (inline_tests)
  (libraries paxos base stdio)
- (name test_paxos))
+ (preprocess
+  (pps ppx_jane)))

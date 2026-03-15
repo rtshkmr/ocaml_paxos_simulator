@@ -1,11 +1,40 @@
 open Base
 
 module Log_level = struct
-  type t = Debug | Info | Warn | Error [@@deriving sexp, equal, enumerate]
+  type t = Debug | Info | Warn | Error | Off
+  [@@deriving sexp, equal, enumerate]
 
-  let to_int = function Debug -> 0 | Info -> 1 | Warn -> 2 | Error -> 3
+  type spec = string [@@deriving sexp, yojson]
+
+  let to_int = function
+    | Debug ->
+        0
+    | Info ->
+        1
+    | Warn ->
+        2
+    | Error ->
+        3
+    | Off ->
+        4
 
   let compare a b = Int.compare (a |> to_int) (b |> to_int)
+
+  let max a b = if compare a b >= 0 then a else b
+
+  let of_string = function
+    | "DEBUG" ->
+        Debug
+    | "WARN" ->
+        Warn
+    | "ERROR" ->
+        Error
+    | "OFF" ->
+        Off
+    | _ ->
+        Info
+
+  let of_spec = of_string
 
   let of_int = function
     | 0 ->
@@ -16,6 +45,8 @@ module Log_level = struct
         Warn
     | 3 ->
         Error
+    | 4 ->
+        Off
     | _ ->
         Info
 
@@ -28,9 +59,17 @@ module Log_level = struct
         "WARN"
     | Error ->
         "ERROR"
+    | Off ->
+        "OFF"
 
   let should_log ~local_level ~global_level =
-    compare local_level global_level >= 0
+    match (local_level, global_level) with
+    | _, Off ->
+        false
+    | Off, _ ->
+        false
+    | _ ->
+        compare local_level global_level >= 0
 
   let colorizer_of t =
     let open Ansi.Formatter in
@@ -43,16 +82,23 @@ module Log_level = struct
         fun s -> s |> bold |> bg_pastel_rose |> fg_muted_plum
     | Error ->
         bright_red
+    | Off ->
+        Fn.id
 
   let arg_type =
     Command.Arg_type.of_alist_exn
-      [("debug", Debug); ("info", Info); ("warn", Warn); ("error", Error)]
+      [ ("debug", Debug)
+      ; ("info", Info)
+      ; ("warn", Warn)
+      ; ("error", Error)
+      ; ("off", Off) ]
 
-  let flag = "-max-log-level"
+  let flag = "-log-level"
 
   let doc =
     "LOG_LEVEL Choose the level of granularity of the logs to display. \
-     Defaults to info"
+     Defaults to info but prioritises what you set in the input config file. \
+     The least priviledged one (max level) is chosen out of the two."
 end
 
 (** Keep events as structured data. Call sites will pass domain-serialized

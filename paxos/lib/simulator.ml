@@ -21,6 +21,7 @@ open Event_scheduler
 open Message
 open Types
 open Log
+open Log_types
 
 (**
   Discrete-time deterministic simulator for Paxos protocol testing.
@@ -180,8 +181,13 @@ module Simulator : Runtime.S = struct
     sim.event_callbacks := []
 
   (* %%%%%%%%% Node, Partition management %%%%%%%%%%% *)
-  let create_partition id =
-    let bus = B.create ~payload_to_string:(V.sexp_of_t |> Message.to_string) in
+  let create_partition sim id =
+    let bus =
+      B.create
+        ~log_level:(sim |> logger_of |> Logger.get_level)
+        ~payload_to_string:(V.sexp_of_t |> Message.to_string)
+        ()
+    in
     {id; member_node_ids= Set.empty (module Int); bus}
 
   let add_node_to_partition_exn
@@ -228,7 +234,7 @@ module Simulator : Runtime.S = struct
     let {id= partition_id; _} =
       dest
       |> Hashtbl.find_or_add partition_registry ~default:(fun () ->
-          partition_id_counter |> Counter.next |> create_partition )
+          partition_id_counter |> Counter.next |> create_partition sim )
     in
     node |> add_node_to_partition_exn sim ~partition_id
 
@@ -302,7 +308,7 @@ module Simulator : Runtime.S = struct
     Hashtbl.add_exn node_alias_registry ~key:(node |> N.alias_of) ~data:node ;
     node |> add_node_to_partition_exn sim ~partition_id |> ignore
 
-  let sync_node_logger sim (node : N.t) =
+  let sync_node_logger sim node =
     let {level= global_log_level; _} : Logger.t = logger_of sim in
     let node_logger = N.logger_of node in
     Logger.set_level node_logger global_log_level ;
@@ -443,30 +449,39 @@ module Simulator : Runtime.S = struct
 
   (* %%%%%%%%% Construction and Configuration %%%%%%%%%%% *)
 
-  type spec = {max_ticks: int option [@default None] [@yojson_drop_default]}
+  type spec =
+    { max_ticks: int option [@default None] [@yojson_drop_default]
+    ; log_level: Log_level.spec [@default "Info"] [@yojson_drop_default] }
   [@@deriving sexp, yojson]
 
-  let of_spec {max_ticks} : t =
+  let of_spec ?(override_log_level = Log_level.Debug) {max_ticks; log_level} : t
+      =
     let partition_registry = Hashtbl.create (module Int) in
     (* NOTE: [INVARIANT] a node will ALWAYS be a member of a particular partition. *)
-    let ({id; _} as initial_partition) = create_partition 1 in
+    let level =
+      log_level |> Log_level.of_spec |> Log_level.max override_log_level
+    in
+    let sim =
+      { halted= false
+      ; clock= Time.create_clock ()
+      ; scheduler= ref (Event_scheduler.create ())
+      ; event_callbacks= ref []
+      ; logger= Logger.create ~level Stdlib.__MODULE__ ()
+      ; registries=
+          { partition_registry
+          ; node_registry= Hashtbl.create (module Int)
+          ; node_alias_registry= Hashtbl.create (module String)
+          ; node_to_partition= Hashtbl.create (module Int) }
+      ; counters=
+          { event_id_counter= Counter.create 1
+          ; partition_id_counter= Counter.create 2 (* we consume one above *)
+          ; msg_id_counter= Counter.create 1
+          ; node_id_counter= Counter.create 1 }
+      ; settings= {max_ticks} }
+    in
+    let ({id; _} as initial_partition) = create_partition sim 1 in
     Hashtbl.set partition_registry ~key:id ~data:initial_partition ;
-    { halted= false
-    ; clock= Time.create_clock ()
-    ; scheduler= ref (Event_scheduler.create ())
-    ; event_callbacks= ref []
-    ; logger= Logger.create Stdlib.__MODULE__ ()
-    ; registries=
-        { partition_registry
-        ; node_registry= Hashtbl.create (module Int)
-        ; node_alias_registry= Hashtbl.create (module String)
-        ; node_to_partition= Hashtbl.create (module Int) }
-    ; counters=
-        { event_id_counter= Counter.create 1
-        ; partition_id_counter= Counter.create 2 (* we consume one above *)
-        ; msg_id_counter= Counter.create 1
-        ; node_id_counter= Counter.create 1 }
-    ; settings= {max_ticks} }
+    sim
 
   (* ==== dump helpers for introspection ========== *)
   let dump_partition_registry {registries= {partition_registry; _}; _} =

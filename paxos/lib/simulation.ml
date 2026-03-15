@@ -80,19 +80,14 @@ module Simulation = struct
             handle_command sim ;
             run_simulation sim ~allow_step )
 
-  (** Injects the user-provided log level to structs that the simulator struct manages.*)
-  let sync_sim_logger log_level sim =
-    let sim_logger = Simulator.logger_of sim in
-    Logger.set_level sim_logger log_level ;
-    sim
-
-  let run ?(max_log_level = Log_level.Info) ?(allow_step = true) scenario_path =
+  let run ?(override_log_level = Log_level.Info) ?(allow_step = true)
+      scenario_path =
     let open Simulator in
     let open Simulation_loader in
     let {scenario_name; preamble; simulator; nodes; events} =
       scenario_path |> load_simulation_config_from_file
     in
-    let sim = simulator |> of_spec |> sync_sim_logger max_log_level in
+    let sim = simulator |> of_spec ~override_log_level in
     sim |> logger_of
     |> Logger.display_scenario_preamble ~scenario_name ~preamble ;
     nodes |> seed_nodes_from_specs sim ;

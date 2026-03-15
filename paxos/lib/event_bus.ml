@@ -1,47 +1,30 @@
-[@@@ocaml.warning "-69"]
-(*
-IMPROVEMENT CONSIDERATIONS
-===========================
-1. TODO [Defensive]:
-   a) callback usage is not guarded from exns currently, so if we have any exn from callback usage, the whole bus will get killed. haha.
-      I'm going to skip this for now because I can't find a clean way to define a safe_callback function without passing it a million params (this part smells)
-
-      Possible inspiration:
-      ```ocaml
-      let safe_callback ~logger ~bus_id ~topic_s ~subscriber_info f payload =
-        try
-          f payload
-        with ex ->
-          Logger.callback_error
-            ~bus_id
-            ~topic_s
-            ~subscriber_info
-            ~exn:(Printexc.to_string ex)
-            logger
-      ```
-
-2. Simpler performance improvements:
-   a) avoiding queue copy if possible
-   b) instead of using Hashtbl poly, we should use the specific hashtables
-*)
+[@@@ocaml.warning "-69"] (*TO DEPRECATE: sub_handle usage*)
 
 open Base
 open Types
 open Log
+open Log_types
+open Message
 
 module type S = sig
   type 'a t
 
   val id_of : _ t -> int
 
+  val logger_of : _ t -> Log.Logger.t
+
   type sub_handle = {topic: Types.topic; id: int; node_id: Types.node_id}
   [@@deriving sexp, compare, equal, hash]
 
   type 'a payload_serialiser = 'a -> string
 
-  type 'a bus_registrable_callback = 'a Message.Message.t -> unit
+  type 'a bus_registrable_callback = 'a Message.t -> unit
 
-  val create : payload_to_string:'a payload_serialiser -> 'a t
+  val create :
+       ?log_level:Log_level.t
+    -> payload_to_string:'a payload_serialiser
+    -> unit
+    -> 'a t
 
   val subscribe :
        'a t
@@ -73,7 +56,7 @@ module Event_bus : S = struct
   Polymorphic in-process pub/sub message broker for deterministic simulation.
 
   {b Design:}
-  - Synchronous publish/subscribe for v0 (no concurrency)
+  - Synchronous publish/subscribe for v0 (no concurrency yet for this version)
   - Type-generic: ['a t] carries messages of type ['a]
   - Subscription handles allow explicit unsubscribe
   - Buffered enqueue/drain pattern enables deterministic message delivery
@@ -110,7 +93,7 @@ module Event_bus : S = struct
 
   type 'a payload_serialiser = 'a -> string
 
-  type 'a bus_registrable_callback = 'a Message.Message.t -> unit
+  type 'a bus_registrable_callback = 'a Message.t -> unit
 
   type 'a subscription_info = {sub_handle: sub_handle; callback: 'a callback}
 
@@ -134,13 +117,15 @@ module Event_bus : S = struct
 
   let id_of t = t.id
 
-  let create ~payload_to_string =
+  let logger_of t = t.logger
+
+  let create ?(log_level = Log_level.Info) ~payload_to_string () =
     let random_id = Random.int 10000 in
     { id= random_id
     ; next_id= 0
     ; topics= Hashtbl.Poly.create ()
     ; queue= Queue.create ()
-    ; logger= Logger.create Stdlib.__MODULE__ ()
+    ; logger= Logger.create ~level:log_level Stdlib.__MODULE__ ()
     ; payload_to_string }
 
   (** Returns the [topic_state] for [topic] if exists else initialises one for that topic and returns it.
@@ -255,7 +240,7 @@ module Event_bus : S = struct
     Hashtbl.to_alist topics
     |> List.map ~f:(fun (topic, {subs; published; delivered; queued}) ->
         let subscribers = Hashtbl.length subs in
-        let topic_stat : Log_types.Log_event.topic_stat =
+        let topic_stat : Log_event.topic_stat =
           {topic; subscribers; published; delivered; queued}
         in
         topic_stat )
@@ -263,3 +248,32 @@ module Event_bus : S = struct
   let display_stats t =
     Logger.inspect_bus_stats ~bus_id:t.id ~topic_stats:(topic_stats t) t.logger
 end
+
+(*
+IMPROVEMENT CONSIDERATIONS
+===========================
+1. TODO [Defensive]:
+   a) callback usage is not guarded from exns currently, so if we have any exn from callback usage, the whole bus will get killed. haha. Living life on the edge.
+      I'm going to skip this for now because I can't find a clean way to define a safe_callback function without passing it a million params (this part smells)
+
+      Possible inspiration:
+      ```ocaml
+      let safe_callback ~logger ~bus_id ~topic_s ~subscriber_info f payload =
+        try
+          f payload
+        with ex ->
+          Logger.callback_error
+            ~bus_id
+            ~topic_s
+            ~subscriber_info
+            ~exn:(Printexc.to_string ex)
+            logger
+      ```
+
+2. Simpler performance improvements:
+   a) avoiding queue copy if possible
+   b) instead of using Hashtbl poly, we should use the specific hashtables
+
+3. Tidying up:
+   a) `sub_handle` is not being used  at the moment, consider deprecating
+*)
