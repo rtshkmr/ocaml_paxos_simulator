@@ -1,0 +1,606 @@
+%%{init: {'themeVariables': {'fontSize': '24px'}, 'flowchart': {'curve': 'monotoneY'}}}%%
+%%{elk: {'elk.spacing.nodeNode': 2, 'elk.layered.spacing.nodeNodeBetweenLayers': 2, 'elk.padding': '[top=2,left=2,bottom=20,right=2]'}}%%
+flowchart TB
+    %%------------ layer 1 : user_facing ---------------
+    subgraph user_facing ["User-facing controllables"]
+       direction LR
+       cli  ~~~~~~ ui
+       config ~~~~~~ logging
+       cli@{ shape: subproc, label: "CLI
+       ⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯
+       Entry point: scenario selection, log-level, flags" }
+       config@{ shape: subproc, label: "Config
+       ⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯
+       JSON scenario file: nodes, events, timing" }
+       ui@{shape: subproc, label: "UI
+       ⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯
+       Terminal-interactive REPL: pause, resume, inspect"}
+
+       logging@{shape: subproc, label: "Logging
+       ⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯
+       All entities emit structured log events (domain-specific, not generic), presented via UI"}
+
+
+       style cli stroke-width:3px,padding:12px;
+       style config stroke-width:3px,padding:12px;
+       style ui stroke-width:3px,padding:12px;
+       style logging stroke-width:3px,padding:12px;
+    end
+
+    user_facing =="configures and controls"===> simulation_engine
+
+    %%------------- layer 2 : simulation_engine -----------
+    subgraph simulation_engine ["Simulation Engine"]
+        direction TB
+
+        sig_runtime ~~~ simulator
+
+        %%=========== layer 2.1: runtime_elements =============
+        subgraph runtime_elements ["Runtime Elements"]
+            direction LR
+            sig_runtime ~~~ simulator
+            comment_elements ~~~ simulator
+
+            sig_runtime@{shape: odd, label: "Runtime
+            ⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯
+            · start · stop · step ·
+            · seed_nodes · is_runnable
+            "}
+            style sig_runtime stroke-width:3px,padding:12px;
+
+            comment_elements@{shape: braces, label: "Keeps logical time,
+            Schedules events,
+            Can do lookups"}
+            style comment_elements stroke-width:5px, padding:12px;
+
+            simulator --> clock
+            %% simulator --"logical time"--> clock
+            simulator --> scheduler
+            %% simulator --"manage events"--> scheduler
+            simulator --> registries
+            clock ~~~ scheduler ~~~ registries
+
+            simulator@{ shape: dbl-circ, label: "Simulator"}
+            style simulator font-size:50px,stroke-width:5px,padding:12px;
+            clock@{shape: notch-pent, label: "Clock"}
+            scheduler@{shape: notch-pent, label: "Scheduler"}
+            %% TODO: make the label more elaboarative e.g. "Registries allow simulator to lookup and access entities"
+            registries@{shape: notch-pent, label: "Registries"}
+
+            style clock stroke-width: 3px;
+            style scheduler stroke-width: 3px;
+            style registries stroke-width: 3px;
+        end
+
+        runtime_elements --"produces"--> simulation_events
+
+        %%============ layer 2.2: Simulation Events ==============
+        subgraph simulation_events ["Simulation Events"]
+            direction TB
+
+            %%>>>>>>>>>>>>> layer 2.2.1: event variants
+            %% what are the events being simulated?
+            subgraph event_variants ["Event Variants"]
+                direction LR
+
+                %%sig_event
+                %%comment_e_variants
+
+                sig_event ~~~ e_msg_dispatch
+                comment_e_variants ~~~ e_node_action & e_narration
+
+                e_msg_dispatch ~~~ e_control
+                e_node_action ~~~ e_metric
+                e_narration ~~~ e_custom
+
+                %% --- variants shapes and labels:
+                sig_event@{shape: odd, label: "Sim_event
+                ⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯
+                · kind · spec (JSON) ·
+                · action (thunk) · of_spec
+                "}
+                style sig_event stroke-width:3px,padding:12px;
+                comment_e_variants@{ shape: braces, label: "Events, declared as JSON specs within Config, get hydrated into runtime thunks by the Simulator
+                ⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯
+                Hydration is internal, not exposed by Runtime.S" }
+                %% comment_e_variants@{ shape: braces, label: "Before sim starts, events are seeded into the scheduler, using the config" }
+                style comment_e_variants font-size:24px,stroke-width:5px,padding:5px;
+
+                e_msg_dispatch@{shape: notch-rect, label: "Message Dispatch
+                ⎯⎯⎯⎯⎯⎯⎯⎯⎯
+                Trigger node ⇛ node(s) msg send" }
+                %%e_msg_dispatch@{shape: notch-rect, label: "Message Dispatch"}
+
+                %% e_control@{shape: notch-rect, label: "Node Control" }
+
+                e_control@{shape: notch-rect, label: "Node Control
+                ⎯⎯⎯⎯⎯⎯⎯⎯⎯
+                e.g. Activate/deactivate" }
+
+                %% e_metric@{shape: notch-rect, label: "Metric Event" }
+                e_metric@{shape: notch-rect, label: "Metric Event
+                ⎯⎯⎯⎯⎯⎯⎯⎯⎯
+                Emit stats / state snapshots" }
+
+                %% e_node_action@{shape: notch-rect, label: "Node Action" }
+                e_node_action@{shape: notch-rect, label: "Node Action
+                ⎯⎯⎯⎯⎯⎯⎯⎯⎯
+                Paxos: propose, suggest, announce" }
+
+
+                %% e_narration@{shape: notch-rect, label: "Sim Narration" }
+                e_narration@{shape: notch-rect, label: "Sim Narration
+                ⎯⎯⎯⎯⎯⎯⎯⎯⎯
+                Human-friendly narration" }
+
+                %% e_custom@{shape: notch-rect, label: "Custom Event" }
+                e_custom@{shape: notch-rect, label: "Custom Event
+                ⎯⎯⎯⎯⎯⎯⎯⎯⎯
+                User-defined extensions" }
+
+                style e_msg_dispatch font-size:24px, stroke-width: 5px;
+                style e_control font-size:24px, stroke-width: 5px;
+                style e_node_action font-size:24px, stroke-width: 5px;
+                style e_narration font-size:24px, stroke-width: 5px;
+                style e_custom font-size:24px, stroke-width: 5px;
+                style e_metric font-size:24px, stroke-width: 5px;
+            end
+
+            event_variants ~~~ event_dispatch
+
+
+            %% >>>>>>>>>> layer 2.2.2: dispatching events &  how they work
+            %% how do they work?
+            subgraph event_dispatch ["Sim Events Dispatch Mechanism "]
+                direction LR
+
+                inst_scheduler ~~~ gathered_events
+                comment_event_dispatch ~~~ gathered_events
+
+                %%% scheduler relies on the clock to figure out the set of events to dispatch
+                comment_event_dispatch@{ shape: braces, label: "Scheduler uses Simulator's Clock to gather the Events for dispatch" }
+                style comment_event_dispatch stroke-width:5px,padding:5px;
+
+
+                inst_scheduler@{ shape: dbl-circ, label: "Scheduler"}
+                style inst_scheduler font-size:24px;
+
+                events_queue e_dispatch@--> gathered_events
+                %% events_queue e_dispatch@-->|"fires thunks"| gathered_events
+
+                events_queue@{ shape: das, label: "Events Queue
+                ⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯
+                @ Time = t, dispatches gathered sim events
+                "}
+                style events_queue font-size:24px, stroke-width: 5px;
+
+                %% @ time = t, a set of gathered events are dispatched
+                gathered_events@{ shape: processes, label: "[ Gathered Sim Event ]
+                ⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯
+                e.g. 'Create a network partition to split Node Cluster X into 3 partitions'" }
+          end
+          style simulation_events padding:20px, fill:none;
+      end
+      simulation_events =="sim events can drive node communication"==> communication_layer
+
+
+      %%============ layer 2.3: Communication Layer ==============
+      subgraph communication_layer ["How Nodes Communicate"]
+            direction TB
+
+            comment_registry@{ shape: braces, label: "Simulator has a single cluster of nodes with 1..N partitions
+            ⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯
+            Nodes use bus for intra-partition msg-passing
+            " }
+            style comment_registry stroke-width:5px,padding:12px;
+            inst_node_registry@{shape: notch-pent, label: "Node Registry
+            ⎯⎯⎯⎯⎯
+            Access Nodes
+            "}
+            inst_partition_registry@{shape: notch-pent, label: "Partition Registry
+            ⎯⎯⎯⎯⎯
+            Access Partitions
+            "}
+
+            comment_registry ~~~ ex_cluster
+            inst_node_registry -.-> node_1_1 & node_2_1 & node_1_2
+            inst_partition_registry -.-> ex_partition_1 & ex_partition_2
+
+            %% >>>>> layer 2.3.1: Partitions and Clusters -- one cluster with many partitions
+            %% -- A cluster of nodes may have network partitions within it
+            %% -- nodes within a partition can send messges to each other and themselves
+            subgraph ex_cluster ["e.g. A Cluster"]
+                %% subgraph 2.3.1.1: partition 1
+                subgraph ex_partition_1 ["Partition 1"]
+                   node_1_1@{ shape: dbl-circ, label: "Node A"}
+                   node_1_2@{ shape: dbl-circ, label: "Node B"}
+                   mbus_1@{ shape: hex, label: "Bus
+                   ⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯
+                   Topic-based pub-sub within a partition
+                   "}
+
+                   node_1_1 <-->|Broadcast or Unicast msgs to other nodes| mbus_1
+                   node_1_2 <-->|Sends & Rcvs msgs| mbus_1
+
+                end
+                %% subgraph 2.3.1.2: partition 2
+                subgraph ex_partition_2 ["Partition 2"]
+                   node_2_1@{ shape: dbl-circ, label: "Node X"}
+                   mbus_2@{ shape: hex, label: "Bus
+                   "}
+                   node_2_1 <-->|All msg-passing is mediated by bus
+                   ~~
+                   Even msgs sent by Node to itself i.e. loopbacks| mbus_2
+
+                   mbus_2 ~~~ comment_drain
+
+                   comment_drain@{ shape: braces, label: "Bus uses snapshot-drain:
+                   messages enqueued during a drain wait for the next tick
+                   ⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯
+                   Guarantees bounded, deterministic processing per tick" }
+                   style comment_drain stroke-width:5px, padding:12px;
+              end
+          end
+          style ex_cluster fill:none;
+      end
+      style communication_layer fill:none;
+      %%communication_layer ~~~ message_passing
+      %% communication_layer -->|"Messages are the payload; bus is the transport"| message_passing
+
+      comment_payload_transport@{ shape: braces, label: "
+      above: Bus is the transport
+      i.e. How msgs travel
+      ⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯
+      below: Messages are the payload
+      i.e. What msgs carry
+      "}
+
+      style comment_payload_transport stroke-width:5px, padding:12px;
+
+      communication_layer ==> comment_payload_transport ==> message_passing
+      %%============ layer 2.4: Coordination Mechanism ==============
+      subgraph message_passing ["Coordination via Message-Passing"]
+        %% what are the variants for messages ??
+        %% how can they be used to coordinate, control and manage time?
+        %% coordinate: the paxos protocol to coordinate and achieve consensus
+        %% control: only by the simulator, the actors can't send these messages
+         direction TB
+
+        sig_message@{shape: odd, label: "Message
+        ⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯
+        Coordination | Control | Time
+        polymorphic in 'v
+        "}
+        style sig_message stroke-width:3px,padding:12px;
+        sig_message ~~~  v_coordination
+        sig_message ~~~  v_time
+        sig_message ~~~  v_control
+
+        v_coordination@{shape: notch-rect, label: "Coordination" }
+        v_time@{shape: notch-rect, label: "Time" }
+        v_control@{shape: notch-rect, label: "Control" }
+
+        style v_coordination font-size:30px,stroke-width:3px,padding:12px;
+        style v_time font-size:30px,stroke-width:3px,padding:12px;
+        style v_control font-size:30px,stroke-width:3px,padding:12px;
+
+
+        comment_m_variants@{ shape: braces, label: "
+        Coordination = protocol-level (Paxos)
+        ⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯
+        Control = simulator-level (Harness)
+        ⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯
+        Time = infrastructure-level (Heartbeats)
+        " }
+        %% comment_m_variants ~~~ v_coordination & v_time & v_control
+        comment_m_variants ~~~   v_control
+        style comment_m_variants stroke-width:5px,padding:12px;
+
+        %% >>>>> layer 2.4.1: coordination messages needed for paxos protocol
+        v_coordination --> paxos_msgs
+        subgraph paxos_msgs ["Paxos Protocol Messages"]
+          direction LR
+          pm_1 ~~~ pm_2
+          pm_3 ~~~ pm_4
+          pm_5 ~~~ pm_6
+
+          pm_1@{shape: notch-rect, label: "Permission Request
+          ⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯
+          Phase 1A: Proposer
+          asks for promise
+          " }
+          pm_2@{shape: notch-rect, label: "Permission Granted
+          ⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯
+          Phase 1B:
+          Acceptor promises
+          " }
+          pm_3@{shape: notch-rect, label: "Suggestion
+          ⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯
+          Phase 2A:
+          Proposer sends value
+          " }
+          pm_4@{shape: notch-rect, label: "Accepted
+          ⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯
+          Phase 2B:
+          Acceptor accepts value
+          " }
+          pm_5@{shape: notch-rect, label: "Nack
+          ⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯
+          Rejection: Higher proposal seen
+          " }
+          pm_6@{shape: notch-rect, label: "Decided
+          ⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯
+          Consensus reached,
+          broadcast result
+          " }
+        end
+
+        %% >>>>> layer 2.4.2: control messages
+        v_control ---> control_msgs
+        subgraph control_msgs ["Simulation Control Messages"]
+          direction LR
+          control_Pause ~~~ control_Resume
+          control_MakeNodeIdle ~~~ control_ActivateNode
+
+          %% control_MakeNodeIdle@{shape: notch-rect, label: "Make Node Idle" }
+          control_MakeNodeIdle@{shape: notch-rect, label: "Make Node Idle
+          ⎯⎯⎯⎯⎯⎯⎯⎯
+          Sim node crash
+          / inactivity
+          " }
+          %% control_ActivateNode@{shape: notch-rect, label: "Activate Node" }
+          control_ActivateNode@{shape: notch-rect, label: "Activate Node
+          ⎯⎯⎯⎯⎯⎯⎯⎯
+          Recover from
+          storage snapshot
+          " }
+
+          %% control_Pause@{shape: notch-rect, label: "Pause Sim"}
+          control_Pause@{shape: notch-rect, label: "Pause Sim
+          ⎯⎯⎯⎯⎯
+          Halts the
+          tick loop
+          " }
+          %% control_Resume@{shape: notch-rect, label: "Resume Sim" }
+          control_Resume@{shape: notch-rect, label: "Resume Sim
+          ⎯⎯⎯⎯⎯⎯⎯
+          Continue from
+          curr tick
+          " }
+        end
+      end
+    end
+
+    simulation_engine =="Simulation manages Nodes"=====> layer_combined_node
+
+    %% ----- layer 3: combined node
+    subgraph layer_combined_node ["What a Node Contains"]
+        direction LR
+        const_state ~~~ inst_node_combined ~~~ const_bus ~~~ const_storage
+
+        inst_node_combined@{ shape: dbl-circ, label: "Node"}
+        style inst_node_combined font-size:80px,stroke-width:5px,padding:12px;
+
+
+        inst_node_combined --->|has its own| const_state
+        inst_node_combined -->|for communication,
+        is binded to a| const_bus
+        inst_node_combined -->|can recover from failure using| const_storage
+
+        const_state@{shape: notch-pent, label: "State"}
+        style const_state stroke-width: 3px;
+
+
+
+        const_storage@{shape: notch-pent, label: "Storage"}
+        style const_storage stroke-width: 3px;
+
+        const_bus@{shape: notch-pent, label: "Bus"}
+        style const_bus stroke-width: 3px;
+    end
+    style layer_combined_node fill:none, stroke:none
+
+
+    %% ----- layer 4: Primitives
+    %% TODO: the entire primitives layer, I choose to omit the trivial ones like counters and such they should likely be left omitted --
+    %% TODO: I'm wondering if there's some short descriptions or comments I can add to improve the design of this diagram
+    subgraph layer_primitive ["Primitives"]
+        direction BT
+
+
+        inst_node_node@{ shape: dbl-circ, label: "Node"}
+        style inst_node_node font-size:40px, stroke-width:5px,padding:20px;
+
+        inst_node_bus@{ shape: dbl-circ, label: "Bus"}
+        style inst_node_bus font-size:40px, stroke-width:5px,padding:20px;
+
+        inst_value@{ shape: dbl-circ, label: "Value"}
+        style inst_value font-size:40px, stroke-width:5px,padding:12px;
+
+        func_make_node_state@{ shape: trap-b, label: "«functor»
+        Make_node_state:
+        Injects Value type in state machine
+        "}
+        style func_make_node_state stroke-width:5px,padding:12px;
+
+        %% ----- layer 4.1: Node state primitives
+        %%% Node state sig stuff:
+        %%subgraph node_state_primitives ["State Primitives"]
+        %%  p1
+
+        %%end
+        %%style node_state_primitives fill:none, stroke:none
+        %%%
+
+
+        const_proposer_state@{shape: notch-pent, label: "Proposer"}
+        const_acceptor_state@{shape: notch-pent, label: "Acceptor"}
+        const_learner_state@{shape: notch-pent, label: "Learner"}
+
+        sig_node_state@{shape: odd, label: "Node_state
+        ⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯
+        · role_state · role_selector ·
+        · get_role · set_role · quorum ·
+        "}
+        style sig_node_state stroke-width:3px,padding:12px;
+
+        const_proposer_state -..- comment_role_selector
+        const_acceptor_state -..- comment_role_selector
+        const_learner_state -..- comment_role_selector
+        comment_role_selector -.-> inst_node_state
+
+        %% const_proposer_state -.-> inst_node_state
+        %% const_acceptor_state -.-> inst_node_state
+        %% const_learner_state -.-> inst_node_state
+
+        %% add in the comment about choosing between states
+        comment_role_selector@{shape: braces, label: "Each role carries its precise sub-state type
+        ⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯
+        transition_role_state uses locally abstract types for compile-time safe state updates
+        ⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯
+        role_selector is a GADT that is relied on
+        "}
+        style comment_role_selector stroke-width:5px,padding:5px;
+
+
+        %%join_sub_states -.-> inst_node_state
+        %%join_sub_states@{shape:circle, label: " "}
+        %% sig_node_state -.-> inst_node_state
+        sig_node_state ~~~ const_proposer_state
+        sig_node_state ~~~ const_acceptor_state
+        sig_node_state ~~~ const_learner_state
+
+        inst_node_state@{ shape: dbl-circ, label: "State"}
+        style inst_node_state font-size:40px, stroke-width:5px,padding:12px;
+
+        inst_value ==> func_make_node_state ====> inst_node_state
+
+        func_make_storage@{ shape: trap-b, label: "«functor»
+        Make_storage:
+        Injects state into persistence
+        "}
+        style func_make_storage stroke-width:5px,padding:12px;
+
+        impl_file_storage@{ shape: notch-rect, label: "File Storage
+        ⎯⎯⎯⎯⎯⎯
+        Atomic JSON writes to /tmp/paxos/" }
+        impl_mem_storage@{ shape: notch-rect, label: "Mem Storage
+        ⎯⎯⎯⎯⎯⎯
+        In-memory list (test/dev)" }
+
+
+        inst_node_storage@{ shape: dbl-circ, label: "Storage"}
+        style inst_node_storage font-size:40px, stroke-width:5px,padding:12px;
+
+        %% inst_node_state ==> func_make_storage ===> inst_node_storage
+        inst_node_state ==> func_make_storage
+        func_make_storage -.-> impl_file_storage & impl_mem_storage
+        impl_file_storage ===> inst_node_storage
+        impl_mem_storage -..->|"(alt: test/dev)"| inst_node_storage
+
+        func_make_node@{ shape: trap-b, label: "«functor»
+        Make_node:
+        Value + Bus → full Node actor
+        "}
+        style func_make_node stroke-width:5px,padding:12px;
+
+        comment_sharing_constraints@{shape: braces, label: "Sharing constraints ensure type consistency:
+        ⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯
+        Value.t flowing through Node, State, Storage, and Bus is unified at compile time via 'with type' refinement"}
+        style comment_sharing_constraints stroke-width:5px, padding:12px;
+
+        inst_value ======> func_make_node
+        inst_node_bus ====>|bound at partition registration| func_make_node
+        %% func_make_node ===> inst_node_node
+        func_make_node === comment_sharing_constraints
+        comment_sharing_constraints ==> inst_node_node
+
+        comment_storage@{shape: braces, label: "Storage is internal to Node
+        ⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯
+        each node creates its own persistence instance
+        This avoids dependency cycles: Node_state must exist before Storage"}
+        style comment_storage stroke-width:5px, padding:12px;
+
+        %% inst_node_storage -----> inst_node_node
+        inst_node_storage --- comment_storage
+        comment_storage ---> inst_node_node
+        inst_node_state -----> inst_node_node
+
+        %%%  orientation comment:
+        comment_primitives@{shape: braces, label: "How Modules are Composed from Primitives
+       ⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯
+        Here, inputs flow upward into functors, to form runtime instances"}
+        style comment_primitives stroke-width:5px, padding:12px;
+
+        inst_node_node ~~~ comment_primitives
+
+    end
+    layer_combined_node <==> layer_primitive
+
+    %%  TODOs that apply to many parts across the whole diagram
+
+    %%   1. all the edges that we have right now are mostly unlabelled edges, we might find some value in adding some desc to the directed arrows to improve the design of the diagram.
+
+    %%% click events:
+    click cli "https://github.com" _blank
+    click config "https://github.com" _blank
+    click ui "https://github.com" _blank
+    click logging "https://github.com" _blank
+    click simulator "https://github.com" _blank
+    click clock "https://github.com" _blank
+    click scheduler "https://github.com" _blank
+    click registries "https://github.com" _blank
+    click sig_event "https://github.com" _blank
+    click e_msg_dispatch "https://github.com" _blank
+    click e_control "https://github.com" _blank
+    click e_metric "https://github.com" _blank
+    click e_node_action "https://github.com" _blank
+    click e_narration "https://github.com" _blank
+    click e_custom "https://github.com" _blank
+    %% TODO: comment_e_variants--  link to hydration subroutine
+    click comment_e_variants "https://github.com" _blank
+    click inst_scheduler "https://github.com" _blank
+    click events_queue "https://github.com" _blank
+    click gathered_events "https://github.com" _blank
+    %% TODO: comment_event_dispatch -- link to subroutine
+    click comment_event_dispatch "https://github.com" _blank
+    %% TODO: comment_registry -- link to subroutine
+    click comment_registry "https://github.com" _blank
+    click inst_node_registry "https://github.com" _blank
+    click inst_partition_registry "https://github.com" _blank
+    click node_1_1 "https://github.com" _blank
+    click node_1_2 "https://github.com" _blank
+    click node_2_1 "https://github.com" _blank
+    click mbus_1 "https://github.com" _blank
+    click mbus_2 "https://github.com" _blank
+    click sig_message "https://github.com" _blank
+    click v_coordination "https://github.com" _blank
+    click v_control "https://github.com" _blank
+    click v_time "https://github.com" _blank
+    click pm_1 "https://github.com" _blank
+    click pm_2 "https://github.com" _blank
+    click pm_3 "https://github.com" _blank
+    click pm_4 "https://github.com" _blank
+    click pm_5 "https://github.com" _blank
+    click pm_6 "https://github.com" _blank
+    click control_Pause "https://github.com" _blank
+    click control_Resume "https://github.com" _blank
+    click control_MakeNodeIdle "https://github.com" _blank
+    click control_ActivateNode "https://github.com" _blank
+    click inst_node_combined "https://github.com" _blank
+    click const_state "https://github.com" _blank
+    click const_bus "https://github.com" _blank
+    click const_storage "https://github.com" _blank
+    click inst_node_node "https://github.com" _blank
+    click inst_node_bus "https://github.com" _blank
+    click inst_value "https://github.com" _blank
+    click func_make_node_state "https://github.com" _blank
+    click const_proposer_state "https://github.com" _blank
+    click const_acceptor_state "https://github.com" _blank
+    click const_learner_state "https://github.com" _blank
+    click sig_node_state "https://github.com" _blank
+    click inst_node_state "https://github.com" _blank
+    click func_make_storage "https://github.com" _blank
+    click inst_node_storage "https://github.com" _blank
+    click func_make_node "https://github.com" _blank
+    click sig_runtime "https://github.com" _blank

@@ -268,6 +268,15 @@ module Make_node_state (V : Value.S) = struct
       nacks_received |> select_highest_hint |> MajorityNacks
     else NotReached
 
+  (** Quorum predicate for both phase 1 and phase 2 of paxos.
+
+      NOTE: This runtime check exists because proposer_state includes both
+      active and inactive variants. A GADT-typed view layer
+      (active_proposer_state) would eliminate this branch entirely.
+
+      TODO [v1 improvement]: consider shifting runtime bombs into compile time
+      checks See: docs/planning.org "storage-safe variant" for the migration
+      path. *)
   let is_quorum_reached cluster_size rs =
     match Proposer |> get_role rs with
     | WaitingForPromises wfp ->
