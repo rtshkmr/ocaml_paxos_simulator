@@ -1,0 +1,26 @@
+stateDiagram-v2
+    direction TB
+    [*] --> lempty : Learned []
+
+    lempty  --> lvalues : Decided msg received
+    lvalues --> lvalues : additional Decided msgs
+
+    note right of lempty
+        No Inactive state.
+        ⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯
+        Learners are passive observers —
+        they accumulate decisions but drive
+        no protocol logic, so no recovery
+        path is needed.
+    end note
+
+    note left of lvalues
+        Accumulates assertion list.
+        One entry per decided round.
+    end note
+
+    state "Learned (empty)"  as lempty
+    state "Learned (values)" as lvalues
+
+    classDef simLayer   fill:#3B82F6,stroke:#1D4ED8,color:#fff,font-style:italic,stroke-width:2px
+    classDef quorumGate fill:#F59E0B,stroke:#B45309,color:#1a1a1a,stroke-width:2px

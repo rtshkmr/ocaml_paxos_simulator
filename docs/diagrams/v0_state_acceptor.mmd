@@ -1,0 +1,32 @@
+stateDiagram-v2
+    direction LR
+
+    %% ============================================================
+    %% Acceptor Sub-State FSM (3 states)
+    %% ============================================================
+    %% Acceptor responds to Proposer requests.
+    %% Simpler than Proposer — no quorum logic, no multi-phase.
+    %% ============================================================
+
+    [*] --> Idle
+
+    Idle --> Accepting : first permissible\nPermissionRequest received
+
+    Accepting --> Accepting : update promise / accepted\non each valid request
+
+    %% --- Simulation Control ---
+    Idle --> AcceptorInactive : MakeNodeInactive\n[Simulation Control]
+    AcceptorInactive --> Idle : ActivateNode\n— restore from Storage\n[Simulation Control]
+
+    note right of Accepting
+        Tracks two values:
+        · promised — highest proposal promised to
+        · accepted — last value actually accepted
+        ⎯⎯⎯⎯⎯⎯
+        Both are carried in acceptor_record.
+    end note
+
+    note right of AcceptorInactive
+        Simulation-level, not protocol-level.
+        Same pattern as ProposerInactive.
+    end note

@@ -1,0 +1,57 @@
+stateDiagram-v2
+    direction TB
+    [*] --> idle
+    [*] --> pi
+    idle --> prep: propose(value)
+    idle --> pi:DeactivateNode
+    pi --> idle: ActivateNode
+    prep --> wfp: broadcasted PermissionRequest
+
+    state isPhase1Quorum <<choice>>
+        wfp --> isPhase1Quorum: is quorum reached?
+        isPhase1Quorum --> wfp: no
+        isPhase1Quorum --> aborted: nack quorum (rejected)
+        isPhase1Quorum --> pa: grant quorum (accepted) + broadcasted Suggestion
+
+    state isPhase2Quorum <<choice>>
+        pa --> isPhase2Quorum: is quorum reached?
+        isPhase2Quorum --> pa:no
+        isPhase2Quorum --> decided: accept quorum reached + dispatched Decided
+        isPhase2Quorum --> aborted
+
+    aborted --> idle: retry (omitted from v0)
+    aborted --> [*]
+    decided --> [*]
+
+    note right of pi
+        Simulation layer only, not protocol-level.
+        ⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯
+        ProposerInactive is a sibling variant of
+        active protocol states in the same sum type.
+        The type system cannot distinguish it
+        from Idle, WaitingForPromises, etc.
+        ⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯
+        This is why is_quorum_reached
+        still calls failwith on this branch —
+        the compiler sees all variants as equal peers.
+    end note
+
+    %% states to represent
+    %%  -- protocol states
+    state "Preparing" as prep
+    state "Waiting for
+    Promises" as wfp
+    state "Proposer Accepting" as pa
+    state "Decided" as decided
+    state "Aborted" as aborted
+    %%  -- simulation states
+    state "Proposer Inactive" as pi
+    state "Idle" as idle
+
+    %% visual hierarchy:
+    classDef simLayer fill:#3B82F6,stroke:#1D4ED8,color:#fff,font-style:italic,stroke-width:2px
+
+    classDef quorumGate fill:#F59E0B,stroke:#B45309,color:#1a1a1a,stroke-width:2px
+
+    class idle, pi simLayer
+    class isPhase1Quorum, isPhase2Quorum quorumGate

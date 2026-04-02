@@ -1,0 +1,73 @@
+flowchart TB
+
+        comment_pattern@{shape: braces, label: "A coherent actor-with-mailbox pattern -- not broken, but a tightly coupled one
+        ⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯
+        We observe that three concerns interleave across the pipeline:
+        accumulation, protocol logic, and state management"}
+
+        style comment_pattern stroke-width:5px, padding:12px;
+
+        bus_delivers@{shape: hex, label: "Bus
+        ⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯
+        delivers message to node via callback"}
+        style bus_delivers stroke-width:5px, padding:12px;
+
+        comment_pattern ~~~ bus_delivers
+
+        %% ====== Stage 1: handle_message ======
+        handle_msg@{shape: subproc, label: "[Stage 1] handle_message
+        ⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯
+        A) Extracts proposal_id from msg
+        B) Gets or creates inbox_entry for that proposal
+        C) Appends msg to inbox_entry.messages 💥 mutates inbox
+        D) Updates node.quorum from msg payload 💥 mutates quorum ref
+        E) Immediately calls process_inboxes as the next operation"}
+
+        style handle_msg stroke-width:3px, padding:12px;
+
+        bus_delivers ==> handle_msg
+
+        %% ====== Stage 2: process_inboxes ======
+        process_inbox@{shape: subproc, label: "[Stage 2] process_inboxes
+        ⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯
+        A) Iterates every proposal key in inbox
+        B) Calls is_quorum_reached on each entry
+        C) If quorum met → triggers next step 💥 would mutate state
+        D) Accumulation and evaluation interleaved"}
+
+        style process_inbox stroke-width:3px, padding:12px;
+
+        handle_msg ===>|"immediately"| process_inbox
+
+        %% ====== Stage 3: set_node_state ======
+        set_state@{shape: subproc, label: "[Stage 3] set_node_state
+        ⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯
+        1. node.state ← new_state 💥 mutates state
+        2. printf logging          💥 side-effect (IO)
+        3. No persistence call"}
+        style set_state stroke-width:3px, padding:12px;
+
+        process_inbox ===> set_state
+
+        %% ====== Storage: present but disconnected ======
+        storage_unwired@{shape: notch-pent, label: "Storage
+        ⎯⎯⎯⎯⎯⎯
+        Present in Node.t
+        Not wired into
+        any transition"}
+        style storage_unwired stroke-width:3px;
+
+        set_state ~~~ comment_coupling
+        set_state -..->|"batched over, early implementation"| storage_unwired
+
+        %% ====== Annotation: the three concerns ======
+        comment_coupling@{shape: braces, label: "⚠️ Mutation-sites (💥) are spread throughout the pipeline ⚠️:
+        ⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯
+        [Stage 1] handle_message → inbox + quorum
+        [Stage 2] process_inboxes → state (if quorum)
+        [Stage 3] set_node_state → state + logging
+        ⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯
+        No single place to see: what happens when state changes?"}
+        style comment_coupling stroke-width:5px, padding:12px;
+
+        %% TODO: just like the archi map, this needs to have click events so that we can TODO: permalink
