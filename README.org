@@ -6,7 +6,11 @@
 
 This repository contains the code for [[https://blog.rtshkmr.com/posts/series/songs_of_the_ocaml_compiler/][Songs of the OCaml Compiler]] — a blog series on learning OCaml by building something real.
 
-The artefact is a deterministic event simulator for the Paxos consensus protocol, set in the Sahara: five caravans — /Aghilas, Taziri, Amastan, Itri, and Tassadit/ — must agree on a campsite despite sandstorms, collapsed messengers, and uncertain paths across the dunes. The simulation engine is deliberately hand-rolled --- no networking layer, no async runtime --- which keeps every subsystem legible and opens a natural path for future iterations to incrementally introduce real dependencies, turning the simulator into something closer to a usable Paxos-adjacent toolkit. The codebase builds on Jane Street's OCaml stack (=Base=, =Core=, =ppx_jane=), following the idioms from /[[https://dev.realworldocaml.org/][Real World OCaml]]/ --- the primary learning substrate I used for this project.
+The artefact is a deterministic event simulator for the Paxos consensus protocol, set in the Sahara: five caravans — /Aghilas, Taziri, Amastan, Itri, and Tassadit/ — must agree on a campsite despite sandstorms, collapsed messengers, and uncertain paths across the dunes.
+
+The simulation engine is deliberately hand-rolled --- no networking layer, no async runtime --- which keeps every subsystem legible and opens a natural path for future iterations to incrementally introduce real dependencies, turning the simulator into something closer to a usable Paxos-adjacent toolkit.
+
+The codebase builds on Jane Street's OCaml stack (=Base=, =Core=, =ppx_jane=), following the idioms from /[[https://dev.realworldocaml.org/][Real World OCaml]]/ --- the /primary learning substrate/ I used for this project (my maiden line of code written in OCaml was in this repo).
 
 Run =make magic max_log_level=debug= to see the protocol in detail.
 Custom scenarios can be scripted via JSON.
@@ -25,7 +29,7 @@ Custom scenarios can be scripted via JSON.
 
   /See you there./
 
-      - Ritesh
+      ~ Ritesh
 #+end_quote
 
 -----
@@ -101,13 +105,11 @@ The code is the artefact; the blog is the argument for why it's shaped the way i
 
 This is a *teaching artefact first*. If you have ideas for making it clearer, more demonstrative, or more useful as a stepping-stone into real OCaml systems work --- open an issue on [[https://codeberg.org/rtshkmr/ocaml_paxos_simulator/issues/new][Codeberg]] or write to [[mailto:hello@rtshkmr.com][hello@rtshkmr.com]].
 
-<details>
-<summary>Shake my hand, sign your email</summary>
-
-    ✅  Ritesh Kumar (hello@rtshkmr.com) 23BBA8476AA5F3FE0D944DD136F1C1A8EE1EB352
-    ✅  Get my key @ <code>gpg --keyserver keys.openpgp.org --search-keys 23BBA8476AA5F3FE0D944DD136F1C1A8EE1EB352</code>
-
-    Reply signed for me to <em>instantly</em> respond!
-    Paste your key so I see your green  ✅  too (<code>gpg --armor --export yourmail@example.com</code>)
-
-</details>
+*Always great to sign your emails,*  /gets instant replies from me/:
+#+begin_src sh
+# ✅  Ritesh Kumar (hello@rtshkmr.com) 23BBA8476AA5F3FE0D944DD136F1C1A8EE1EB352
+# 1. Get my key:
+gpg --keyserver keys.openpgp.org --search-keys 23BBA8476AA5F3FE0D944DD136F1C1A8EE1EB352
+# 2. Paste your armor to your email too!
+gpg --armor --export yourmail@example.com
+#+end_src
