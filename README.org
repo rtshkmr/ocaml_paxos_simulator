@@ -1,14 +1,16 @@
 #+OPTIONS: toc:nil num:nil
 #+STARTUP: inlineimages
 #+AUTHOR: Ritesh Kumar
-#+title: A Paxos Protocol Simulator in OCaml
+#+title: 🐫 Paxos in OCaml --- Desert Consensus Simulator
 
 #+begin_quote
-  [!NOTE]
-  This repository is hosted on [[https://codeberg.org/rtshkmr/ocaml_paxos_simulator][codeberg]], with a read-mirror on GitHub.
-  PRs & Issues welcome over at codeberg! See you there.
+  ℹ /*Mirror Notice*/ ℹ
+
+  This repository is hosted on [[https://codeberg.org/rtshkmr/ocaml_paxos_simulator][codeberg]], with a [[https://github.com/rtshkmr/ocaml_paxos_simulator][read-mirror]] on GitHub.
+
+  PRs & Issues welcome over at codeberg! /See you there./
 #+end_quote
-* 🐫 Paxos in OCaml — Desert Consensus Simulator
+
 
 A deterministic, dependency-free event simulator demonstrating the Paxos consensus protocol through the metaphor of Saharan caravans coordinating across an unreliable desert. Custom scenarios can be built to play around too!
 
@@ -18,16 +20,16 @@ A deterministic, dependency-free event simulator demonstrating the Paxos consens
 
 -----
 
-** Quickstart
+* Quickstart
 Please see the [[file:Makefile][Makefile to understand the available targets]] and read the runner scripts before doing this -- it's a good habit!
 
 Assuming that you're running a unix-based machine (Linux, MacOS, BSD...), we shall build and run this locally (typically faster than fresh docker builds).
 
-*** OCaml folks
+** OCaml folks
 
 Just run =make magic=!
 
-*** First time setup
+** First time setup
 For folks who are trying OCaml for the first time, there's 3 steps to take:
 
 1. Run =make setup=
@@ -59,7 +61,7 @@ This will spawn the simulator. If you need help, just type =/help= into the repl
 
 -----
 
-** What This Is
+* What This Is
 
 This simulator shows how distributed systems achieve consensus under realistic failure conditions:
 - *Network partitions* (sandstorms blocking communication between caravan formations)
@@ -74,28 +76,28 @@ Run =make magic max_log_level=debug= to see what's happening under the hood.
 
 -----
 
-** Learn More
+* Learn More
 
-*** *Blog Series*
+** *Blog Series*
 Deep dive into the design, implementation, and lessons learned
 - [[https://blog.rtshkmr.com/posts/songs_of_the_ocaml_compiler_i/][Part I: Motivations & Design Grammar]]
 - [[https://blog.rtshkmr.com/posts/songs_of_the_ocaml_compiler_ii/][Part II: Implementation & OCaml Ergonomics]] (coming soon)
 - Part III: Evolution & Retrospectives /(coming soon)/
 
-*** *Key References:*
+** *Key References:*
 - [[https://lamport.azurewebsites.net/pubs/paxos-simple.pdf]["Paxos Made Simple" – Leslie Lamport]]
 - [[https://understandingpaxos.wordpress.com/]["Understanding Paxos"]] (blog post explainer)
 - [[https://tigerbeetle.com/blog/2023-07-11-we-put-a-distributed-database-in-the-browser/][TigerBeetle's Deterministic Simulator]] (browser-based WASM game)
 
 
-*** *Prior Art:*
+** *Prior Art:*
 - [[https://github.com/cocagne/paxos][Tom Cocagne's Paxos]] and [[https://github.com/cocagne/multi-paxos-example][Multi-Paxos]] implementations (Python)
 - [[https://github.com/komamitsu/oraft][oraft]] — Raft consensus in OCaml
 - [[https://github.com/openacid/abstract-paxos][Abstract Paxos]] — unified abstraction for clean architecture ideas
 
 -----
 
-** Contributing / Feedback
+* Contributing / Feedback
 
 This is a pedagogical project designed to make learning visible. I'm currently gathering feedback to iterate on this. If you have ideas for making it more teachable, clearer, or more engaging — please open an issue or reach out via email [[mailto:hello@rtshkmr.com][hello@rtshkmr]]!
 
