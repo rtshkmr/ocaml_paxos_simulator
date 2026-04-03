@@ -1,129 +1,113 @@
 #+OPTIONS: toc:nil num:nil
 #+STARTUP: inlineimages
 #+AUTHOR: Ritesh Kumar
-#+title: 🐫 Paxos in OCaml --- Desert Consensus Simulator
-
-#+BEGIN_CENTER
-This text is perfectly centered.
-It works in Emacs preview, GitHub README.org, and HTML export.
-#+END_CENTER
+#+title: 🐫 Paxos in OCaml — Desert Consensus Simulator
 
 
-#+BEGIN_EXPORT html
-> [!NOTE]
-> This is a **note** alert.
-> It uses GitHub's Markdown alert styling when rendered.
-#+END_EXPORT
+This repository contains the code for [[https://blog.rtshkmr.com/posts/series/songs_of_the_ocaml_compiler/][Songs of the OCaml Compiler]] — a blog series on learning OCaml by building something real.
 
-#+BEGIN_EXPORT html
-> [!WARNING]
-> Danger! This is a **warning**.
-> Supports bold, italic, lists, and code too.
-#+END_EXPORT
+The artefact is a deterministic event simulator for the Paxos consensus protocol, set in the Sahara: five caravans — /Aghilas, Taziri, Amastan, Itri, and Tassadit/ — must agree on a campsite despite sandstorms, collapsed messengers, and uncertain paths across the dunes. The simulation engine is deliberately hand-rolled --- no networking layer, no async runtime --- which keeps every subsystem legible and opens a natural path for future iterations to incrementally introduce real dependencies, turning the simulator into something closer to a usable Paxos-adjacent toolkit. The codebase builds on Jane Street's OCaml stack (=Base=, =Core=, =ppx_jane=), following the idioms from /[[https://dev.realworldocaml.org/][Real World OCaml]]/ --- the primary learning substrate I used for this project.
 
-#+BEGIN_EXPORT html
-> [!TIP]
-> Pro tip: Combine with Org headings for structure.
-#+END_EXPORT
+Run =make magic max_log_level=debug= to see the protocol in detail.
+Custom scenarios can be scripted via JSON.
 
-
-
-#+begin_quote
-  ℹ /*Mirror Notice*/ ℹ
-
-  This repository is hosted on [[https://codeberg.org/rtshkmr/ocaml_paxos_simulator][codeberg]], with a [[https://github.com/rtshkmr/ocaml_paxos_simulator][read-mirror]] on GitHub.
-
-  PRs & Issues welcome over at codeberg! /See you there./
-#+end_quote
-
-
-A deterministic, dependency-free event simulator demonstrating the Paxos consensus protocol through the metaphor of Saharan caravans coordinating across an unreliable desert. Custom scenarios can be built to play around too!
 
 [[file:docs/pictures/complete_run_v2.gif]]
 
-*Read the full story:* [[https://blog.rtshkmr.com/posts/songs_of_the_ocaml_compiler_i/][Songs of the OCaml Compiler — A 3-part series]]
+*Read the full story:* [[https://blog.rtshkmr.com/posts/series/songs_of_the_ocaml_compiler/][Songs of the OCaml Compiler]]
+
+#+begin_quote
+  ℹ /*Mirror Notice*/
+
+  This repository is hosted on [[https://codeberg.org/rtshkmr/ocaml_paxos_simulator][Codeberg]], with a [[https://github.com/rtshkmr/ocaml_paxos_simulator][read-mirror]] on GitHub.
+
+  PRs & Issues on how to make this a better teaching tool are welcome over at Codeberg!
+
+  /See you there./
+
+      - Ritesh
+#+end_quote
 
 -----
 
 * Quickstart
-Please see the [[file:Makefile][Makefile to understand the available targets]] and read the runner scripts before doing this -- it's a good habit!
 
-Assuming that you're running a unix-based machine (Linux, MacOS, BSD...), we shall build and run this locally (typically faster than fresh docker builds).
+Please see the [[file:Makefile][Makefile]] and read the runner scripts before diving in --- it's a good habit.
+
+*Assuming a unix-based machine* (Linux, macOS, BSD...):
 
 ** OCaml folks
 
-Just run =make magic=!
+Just run =make magic=.
 
 ** First time setup
-For folks who are trying OCaml for the first time, there's 3 steps to take:
+
+For folks trying OCaml for the first time, there are 3 steps:
 
 1. Run =make setup=
 
-   This *setup script is for convenience* and follows the instructions [[https://ocaml.org/install#linux_mac_bsd][from the official docs]]:
-   * It installs [[https://opam.ocaml.org/][opam]] (the package manager)
-   * It creates a local OCaml switch in =paxos/_opam=
-   * It installs ocaml and dune using opam
-   * It installs all dependencies that have been locked for this project
+   This *setup script is for convenience* and follows the instructions [[https://ocaml.org/install#linux_mac_bsd][from the official docs (follow instructions if setup script doesn't play nice)]]:
+   * Installs [[https://opam.ocaml.org/][opam]] (the package manager)
+   * Creates a local OCaml switch in =paxos/_opam=
+   * Installs OCaml and dune via opam
+   * Installs all locked project dependencies
 
 2. Update your =PATH= variable and reload your shell.
 
-   Follow the instructions that =make setup= provides at the end of its run. Some common sources of error:
+   Follow the instructions that =make setup= provides at the end of its run. Common sources of error:
 
-   * Remember to reload the shell (either by restarting your terminal or sourcing your config file e.g. =source ~/.zshrc=).
-
-   * You'll need to be able to access =opam= and =dune= from your shell, updating the =PATH= variable will allow you to do so. If you call =which opam=, it should point you to when =opam= has been placed.
-
-   * Remember to set your =opam switch= to the local switch. Calling =which dune= and =which ocaml= should be showing locations within the local opam switch.
+   * Remember to reload the shell (restart your terminal, or source your config: =source ~/.zshrc=).
+   * You'll need =opam= and =dune= accessible from your shell. Calling =which opam= should point to where opam was placed.
+   * =which dune= and =which ocaml= should resolve to locations within the local opam switch.
 
 3. Run =make magic=!
+
    It will:
    - check =opam= / =dune= are accessible
-   - activates local opam switch
-   - builds the project incrementally
-   - runs simulators with the flags you supply it
+   - activate the local opam switch
+   - build the project incrementally
+   - run the simulator with any flags you supply
 
-This will spawn the simulator. If you need help, just type =/help= into the repl-like interface after the prompt (=>>>=).
+Once it's running, type =/help= into the prompt (=>>>=) to see what's available.
+
 
 -----
 
 * What This Is
 
-This simulator shows how distributed systems achieve consensus under realistic failure conditions:
-- *Network partitions* (sandstorms blocking communication between caravan formations)
-- *Node crashes* (messengers collapsing mid-journey)
-- *Message delays* (couriers taking uncertain paths across the dunes)
+Distributed systems are invisible. Consensus protocols --- the rules that let a cluster of nodes agree on something despite failures --- are especially hard to build intuition for by reading papers or tracing production code alone.
 
-Five caravans — /Aghilas, Taziri, Amastan, Itri, and Tassadit/ — must agree on a campsite despite these challenges. The Paxos protocol ensures they never make contradictory decisions, even when the desert turns hostile.
+This simulator makes causality, message ordering, and failure modes /observable/: you can step through time, watch quorums form and collapse, and see exactly why certain invariants hold even when the desert turns hostile.
 
-*Why a simulator?* Distributed systems are invisible. This makes causality, message ordering, and failure modes /observable/ in a way that reading papers or studying production code cannot. You can pause time, replay scenarios, and actually /see/ why certain invariants matter.
+#+begin_quote
+The five caravans must agree on which campsite to head to. A messenger from Tassadit collapses early. A sandstorm splits the group into two partitions that cannot reach each other. A first proposal from Aghilas fails to gather quorum. The storm clears, the messenger recovers, and a fresh proposal from Itri runs the full Paxos protocol to completion.
+#+end_quote
 
-Run =make magic max_log_level=debug= to see what's happening under the hood.
+The hand-rolled design is intentional: because there is no framework absorbing the interesting decisions, every subsystem --- the event bus, the logical-time engine, the role state machine --- is a legible teaching surface. Future iterations can introduce real networking, persistence, or multi-decree extensions incrementally, and each step will have something to show for itself.
 
 -----
 
-* Learn More
+* The Blog Series
 
-** *Blog Series*
-Deep dive into the design, implementation, and lessons learned
-- [[https://blog.rtshkmr.com/posts/songs_of_the_ocaml_compiler_i/][Part I: Motivations & Design Grammar]]
-- [[https://blog.rtshkmr.com/posts/songs_of_the_ocaml_compiler_ii/][Part II: Implementation & OCaml Ergonomics]] (coming soon)
-- Part III: Evolution & Retrospectives /(coming soon)/
+The code is the artefact; the blog is the argument for why it's shaped the way it is.
 
-** *Key References:*
-- [[https://lamport.azurewebsites.net/pubs/paxos-simple.pdf]["Paxos Made Simple" – Leslie Lamport]]
-- [[https://understandingpaxos.wordpress.com/]["Understanding Paxos"]] (blog post explainer)
-- [[https://tigerbeetle.com/blog/2023-07-11-we-put-a-distributed-database-in-the-browser/][TigerBeetle's Deterministic Simulator]] (browser-based WASM game)
-
-
-** *Prior Art:*
-- [[https://github.com/cocagne/paxos][Tom Cocagne's Paxos]] and [[https://github.com/cocagne/multi-paxos-example][Multi-Paxos]] implementations (Python)
-- [[https://github.com/komamitsu/oraft][oraft]] — Raft consensus in OCaml
-- [[https://github.com/openacid/abstract-paxos][Abstract Paxos]] — unified abstraction for clean architecture ideas
+- [[https://blog.rtshkmr.com/posts/series/songs_of_the_ocaml_compiler/i/][Part I: A Proxy Project]] --- didactic motivations, design philosophy, and the abstract grammar behind the architecture.
+- [[https://blog.rtshkmr.com/posts/series/songs_of_the_ocaml_compiler/ii/][Part II: Design Pressures]] --- how OCaml's type system, module system, and mutation discipline shaped three key decisions. The most technically involved part. /(publishing soon)/
+- Part III: Retrospectives — honest debt, evolution paths, and what OCaml leaves behind in the way you think. /(planned)/
 
 -----
 
 * Contributing / Feedback
 
-This is a pedagogical project designed to make learning visible. I'm currently gathering feedback to iterate on this. If you have ideas for making it more teachable, clearer, or more engaging — please open an issue or reach out via email [[mailto:hello@rtshkmr.com][hello@rtshkmr]]!
+This is a *teaching artefact first*. If you have ideas for making it clearer, more demonstrative, or more useful as a stepping-stone into real OCaml systems work --- open an issue on [[https://codeberg.org/rtshkmr/ocaml_paxos_simulator/issues/new][Codeberg]] or write to [[mailto:hello@rtshkmr.com][hello@rtshkmr.com]].
 
-The goal isn't /just/ working code; it's code that /teaches/ effectively.
+<details>
+<summary>Shake my hand, sign your email</summary>
+
+    ✅  Ritesh Kumar (hello@rtshkmr.com) 23BBA8476AA5F3FE0D944DD136F1C1A8EE1EB352
+    ✅  Get my key @ <code>gpg --keyserver keys.openpgp.org --search-keys 23BBA8476AA5F3FE0D944DD136F1C1A8EE1EB352</code>
+
+    Reply signed for me to <em>instantly</em> respond!
+    Paste your key so I see your green  ✅  too (<code>gpg --armor --export yourmail@example.com</code>)
+
+</details>
