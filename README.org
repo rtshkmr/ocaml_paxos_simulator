@@ -3,6 +3,31 @@
 #+AUTHOR: Ritesh Kumar
 #+title: 🐫 Paxos in OCaml --- Desert Consensus Simulator
 
+#+BEGIN_CENTER
+This text is perfectly centered.
+It works in Emacs preview, GitHub README.org, and HTML export.
+#+END_CENTER
+
+
+#+BEGIN_EXPORT html
+> [!NOTE]
+> This is a **note** alert.
+> It uses GitHub's Markdown alert styling when rendered.
+#+END_EXPORT
+
+#+BEGIN_EXPORT html
+> [!WARNING]
+> Danger! This is a **warning**.
+> Supports bold, italic, lists, and code too.
+#+END_EXPORT
+
+#+BEGIN_EXPORT html
+> [!TIP]
+> Pro tip: Combine with Org headings for structure.
+#+END_EXPORT
+
+
+
 #+begin_quote
   ℹ /*Mirror Notice*/ ℹ
 
