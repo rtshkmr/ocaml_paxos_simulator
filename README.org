@@ -1,6 +1,13 @@
 #+OPTIONS: toc:nil num:nil
 #+STARTUP: inlineimages
 #+AUTHOR: Ritesh Kumar
+#+title: A Paxos Protocol Simulator in OCaml
+
+#+begin_export md
+> [!NOTE]
+> This repository is hosted on [[https://codeberg.org/rtshkmr/ocaml_paxos_simulator][codeberg]], with a read-mirror on GitHub.
+> PRs & Issues welcome over at codeberg! See you there.
+#+end_export
 
 * 🐫 Paxos in OCaml — Desert Consensus Simulator
 
