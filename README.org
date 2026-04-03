@@ -3,12 +3,11 @@
 #+AUTHOR: Ritesh Kumar
 #+title: A Paxos Protocol Simulator in OCaml
 
-#+begin_export md
-> [!NOTE]
-> This repository is hosted on [[https://codeberg.org/rtshkmr/ocaml_paxos_simulator][codeberg]], with a read-mirror on GitHub.
-> PRs & Issues welcome over at codeberg! See you there.
-#+end_export
-
+#+begin_quote
+  [!NOTE]
+  This repository is hosted on [[https://codeberg.org/rtshkmr/ocaml_paxos_simulator][codeberg]], with a read-mirror on GitHub.
+  PRs & Issues welcome over at codeberg! See you there.
+#+end_quote
 * 🐫 Paxos in OCaml — Desert Consensus Simulator
 
 A deterministic, dependency-free event simulator demonstrating the Paxos consensus protocol through the metaphor of Saharan caravans coordinating across an unreliable desert. Custom scenarios can be built to play around too!
