@@ -2,32 +2,31 @@ open Base
 
 module Types = struct
   type node_id = int [@@deriving sexp, compare, equal, hash, yojson]
-
   type slot = int [@@deriving sexp, compare, equal]
 
-  type proposal_id = {seq: int; node: node_id}
+  type proposal_id = { seq : int; node : node_id }
   [@@deriving sexp, compare, equal, hash, yojson]
 
   let proposal_id_to_string pid =
     pid |> sexp_of_proposal_id |> Sexp.to_string_hum
 
-  let make_proposal_id ~seq ~node = {seq; node}
+  let make_proposal_id ~seq ~node = { seq; node }
 
-  type proposal_id_spec = {seq: int; node: int} [@@deriving sexp, yojson]
+  type proposal_id_spec = { seq : int; node : int } [@@deriving sexp, yojson]
 
-  (** When driving consensus, a node would need to assert their own value first.*)
-  type 'a paxos_assertion_state = {proposal: proposal_id; value: 'a}
+  type 'a paxos_assertion_state = { proposal : proposal_id; value : 'a }
   [@@deriving sexp, compare, equal, yojson]
+  (** When driving consensus, a node would need to assert their own value first.*)
 
-  type 'a assertion_spec = {proposal: proposal_id_spec; value: 'a}
+  type 'a assertion_spec = { proposal : proposal_id_spec; value : 'a }
   [@@deriving sexp, yojson]
 
-  let assertion_of_spec a_of_spec ({proposal; value} : 'b assertion_spec) :
+  let assertion_of_spec a_of_spec ({ proposal; value } : 'b assertion_spec) :
       'a paxos_assertion_state =
-    let {seq; node} = proposal in
+    let { seq; node } = proposal in
     let value = value |> a_of_spec in
     let assertion : 'a paxos_assertion_state =
-      {proposal= make_proposal_id ~seq ~node; value}
+      { proposal = make_proposal_id ~seq ~node; value }
     in
     assertion
 
@@ -51,23 +50,16 @@ module Types = struct
   let topic_to_str topic = topic |> sexp_of_topic |> Sexp.to_string_hum
 
   let topic_of_str = function
-    | "Coordination" ->
-        Some Coordination
-    | "Simulation_control" ->
-        Some Simulation_control
-    | "Gossip" ->
-        Some Gossip
-    | "Metrics" ->
-        Some Metrics
-    | "Time" ->
-        Some Time
-    | _ ->
-        None
+    | "Coordination" -> Some Coordination
+    | "Simulation_control" -> Some Simulation_control
+    | "Gossip" -> Some Gossip
+    | "Metrics" -> Some Metrics
+    | "Time" -> Some Time
+    | _ -> None
 end
 
 module type Has_spec = sig
   type t
-
   type spec [@@deriving sexp, yojson]
 
   val of_spec : spec -> t

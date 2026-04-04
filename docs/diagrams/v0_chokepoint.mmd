@@ -1,0 +1,91 @@
+flowchart TB
+
+    subgraph mutation_boundary ["Functional Core, Imperative Shell"]
+        direction TB
+        proposer_handlers ~~~ acceptor_handlers ~~~ learner_handlers
+
+        %% ============= PURE ZONE: handlers compute substates =============
+        subgraph pure_handlers ["Pure Computation — each handler yields a new substate"]
+            direction TB
+
+            subgraph proposer_handlers ["Proposer handlers"]
+                direction LR
+                h_propose@{shape: subproc, label: "propose"}
+                h_perm_granted@{shape: subproc, label: "handle_permission_granted"}
+                h_accepted@{shape: subproc, label: "handle_accepted"}
+                h_nack@{shape: subproc, label: "handle_nack"}
+
+                style h_propose stroke-width:3px,padding:12px;
+                style h_perm_granted stroke-width:3px,padding:12px;
+                style h_accepted stroke-width:3px,padding:12px;
+                style h_nack stroke-width:3px,padding:12px;
+            end
+
+            subgraph acceptor_handlers ["Acceptor handlers"]
+                direction LR
+                h_perm_req@{shape: subproc, label: "handle_permission_request"}
+                h_suggestion@{shape: subproc, label: "handle_suggestion"}
+
+                style h_perm_req stroke-width:3px,padding:12px;
+                style h_suggestion stroke-width:3px,padding:12px;
+            end
+
+            subgraph learner_handlers ["Learner handler"]
+                direction LR
+                h_decided@{shape: subproc, label: "handle_decided"}
+
+                style h_decided stroke-width:3px,padding:12px;
+            end
+        end
+
+        comment_pure@{shape: braces, label: "No mutation, no IO, no side-effects
+        ⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯
+        Each handler computes a typed substate value
+        and passes it with the matching role_selector"}
+        style comment_pure font-size:30px, stroke-width:5px, padding:12px;
+
+        pure_handlers ~~~ comment_pure
+
+        %% ============= THE CHOKEPOINT =============
+        chokepoint@{shape: dbl-circ, label: "transition_role_state"}
+        style chokepoint font-size:40px, stroke-width:5px, padding:20px;
+
+        h_propose ====> chokepoint
+        h_perm_granted ==> chokepoint
+        h_accepted ==> chokepoint
+        h_nack ==> chokepoint
+        h_perm_req ==> chokepoint
+        h_suggestion ==> chokepoint
+        h_decided ==> chokepoint
+
+        %% ============= EFFECT ZONE: all side-effects here =============
+        subgraph effect_zone ["Effects — all here, nowhere else"]
+            direction LR
+
+            step_1@{shape: notch-rect, label: "State.set_role
+            ⎯⎯⎯⎯⎯⎯
+            Pure immutable
+            state transformation"}
+            step_2@{shape: notch-rect, label: "Logger
+            ⎯⎯⎯⎯⎯⎯
+            Structured
+            state-change event"}
+            step_3@{shape: notch-rect, label: "node.state ←
+            ⎯⎯⎯⎯⎯⎯
+            Single mutable
+            assignment"}
+            step_4@{shape: notch-rect, label: "Storage.persist
+            ⎯⎯⎯⎯⎯⎯
+            Snapshot to
+            storage ref"}
+
+            step_1 ~~~ step_2 ~~~ step_3 ~~~ step_4
+
+            style step_1 font-size:24px, stroke-width:5px;
+            style step_2 font-size:24px, stroke-width:5px;
+            style step_3 font-size:24px, stroke-width:5px;
+            style step_4 font-size:24px, stroke-width:5px;
+        end
+
+        chokepoint ===> effect_zone
+    end

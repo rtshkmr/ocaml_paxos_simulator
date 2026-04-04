@@ -6,7 +6,7 @@ module Value_string : Value.S = struct
 
   let to_string s = s
 
-  type spec = {value: string} [@@deriving sexp, yojson]
+  type spec = { value : string } [@@deriving sexp, yojson]
 
-  let of_spec {value} = value
+  let of_spec { value } = value
 end

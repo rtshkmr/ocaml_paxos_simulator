@@ -1,0 +1,47 @@
+stateDiagram-v2
+    direction TB
+
+    %% ============================================================
+    %% Proposer Sub-State FSM (6 states)
+    %% ============================================================
+    %% Proposer drives the Paxos protocol.
+    %% This is the most complex of the 3 role sub-states.
+    %% ============================================================
+
+    [*] --> Idle
+
+    Idle --> Preparing : propose(value)
+    Preparing --> WaitingForPromises : PermissionRequest dispatched
+
+    WaitingForPromises --> WaitingForPromises : accumulate\nPermissionGranted / Nack
+    WaitingForPromises --> ProposerAccepting : grant quorum reached →\nSuggestion dispatched
+    WaitingForPromises --> Aborted : nack quorum reached
+
+    ProposerAccepting --> ProposerAccepting : accumulate\nAccepted / Nack
+    ProposerAccepting --> Decided : accept quorum reached →\nDecided broadcasted
+
+    Aborted --> Idle : retry policy\n(not in v0)
+
+    %% --- Simulation Control (not protocol-level) ---
+    %% ProposerInactive is entered/exited via simulator Control messages,
+    %% not via Paxos protocol messages.
+    %% This is the state that causes failwith in is_quorum_reached —
+    %% it's structurally in the same sum type but semantically excluded
+    %% from protocol operations.
+
+    Idle --> ProposerInactive : MakeNodeInactive\n[Simulation Control]
+    ProposerInactive --> Idle : ActivateNode\n— restore from Storage\n[Simulation Control]
+
+    note right of ProposerInactive
+        Simulation-level, not protocol-level.
+        Node must recover from Storage to rejoin.
+        ⎯⎯⎯⎯⎯⎯
+        This state is why is_quorum_reached
+        still has a runtime failwith — the type
+        system sees it as a sibling of active states.
+    end note
+
+    note right of Decided
+        Terminal state for this round.
+        Simple Paxos: one round, one decision.
+    end note

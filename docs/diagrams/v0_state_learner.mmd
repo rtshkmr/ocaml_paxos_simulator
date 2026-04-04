@@ -1,0 +1,20 @@
+stateDiagram-v2
+    direction LR
+
+    %% ============================================================
+    %% Learner Sub-State FSM (trivial)
+    %% ============================================================
+    %% Learner is a passive observer — accumulates decided assertions.
+    %% No Inactive state. No protocol-driving logic.
+    %% ============================================================
+
+    [*] --> Learned_empty : Learned []
+
+    Learned_empty --> Learned_values : Decided msg received
+    Learned_values --> Learned_values : additional Decided msgs
+
+    note right of Learned_values
+        Accumulates assertion list.
+        No Inactive state — learners are
+        passive and don't need recovery.
+    end note

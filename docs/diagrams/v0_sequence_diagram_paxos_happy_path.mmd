@@ -1,0 +1,95 @@
+%%{init: {'themeVariables': {'fontSize': '24px'}, 'sequence': {'mirrorActors': true, 'messageAlign': 'center', 'noteAlign': 'left'}}}%%
+sequenceDiagram
+    autonumber
+    %% ============================================================
+    %% Paxos Happy-Path: One Round of Consensus (3-node cluster)
+    %% ============================================================
+    %% Context: All 3 nodes wear all 3 hats (Proposer, Acceptor, Learner)
+    %% simultaneously. Node A initiates. Msgs pass through Bus (abstracted).
+    %% ============================================================
+
+    participant A as Node A<br/>(initiates as Proposer)
+    participant B as Node B<br/>(Acceptor + Learner)
+    participant C as Node C<br/>(Acceptor + Learner)
+
+    note over A, C: Each node maintains all 3 sub-states (Proposer, Acceptor, Learner) independently.<br/><br/> For each sub-state, all state transitions persist a snapshot to Storage.
+    note over A: Initial Proposer state: Idle
+    %% note over A: Initial Proposer state: Idle<br/><br/>Every state transition persists a snapshot to Storage.
+
+    %% ═══════════════════════════════════════
+    %% PHASE 1 — Permission / Prepare
+    %% ═══════════════════════════════════════
+
+    rect rgba(100, 150, 255, 0.08)
+        note left of A: Phase 1: Prepare
+        note over A: Node A changes its Proposer state <br/> on sending the first prepare msg from <br/>Idle → Preparing → WaitingForPromises
+
+        par Broadcast PermissionRequest
+            A ->>+ B: PermissionRequest(proposal, value)
+        and
+            A ->>+ C: PermissionRequest(proposal, value)
+        and Self-loopback
+            A ->>+ A: PermissionRequest(proposal, value)
+            note right of A: Loopback keeps actor semantics<br/> consistent & clean
+        end
+
+        note over A, C: Each Acceptor independently checks permissibility:<br/>is this proposal higher than any prior promise?
+
+        par Responses arrive asynchronously
+            B -->>- A: PermissionGranted(last_accepted_b)
+        and
+            C -->>- A: PermissionGranted(last_accepted_c)
+        and
+            A -->>- A: PermissionGranted(last_accepted_a)
+        end
+
+        note over A: Quorum reached (at least 2 of 3 acceptors).<br/>Pick value: from highest-proposal-id promise,<br/>or own value if all promises are None.
+    end
+
+    %% ═══════════════════════════════════════
+    %% PHASE 2 — Accept
+    %% ═══════════════════════════════════════
+
+    rect rgba(100, 200, 100, 0.08)
+        note left of A: Phase 2: Accept
+        note over A: On quorum reached from Phase 1,<br/> Node A changes state again <br/>WaitingForPromises → ProposerAccepting
+
+        par Broadcast Suggestion
+            A ->>+ B: Suggestion(proposal, chosen_value)
+        and
+            A ->>+ C: Suggestion(proposal, chosen_value)
+        and Self-loopback
+            A ->>+ A: Suggestion(proposal, chosen_value)
+        end
+
+        note over A, C: Each Acceptor checks: proposal ≥ promised?<br/>Accept and record value.
+
+        par Responses arrive asynchronously
+            B -->>- A: Accepted(proposal, value)
+        and
+            C -->>- A: Accepted(proposal, value)
+        and
+            A -->>- A: Accepted(proposal, value)
+        end
+
+        note over A: Quorum of acceptances reached.
+    end
+
+    %% ═══════════════════════════════════════
+    %% RESOLUTION — Decided
+    %% ═══════════════════════════════════════
+
+    rect rgba(255, 200, 80, 0.08)
+        note left of A: Resolution <br/> to be broadcasted
+        note over A: ProposerAccepting → Decided(value)
+
+        par Broadcast Decided
+            A ->> B: Decided(value)
+        and
+            A ->> C: Decided(value)
+        and
+            A ->> A: Decided(value)
+        end
+
+        note over A,C: All nodes learn the decided value.<br/>Consensus achieved for this round.
+    end

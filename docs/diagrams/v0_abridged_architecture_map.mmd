@@ -1,0 +1,193 @@
+%%{init: {'themeVariables': {'fontSize': '24px'}, 'flowchart': {'curve': 'monotoneY'}}}%%
+%%{elk: {'elk.spacing.nodeNode': 2, 'elk.layered.spacing.nodeNodeBetweenLayers': 2, 'elk.padding': '[top=2,left=2,bottom=20,right=2]'}}%%
+flowchart TB
+    %% =====================================================================
+    %% ABRIDGED ARCHITECTURE MAP
+    %% =====================================================================
+    %% This is the "pulled-back camera" version of the detailed map.
+    %% Same orientation (TB), same shape language, same subgraph labels.
+    %% What's removed: internal module details, comment annotations,
+    %%   individual event/message variants, partition internals.
+    %% What's preserved: layer boundaries, key entities per layer,
+    %%   and the full functor composition spine (the structural story
+    %%   that Pressure 1 will explain).
+    %% SHAPE LEGEND (same as detailed version):
+    %%   dbl-circ  = runtime instance
+    %%   trap-b    = functor (compile-time DI)
+    %%   odd       = signature / interface
+    %%   notch-pent = component / primitive
+    %%   hex       = bus (communication medium)
+    %%   subproc   = user-facing entry point
+    %% =====================================================================
+
+    %%------------ layer 1 : user_facing ---------------
+    %% The surfaces a user interacts with: CLI args, JSON config,
+    %% terminal REPL, and domain-specific log output.
+    subgraph user_facing ["User-facing Controllables"]
+       direction LR
+       cli ~~~~~~ config ~~~~~~ ui ~~~~~~ logging
+
+       cli@{ shape: subproc, label: "CLI" }
+       config@{ shape: subproc, label: "Config" }
+       ui@{shape: subproc, label: "UI" }
+       logging@{shape: subproc, label: "Logging" }
+
+       style cli stroke-width:3px,padding:12px;
+       style config stroke-width:3px,padding:12px;
+       style ui stroke-width:3px,padding:12px;
+       style logging stroke-width:3px,padding:12px;
+    end
+
+    user_facing =="configures and controls"===> simulation_engine
+
+
+    %%------------- layer 2 : simulation_engine -----------
+    %% The runtime loop: logical time, event scheduling,
+    %% node communication, and message-passing semantics.
+    subgraph simulation_engine ["Simulation Engine"]
+        direction TB
+
+        %% -- 2.1: Runtime core --
+        subgraph runtime_elements ["Runtime"]
+            direction LR
+            simulator --> clock & scheduler & registries
+
+            simulator@{ shape: dbl-circ, label: "Simulator"}
+            style simulator font-size:50px,stroke-width:5px,padding:12px;
+            clock@{shape: notch-pent, label: "Clock"}
+            scheduler@{shape: notch-pent, label: "Scheduler"}
+            registries@{shape: notch-pent, label: "Registries"}
+
+            style clock stroke-width: 3px;
+            style scheduler stroke-width: 3px;
+            style registries stroke-width: 3px;
+        end
+
+        runtime_elements --"produces"--> sim_events
+
+        %% -- 2.2: Simulation events (collapsed) --
+        sim_events@{shape: processes, label: "Simulation Events
+        ⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯
+        JSON specs hydrated into runtime thunks
+        ⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯
+        Dispatched by Scheduler at each tick"}
+        style sim_events font-size:24px, stroke-width:5px;
+
+        sim_events =="drive node communication"==> communication
+
+        %% -- 2.3: Communication (collapsed) --
+        subgraph communication ["Communication Layer"]
+            direction LR
+
+            ex_node_a@{ shape: dbl-circ, label: "Node"}
+            ex_node_b@{ shape: dbl-circ, label: "Node"}
+            partition_bus@{ shape: hex, label: "Bus
+            ⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯
+            Topic-based pub-sub
+            within a partition"}
+
+            ex_node_a <-->|"msg passing"| partition_bus
+            ex_node_b <-->|"msg passing"| partition_bus
+
+            style ex_node_a stroke-width:3px;
+            style ex_node_b stroke-width:3px;
+            style partition_bus stroke-width:5px;
+        end
+
+        communication ==> messages
+
+        %% -- 2.4: Message types (collapsed) --
+        messages@{shape: odd, label: "Messages (polymorphic in 'v)
+        ⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯
+        Coordination (Paxos protocol)
+        Control (Simulator harness)
+        Time (Heartbeats)"}
+        style messages stroke-width:3px,padding:12px;
+    end
+
+    simulation_engine =="manages Nodes"=====> layer_combined_node
+
+
+    %% ----- layer 3: what a node contains -----
+    %% Intermediate view: a Node is composed of State + Bus + Storage.
+    %% This layer bridges the "what" (above) and the "how" (below).
+    subgraph layer_combined_node ["What a Node Contains"]
+        direction LR
+        const_state ~~~ inst_node_combined ~~~ const_bus ~~~ const_storage
+
+        inst_node_combined@{ shape: dbl-circ, label: "Node"}
+        style inst_node_combined font-size:80px,stroke-width:5px,padding:12px;
+
+        inst_node_combined --->|has its own| const_state
+        inst_node_combined -->|communicates via| const_bus
+        inst_node_combined -->|persists to| const_storage
+
+        const_state@{shape: notch-pent, label: "State"}
+        const_bus@{shape: notch-pent, label: "Bus"}
+        const_storage@{shape: notch-pent, label: "Storage"}
+
+        style const_state stroke-width: 3px;
+        style const_bus stroke-width: 3px;
+        style const_storage stroke-width: 3px;
+    end
+    style layer_combined_node fill:none, stroke:none
+
+
+    %% ----- layer 4: functor composition -----
+    %% This is the architectural spine: how primitives compose
+    %% into a full Node via functor application.
+    %% Kept at higher detail than other layers because
+    %% this is the structure that Pressure 1 (Functors) explains.
+    subgraph layer_primitive ["How Modules Compose — Functor Chain"]
+        direction BT
+
+        %% -- primitives --
+        inst_value@{ shape: dbl-circ, label: "Value"}
+        style inst_value font-size:40px, stroke-width:5px,padding:12px;
+
+        inst_node_bus@{ shape: dbl-circ, label: "Bus"}
+        style inst_node_bus font-size:40px, stroke-width:5px,padding:20px;
+
+        %% -- functor: Value → State --
+        func_make_node_state@{ shape: trap-b, label: "«functor»
+        Make_node_state
+        "}
+        style func_make_node_state stroke-width:5px,padding:12px;
+
+        inst_node_state@{ shape: dbl-circ, label: "State"}
+        style inst_node_state font-size:40px, stroke-width:5px,padding:12px;
+
+        inst_value ==> func_make_node_state ====> inst_node_state
+
+        %% -- functor: State → Storage --
+        func_make_storage@{ shape: trap-b, label: "«functor»
+        Make_storage
+        "}
+        style func_make_storage stroke-width:5px,padding:12px;
+
+        inst_node_storage@{ shape: dbl-circ, label: "Storage"}
+        style inst_node_storage font-size:40px, stroke-width:5px,padding:12px;
+
+        inst_node_state ==> func_make_storage ===> inst_node_storage
+
+        %% -- functor: Value + Bus → Node --
+        func_make_node@{ shape: trap-b, label: "«functor»
+        Make_node
+        ⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯
+        Value + Bus → full Node
+        "}
+        style func_make_node stroke-width:5px,padding:12px;
+
+        inst_node_node@{ shape: dbl-circ, label: "Node"}
+        style inst_node_node font-size:40px, stroke-width:5px,padding:20px;
+
+        inst_value ======> func_make_node
+        inst_node_bus ====> func_make_node
+        func_make_node ==> inst_node_node
+
+        %% -- internal dependencies flow into Node --
+        inst_node_storage ---> inst_node_node
+        inst_node_state -----> inst_node_node
+
+    end
+    layer_combined_node <==> layer_primitive

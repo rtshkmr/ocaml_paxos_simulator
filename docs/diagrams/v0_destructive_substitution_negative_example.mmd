@@ -1,0 +1,50 @@
+flowchart TB
+
+    %% ======= ORIGINAL INTENT: layered functors =======
+    comment_intent@{shape: braces, label: "Intent: clean dependency layering
+    ⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯
+    Value → Acceptor_record → Node_state"}
+
+    val@{ shape: dbl-circ, label: "Value
+    (V)" }
+    style val stroke-width:5px;
+
+    f_acceptor@{ shape: trap-t, label: "«functor»
+    Make_acceptor_record(V)
+    ⎯⎯⎯⎯⎯⎯⎯
+    depends on Value" }
+    style f_acceptor stroke-width:5px,padding:12px;
+
+    comment_erase@{shape: braces, label: "⚠️ REALITY:
+    ⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯
+    Destructive substitution (`:=`)
+    erases V from output signature
+    ⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯
+    Fix: If `=` were used → A.V exists"}
+
+    ar@{ shape: dbl-circ, label: "Acceptor_record
+    (A)" }
+    style ar stroke-width:5px;
+
+
+    f_state@{ shape: trap-t, label: "«functor»
+    Make_node_state(A)
+    ⎯⎯⎯⎯⎯⎯⎯
+    depends on Acceptor_record" }
+    style f_state stroke-width:5px,padding:12px;
+
+
+    state@{ shape: dbl-circ, label: "Node_state
+    (NS)" }
+    style state stroke-width:5px;
+
+    val ==>|injected into| f_acceptor ==>|produces module constrained by signature| ar ==>|injected into| f_state ==>|concretises| state
+
+    f_acceptor ~~~ comment_erase
+
+    style comment_intent stroke-width:5px,padding:12px;
+    style comment_erase stroke-width:3px,padding:12px;
+
+    state -...->|"Attempt: NS tries to access A.V
+    ⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯
+    ⛔️ A.V doesn't exist (path erased)"|ar

@@ -1,0 +1,38 @@
+stateDiagram-v2
+    direction TB
+    [*] --> idle
+
+    %% -- simulation layer --
+    idle --> ai  : DeactivateNode
+    ai   --> idle : ActivateNode
+
+    %% -- protocol --
+    idle     --> accepting : on receiving the first valid PermissionRequest
+    accepting --> accepting : update promise / accepted on each subsequent valid request
+
+    note right of ai
+        Simulation layer only, not protocol-level.
+        ⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯
+        Same sibling-type pattern as
+        ProposerInactive — the type system
+        sees Idle, Accepting, and AcceptorInactive
+        as equal peers in the same sum type.
+    end note
+
+    note left of accepting
+        Tracks two values:
+        · promised — highest proposal seen
+        · accepted — last value accepted
+        ⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯
+        Both in record called "acceptor_record".
+    end note
+
+    state "Idle"             as idle
+    state "Accepting"        as accepting
+    state "Acceptor Inactive" as ai
+
+    classDef simLayer   fill:#3B82F6,stroke:#1D4ED8,color:#fff,font-style:italic,stroke-width:2px
+    classDef quorumGate fill:#F59E0B,stroke:#B45309,color:#1a1a1a,stroke-width:2px
+
+    class idle simLayer
+    class ai   simLayer
