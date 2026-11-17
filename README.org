@@ -4,9 +4,9 @@
 #+title: 🐫 Paxos in OCaml — Desert Consensus Simulator
 
 
-This repository contains the code for [[https://blog.rtshkmr.com/posts/series/songs_of_the_ocaml_compiler/][Songs of the OCaml Compiler]] — a blog series on learning OCaml by building something real.
+This repository contains the code for  [[https://blog.rtshkmr.com/posts/series/songs_of_the_ocaml_compiler/?utm_source=repo&utm_medium=repo_hosting&utm_campaign=songs_of_the_ocaml_compiler&utm_term=didactic_repo&utm_content=blog_series_section_in_readme][Songs of the OCaml Compiler]]  — a blog series on learning OCaml by building something real.
 
-The artefact is a deterministic event simulator for the Paxos consensus protocol, set in the Sahara: five caravans — /Aghilas, Taziri, Amastan, Itri, and Tassadit/ — must agree on a campsite despite sandstorms, collapsed messengers, and uncertain paths across the dunes.
+It's a deterministic, replayable simulator of *single-decree Paxos* under node crashes and network partitions, written in OCaml. Set in the Sahara Desert: five caravans — /Aghilas, Taziri, Amastan, Itri, and Tassadit/ — must agree on a campsite despite sandstorms, collapsed messengers, and uncertain paths across the dunes.
 
 The simulation engine is deliberately hand-rolled --- no networking layer, no async runtime --- which keeps every subsystem legible and opens a natural path for future iterations to incrementally introduce real dependencies, turning the simulator into something closer to a usable Paxos-adjacent toolkit.
 
@@ -18,7 +18,7 @@ Custom scenarios can be scripted via JSON.
 
 [[file:docs/pictures/complete_run_v2.gif]]
 
-*Read the full story:* [[https://blog.rtshkmr.com/posts/series/songs_of_the_ocaml_compiler/][Songs of the OCaml Compiler]]
+*Read the full story:* [[https://blog.rtshkmr.com/posts/series/songs_of_the_ocaml_compiler/?utm_source=repo&utm_medium=repo_hosting&utm_campaign=songs_of_the_ocaml_compiler&utm_term=didactic_repo&utm_content=blog_series_section_in_readme][Songs of the OCaml Compiler]]
 
 #+begin_quote
   ℹ /*Mirror Notice*/
@@ -89,15 +89,79 @@ The five caravans must agree on which campsite to head to. A messenger from Tass
 
 The hand-rolled design is intentional: because there is no framework absorbing the interesting decisions, every subsystem --- the event bus, the logical-time engine, the role state machine --- is a legible teaching surface. Future iterations can introduce real networking, persistence, or multi-decree extensions incrementally, and each step will have something to show for itself.
 
+** Scope of v0 (tag =v0-simple-paxos=)
+
+| To keep the safety argument small enough to trace by hand, v0 leaves some things out on purpose:                  |
+|-------------------------------------------------------------------------------------------------------------------|
+| *One decision*, not a replicated log.                                                                               |
+| *No leader and no failure detection.* Any node may propose, and there are no timeouts.                              |
+| *Crash-recovery without reconciliation.* A recovering node keeps its state, but nothing brings laggards up to date. |
+| *Modelled concurrency.* Concurrency is an interleaving of events on a single-threaded loop.                         |
+
 -----
+
+
+* Invariants Asserted
+
+The tests live in [[file:paxos/test/][paxos/test/]] in three suites:
+
+| Suite          | Level                                 | Covers                                                 |
+|----------------+---------------------------------------+--------------------------------------------------------|
+| [[file:paxos/test/test_quorum.ml][test_quorum.ml]] | pure functions, no simulator          | quorum arithmetic, proposal ordering, value adoption   |
+| [[file:paxos/test/test_fsm.ml][test_fsm.ml]]    | role state machines, no simulator     | legal transitions, role isolation, every runtime guard |
+| [[file:paxos/test/test_e2e.ml][test_e2e.ml]]    | headless simulator, full message loop | fault scenarios run to completion                      |
+
+
+Run the tests with =make test=.
+
+** Protocol Properties Tested
+
+| Property                                                                                                                                                                                                                                                                                                                                           | How it's checked                                                                                                                                                                       |
+|----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| *Agreement*: every node that learns a value learns the same one.                                                                                                                                                                                                                                                                                     | Via e2e, in each scenario that reaches a decision: a healthy cluster, a 2+1 partition, and a crash followed by recovery under a new proposer.                                          |
+| *Validity*: the value learned is the value that was proposed, pinned exactly in the same three scenarios.                                                                                                                                                                                                                                            | In the recovery scenario, the first proposal never reached quorum, and the cluster learns the second proposer's value.                                                                 |
+| *No decision without a majority*: with 2 of 3 nodes crashed, nothing is decided.                                                                                                                                                                                                                                                                     | In a partition, the minority node stays pending while the majority side decides.                                                                                                       |
+| *Quorum threshold*: a quorum is ⌊n/2⌋+1 in both phases (majority quorum rule).                                                                                                                                                                                                                                                                       | Checked for n = 3 and n = 5, and a majority of nacks ends the round.                                                                                                                   |
+| *Promise ordering*: an acceptor grants phase 1 only to proposal ids ≥ its current promise, and accepts in phase 2 under the same rule.                                                                                                                                                                                                               | Proposal ids are totally ordered over =(seq, node_id)=. The tests cover the node-id tiebreak and the exact boundary (one below the promise is rejected, the promise itself is accepted). |
+| *Value adoption*: once phase 1 reaches quorum, the proposer must carry forward the value of the highest-numbered prior acceptance it hears about. It may use its own value only if no acceptor reports one. The choice does not depend on the order in which promises arrive. This rule is what stops a later round from choosing a different value. | Tested with competing prior acceptances, at the unit level only.                                                                                                                       |
+
+
+** State-machine Properties Tested
+- Writing one role's sub-state through the =role_selector= GADT leaves the other two roles untouched.
+- Every runtime guard in the state-machine layer has a test proving that it fires on illegal input: =is_quorum_reached= on an =Idle=, =Preparing=, =Decided= or =ProposerInactive= proposer, and the promise accessors on an =AcceptorInactive= acceptor. These guards are the known debt discussed in [[https://blog.rtshkmr.com/posts/series/songs_of_the_ocaml_compiler/ii/?utm_source=repo&utm_medium=repo_hosting&utm_campaign=songs_of_the_ocaml_compiler&utm_term=didactic_repo&utm_content=blog_series_section_in_readme#fsm_invariants][Part II]]. The header of =test_fsm.ml= lists them.
+- A node that is deactivated and reactivated still keeps what it has learned.
+
+**  Pending Testing Objectives
+- *At most one value chosen, across competing proposers.* No end-to-end scenario has two proposers racing. This guarantee is tested only through its mechanism (value adoption and promise ordering) at the unit level.
+- The scenarios are fixed and hand-written, all on 3-node clusters. There is no randomised or property-based exploration of event orderings yet.
+- The guards in =node.ml= (=propose=, =announce_decision=, and the dispatch catch-alls) run inside the end-to-end tests, but no test checks directly that they fire.
+
+
+-----
+
 
 * The Blog Series
 
-The code is the artefact; the blog is the argument for why it's shaped the way it is.
+The blog outlines how the code was shaped by design pressures and also elaborates on the conceptual background of all this within its addendum.
 
-- [[https://blog.rtshkmr.com/posts/series/songs_of_the_ocaml_compiler/i/][Part I: A Proxy Project]] --- didactic motivations, design philosophy, and the abstract grammar behind the architecture.
-- [[https://blog.rtshkmr.com/posts/series/songs_of_the_ocaml_compiler/ii/][Part II: Design Pressures]] --- how OCaml's type system, module system, and mutation discipline shaped three key decisions. The most technically involved part. /(publishing soon)/
-- Part III: Retrospectives — honest debt, evolution paths, and what OCaml leaves behind in the way you think. /(planned)/
+|                            |                                                                                                                                                                                                                                                                                                   |
+|----------------------------+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| [[https://blog.rtshkmr.com/posts/series/songs_of_the_ocaml_compiler/?utm_source=repo&utm_medium=repo_hosting&utm_campaign=songs_of_the_ocaml_compiler&utm_term=didactic_repo&utm_content=blog_series_section_in_readme][Cover Post]]                 | Overview, motivations and also suggests [[https://blog.rtshkmr.com/posts/series/songs_of_the_ocaml_compiler/?utm_source=repo&utm_medium=repo_hosting&utm_campaign=songs_of_the_ocaml_compiler&utm_term=didactic_repo&utm_content=blog_series_section_in_readme#different-strokes-different-folks][reading paths for different readers]].                                                                                                                                                                                                                      |
+| [[https://blog.rtshkmr.com/posts/series/songs_of_the_ocaml_compiler/i/?utm_source=repo&utm_medium=repo_hosting&utm_campaign=songs_of_the_ocaml_compiler&utm_term=didactic_repo&utm_content=blog_series_section_in_readme][Part I: A Proxy Project]]    | Didactic motivations, the narrative backdrop, and the abstract design grammar behind the architecture. Has no code.                                                                                                                                                                               |
+| [[https://blog.rtshkmr.com/posts/series/songs_of_the_ocaml_compiler/ii/?utm_source=repo&utm_medium=repo_hosting&utm_campaign=songs_of_the_ocaml_compiler&utm_term=didactic_repo&utm_content=blog_series_section_in_readme][Part II: A Design Tour]]     | The architecture map, then three places where the compiler shaped the design: functor-based dependency injection, state-machine invariants (to GADT or not to GADT), and an emergent mutation boundary. Maybe the most technically involved part.                                                 |
+| Part III                   | Currently drafting: evolution paths, an honest debt ledger, and what OCaml leaves behind in the way we think.                                                                                                                                                                                     |
+| [[https://blog.rtshkmr.com/posts/series/songs_of_the_ocaml_compiler/addendum/?utm_source=repo&utm_medium=repo_hosting&utm_campaign=songs_of_the_ocaml_compiler&utm_term=didactic_repo&utm_content=blog_series_section_in_readme][Addendum: Consensus & More]] | Quorums as intersecting sets, the Paxos variants as knob settings on this v0, and my reading list. It's pretty standalone. Its closing section, [[https://blog.rtshkmr.com/posts/series/songs_of_the_ocaml_compiler/addendum/?utm_source=repo&utm_medium=repo_hosting&utm_campaign=songs_of_the_ocaml_compiler&utm_term=didactic_repo&utm_content=blog_series_section_in_readme#generalised_consensus_keystone][A Conceptual Keystone: Why Revocation Is a Primitive]], rereads v0 through Sugu Sougoumarane and the Multigres team's /Generalized Consensus/ series. |
+
+
+-----
+
+* What's Next?
+
+The evolution paths are written up in the series; this README only points to them for now. Hopefully in the future I'll be able to show the progression to all the others and let the language constructs (be it in OCaml or something else) show a well-crafted codebase being easily evolvable:
+
+- *Paxos variants* (Multi-Paxos, Flexible Paxos, Fast Paxos, EPaxos, and how Raft compares), each as one knob turned on this v0: [[https://blog.rtshkmr.com/posts/series/songs_of_the_ocaml_compiler/addendum/?utm_source=repo&utm_medium=repo_hosting&utm_campaign=songs_of_the_ocaml_compiler&utm_term=didactic_repo&utm_content=blog_series_section_in_readme#knobs_in_a_design_space][The Knob Table]].
+- *What v1 has to change first*: quorums typed as sets of nodes rather than counts: [[https://blog.rtshkmr.com/posts/series/songs_of_the_ocaml_compiler/addendum/?utm_source=repo&utm_medium=repo_hosting&utm_campaign=songs_of_the_ocaml_compiler&utm_term=didactic_repo&utm_content=blog_series_section_in_readme#looking-forward][Looking Forward]].
+- *Removing the runtime guards* with typed GADT views over the serialisable state: [[https://blog.rtshkmr.com/posts/series/songs_of_the_ocaml_compiler/ii/?utm_source=repo&utm_medium=repo_hosting&utm_campaign=songs_of_the_ocaml_compiler&utm_term=didactic_repo&utm_content=blog_series_section_in_readme#fsm_invariants][Part II, the serialisation wall]].
 
 -----
 
